@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>초성 변환기</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: #111827;
+    font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", sans-serif;
+  }
+  body {
+    display: flex; flex-direction: column;
+    padding: 20px;
+    padding-top: max(20px, env(safe-area-inset-top));
+    padding-bottom: max(20px, env(safe-area-inset-bottom));
+  }
+  h1 {
+    color: #fff;
+    font-size: 24px;
+    text-align: center;
+    margin: 8px 0 20px;
+    letter-spacing: -0.5px;
+  }
+  .card {
+    background: #1f2937;
+    border-radius: 20px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+  }
+  label {
+    color: #9ca3af;
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+  textarea {
+    width: 100%;
+    flex: 1;
+    min-height: 140px;
+    font-size: 20px;
+    line-height: 1.5;
+    padding: 16px;
+    border-radius: 14px;
+    border: none;
+    background: #111827;
+    color: #fff;
+    resize: none;
+    outline: none;
+  }
+  textarea::placeholder { color: #4b5563; }
+
+  .divider { height: 20px; }
+
+  .output-wrap {
+    flex: 1;
+    min-height: 140px;
+    background: #111827;
+    border-radius: 14px;
+    padding: 16px;
+    overflow-y: auto;
+  }
+  .output {
+    color: #34d399;
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    white-space: pre-wrap;
+    word-break: break-all;
+    line-height: 1.6;
+  }
+  .btn-row {
+    display: flex;
+    gap: 10px;
+    margin-top: 16px;
+  }
+  button {
+    flex: 1;
+    padding: 16px;
+    font-size: 17px;
+    font-weight: 700;
+    border: none;
+    border-radius: 14px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #copyBtn {
+    background: #34d399;
+    color: #111827;
+  }
+  #copyBtn:active { background: #10b981; }
+  #clearBtn {
+    background: #374151;
+    color: #d1d5db;
+  }
+  #clearBtn:active { background: #4b5563; }
+  .toast {
+    position: fixed;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: #34d399;
+    color: #111827;
+    padding: 12px 24px;
+    border-radius: 30px;
+    font-weight: 700;
+    font-size: 15px;
+    opacity: 0;
+    transition: all 0.25s ease;
+    pointer-events: none;
+  }
+  .toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+</style>
+</head>
+<body>
+<h1>초성 변환기</h1>
+<div class="card">
+  <label>입력</label>
+  <textarea id="input" placeholder="여기에 텍스트를 입력하세요..." autofocus></textarea>
+
+  <div class="divider"></div>
+
+  <label>결과</label>
+  <div class="output-wrap">
+    <div class="output" id="output"></div>
+  </div>
+
+  <div class="btn-row">
+    <button id="clearBtn">지우기</button>
+    <button id="copyBtn">복사하기</button>
+  </div>
+</div>
+
+<div class="toast" id="toast">복사 완료!</div>
+
+<script>
+const CHO = ["ㄱ","ㄲ","ㄴ","ㄷ","ㄸ","ㄹ","ㅁ","ㅂ","ㅃ","ㅅ","ㅆ","ㅇ","ㅈ","ㅉ","ㅊ","ㅋ","ㅌ","ㅍ","ㅎ"];
+
+function toChosung(text) {
+  let result = "";
+  for (const ch of text) {
+    const code = ch.charCodeAt(0);
+    if (code >= 0xAC00 && code <= 0xD7A3) {
+      const idx = Math.floor((code - 0xAC00) / 588);
+      result += CHO[idx];
+    } else {
+      result += ch;
+    }
+  }
+  return result;
+}
+
+const inputEl = document.getElementById('input');
+const outputEl = document.getElementById('output');
+const toastEl = document.getElementById('toast');
+
+inputEl.addEventListener('input', () => {
+  outputEl.textContent = toChosung(inputEl.value);
+});
+
+document.getElementById('clearBtn').addEventListener('click', () => {
+  inputEl.value = '';
+  outputEl.textContent = '';
+  inputEl.focus();
+});
+
+document.getElementById('copyBtn').addEventListener('click', () => {
+  if (!outputEl.textContent) return;
+  navigator.clipboard.writeText(outputEl.textContent).then(() => {
+    toastEl.classList.add('show');
+    setTimeout(() => toastEl.classList.remove('show'), 1200);
+  });
+});
+</script>
+</body>
+</html>
