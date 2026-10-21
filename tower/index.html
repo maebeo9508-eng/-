@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#2b2350">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>몽글타워</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 rx=%2224%22 fill=%22%232b2350%22/><text x=%2250%22 y=%2270%22 font-size=%2260%22 text-anchor=%22middle%22>🐱</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Jua&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<!-- 타이틀 -->
+<div id="title" class="screen">
+  <div class="logo">
+    <div class="logo-sub">잠들지 않는 고양이와 백 층의 꿈</div>
+    <h1>몽글<span>타워</span></h1>
+  </div>
+  <button class="btn big pulse" data-act="titleStart">터치해서 시작</button>
+  <div class="title-foot">탑다운 로그라이크 · 100층 + 끝없는 탑</div>
+</div>
+
+<!-- 마을(야영지) -->
+<div id="camp" class="screen hidden">
+  <header class="camp-top">
+    <div class="res">
+      <span class="chip" title="골드">🪙 <b id="resGold">0</b></span>
+      <span class="chip" title="보석">💎 <b id="resGems">0</b></span>
+      <span class="chip" title="별조각">⭐ <b id="resShards">0</b></span>
+    </div>
+    <div class="top-btns">
+      <button class="icon-btn" data-act="openStory" aria-label="이야기">📖</button>
+      <button class="icon-btn" data-act="openDex" aria-label="도감">📚</button>
+      <button class="icon-btn" data-act="openSettings" aria-label="설정">⚙️</button>
+    </div>
+  </header>
+  <div class="camp-scene" id="campScene"></div>
+  <section class="panel" id="panel">
+    <div class="panel-body" id="panelBody"></div>
+  </section>
+  <nav class="tabs" id="tabs">
+    <button data-act="tab" data-tab="climb" class="on"><i>🏰</i>출발</button>
+    <button data-act="tab" data-tab="gear"><i>🎒</i>장비</button>
+    <button data-act="tab" data-tab="grow"><i>✨</i>성장</button>
+    <button data-act="tab" data-tab="friends"><i>🐾</i>친구</button>
+    <button data-act="tab" data-tab="shop"><i>🛒</i>상점</button>
+  </nav>
+</div>
+
+<!-- 탑 안 HUD -->
+<div id="hud" class="hidden">
+  <div class="hud-top">
+    <div class="hp"><div class="fill" id="hpFill"></div><div class="txt" id="hpTxt"></div></div>
+    <div class="chip floor" id="hudFloor">1층</div>
+    <div class="chip" id="hudGold">🪙 0</div>
+    <button class="icon-btn" data-act="pause" aria-label="일시정지">⏸</button>
+  </div>
+  <div class="exp"><div class="fill" id="expFill"></div><span id="hudLv">Lv 1</span></div>
+  <div class="bossbar hidden" id="bossBar"><div class="name" id="bossName"></div><div class="bar"><div class="fill" id="bossFill"></div></div></div>
+  <div class="hud-left" id="hudAbilities"></div>
+  <div class="hud-btns">
+    <button class="act" id="btnSkill0" data-hud="skill0"><span class="ic"></span><span class="cd"></span></button>
+    <button class="act" id="btnSkill1" data-hud="skill1"><span class="ic"></span><span class="cd"></span></button>
+    <button class="act potion" id="btnPotion" data-hud="potion"><span class="ic">🧪</span><span class="cnt" id="potionCnt">3</span></button>
+    <button class="act dash" id="btnDash" data-hud="dash"><span class="ic">💨</span><span class="cd"></span></button>
+  </div>
+</div>
+
+<div id="dialogue" class="hidden">
+  <div class="dlg-box">
+    <img class="dlg-face" id="dlgFace" alt="">
+    <div class="dlg-main">
+      <div class="dlg-name" id="dlgName"></div>
+      <div class="dlg-text" id="dlgText"></div>
+    </div>
+    <div class="dlg-next">▼</div>
+  </div>
+</div>
+<div id="modal" class="hidden"><div class="modal-card" id="modalCard"></div></div>
+<div id="toasts"></div>
+<div id="fade"></div>
+
+<script src="assets/manifest.js"></script>
+<script src="js/core/util.js"></script>
+<script src="js/core/save.js"></script>
+<script src="js/core/audio.js"></script>
+<script src="js/core/input.js"></script>
+<script src="js/core/assets.js"></script>
+<script src="js/render/art.js"></script>
+<script src="js/render/fx.js"></script>
+<script src="js/data/stages.js"></script>
+<script src="js/data/monsters.js"></script>
+<script src="js/data/items.js"></script>
+<script src="js/data/runes.js"></script>
+<script src="js/data/skills.js"></script>
+<script src="js/data/allies.js"></script>
+<script src="js/data/story.js"></script>
+<script src="js/data/novel.js"></script>
+<script src="js/game/loot.js"></script>
+<script src="js/game/stats.js"></script>
+<script src="js/game/world.js"></script>
+<script src="js/game/combat.js"></script>
+<script src="js/game/ai.js"></script>
+<script src="js/game/bosses.js"></script>
+<script src="js/game/allies.js"></script>
+<script src="js/game/player.js"></script>
+<script src="js/game/run.js"></script>
+<script src="js/render/scene.js"></script>
+<script src="js/ui/ui.js"></script>
+<script src="js/ui/hud.js"></script>
+<script src="js/ui/camp.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
