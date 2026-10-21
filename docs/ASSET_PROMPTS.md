@@ -106,6 +106,7 @@ window.ASSET_MANIFEST = {
 ```
 
 > 애니메이션이 하나만 있어도 됩니다. `walk` 만 넣으면 idle·hurt 때도 walk를 씁니다.
+> 팀 카드와 궁극기 컷인의 초상화는 각 캐릭터의 `idle` 첫 프레임을 자동으로 씁니다. 따로 그리고 싶다면 `icon_<키>` (예: `icon_mungchi`) 로 512×512 얼굴 그림을 등록하세요.
 
 ### 일관성을 지키는 요령
 - 항상 같은 기준 이미지 첨부, 항상 `[STYLE]` 블록 포함
@@ -157,10 +158,15 @@ window.ASSET_MANIFEST = {
 | `oink` | 꿀꿀이 | Oink: a round pink piglet (#FFC2D1) with small folded ears and a big pink snout |
 | `nyang` | 냥냥이 | Nyang: a round orange kitten (#FFB26B) with darker orange spots and a curled tail |
 
-### 5.3 동료 (8)
+### 5.3 동료 (11)
+
+털실 인형 셋은 프롬프트에 `made of soft knitted wool yarn with visible knit stitches and button eyes, like a handmade plush doll` 를 꼭 넣으세요.
 
 | 키 | 이름 | 캐릭터 설명 (영문) |
 |---|---|---|
+| `mungchi` | 뭉치 | Mungchi: a round sky-blue knitted wool teddy bear doll (#9FC5E8) with visible knit stitches, black button eyes, a yellow bandana, empty paws |
+| `bopul` | 보풀 | Bopul: a round pink knitted wool bunny doll (#F6C1D0) with long ears, visible knit stitches, button eyes and a mint ribbon bow |
+| `poksin` | 폭신 | Poksin: a round cream knitted wool sheep doll (#FFF6E8) with fluffy white wool puffs on its head, small droopy ears, button eyes and a gentle smile |
 | `gombang` | 곰방 | Gombang: a big round brown bear blacksmith (#C08B5C) with a light tan belly, round ears and a red bandana tied on his forehead, empty paws |
 | `toseul` | 토슬 | Toseul: a round white-pink bunny baker (#FFF0F5) with long ears and a puffy white chef hat, happy closed eyes |
 | `neogul` | 너굴 | Neogul: a round gray raccoon merchant (#A39E9E) with a dark eye-mask band and a striped bushy tail |
@@ -383,7 +389,7 @@ Object: <설명>
 
 - [ ] `style_ref.png` 확정 (모찌)
 - [ ] 모찌 idle · walk · attack · hurt
-- [ ] 삐약이, 곰방 (첫 펫·첫 동료)
+- [ ] 삐약이, 뭉치·보풀·폭신 (첫 펫·첫 팀)
 - [ ] 1스테이지 몬스터 4종 + 푸딩 임금님
 - [ ] 스킬 아이콘 8종
 - [ ] 바닥 타일 `tile_1`, 장애물 3종

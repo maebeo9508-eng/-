@@ -58,8 +58,10 @@ G.Stats = (function () {
       for (const k in pet.passive) add(s, k, pet.passive[k] + (pet.per[k] || 0) * (lv - 1));
     }
     // 동료
-    const comp = G.COMPANIONS[save.comps.active];
-    if (comp && comp.goldP) s.goldP += comp.goldP;
+    for (const k of save.comps.team || []) {
+      const comp = G.COMPANIONS[k];
+      if (comp && comp.goldP) s.goldP += comp.goldP;
+    }
 
     const w = findItem(save, save.eq.weapon);
     const wtype = w ? w.wtype : 'sword';
@@ -145,6 +147,11 @@ G.Stats = (function () {
     r.rage = 0.25 * L('rage');
     r.dashLv = L('dash');
     r.revive = m.revive + L('revive');
+    // 팀 능력
+    r.ultRate = 1 + 0.25 * L('rally');
+    r.compRed = 0.15 * L('guard');
+    r.clearHeal = 0.15 * L('firstaid');
+    r.compRevive = L('comeback') ? 12 - 2 * L('comeback') : 0;
     return r;
   }
 

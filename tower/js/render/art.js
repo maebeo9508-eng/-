@@ -385,6 +385,16 @@ G.Art = (function () {
       fillOL(ctx, '#f2c14e', r, 0.7);
       ctx.restore();
     },
+    sheep(ctx, r, L) {
+      for (const s of [-1, 1]) {
+        ctx.save();
+        ctx.translate(s * r * 0.92, -r * 0.18);
+        ctx.rotate(s * 0.55);
+        ell(ctx, 0, 0, r * 0.34, r * 0.17);
+        fillOL(ctx, L.earColor || U.shade(L.color, -0.1), r, 0.8);
+        ctx.restore();
+      }
+    },
     claws(ctx, r, L, o) {
       const w = Math.sin(o.t * 6) * 0.2;
       for (const s of [-1, 1]) {
@@ -404,6 +414,21 @@ G.Art = (function () {
 
   // ── 몸통 위 무늬 (몸통 모양으로 잘림) ─────────────────────
   const PAT = {
+    knit(ctx, r, L) {
+      // 뜨개질 무늬: 작은 V 자 코를 줄지어
+      ctx.strokeStyle = C(U.shade(L.color, 0.4));
+      ctx.lineWidth = Math.max(1, r * 0.07);
+      for (let row = -3; row <= 3; row++) {
+        for (let col = -4; col <= 4; col++) {
+          const x = col * r * 0.28 + (row % 2 ? r * 0.14 : 0), y = row * r * 0.3;
+          ctx.beginPath();
+          ctx.moveTo(x - r * 0.08, y - r * 0.06);
+          ctx.lineTo(x, y + r * 0.06);
+          ctx.lineTo(x + r * 0.08, y - r * 0.06);
+          ctx.stroke();
+        }
+      }
+    },
     belly(ctx, r, L) {
       ell(ctx, 0, r * 0.45, r * 0.62, r * 0.48);
       ctx.fillStyle = C(L.color2 || '#ffffff');
@@ -587,6 +612,12 @@ G.Art = (function () {
 
   // ── 몸통 앞쪽 부품 (모자, 왕관, 스카프 ...) ───────────────
   const FRONT = {
+    wool(ctx, r, L) {
+      for (const [x, y, sz] of [[-0.48, -0.8, 0.27], [0.48, -0.8, 0.27], [0, -0.98, 0.32]]) {
+        circ(ctx, x * r, y * r, sz * r);
+        fillOL(ctx, L.woolColor || '#ffffff', r, 0.7);
+      }
+    },
     cap(ctx, r, L) {
       ctx.beginPath();
       ctx.moveTo(-r * 1.3, -r * 0.18);

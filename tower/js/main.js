@@ -29,7 +29,9 @@ G.Main = (function () {
     t += dt;
     G.Input.update();
     if (screen === 'run' && G.Run.st) {
-      G.Run.update(dt);
+      // 배속: 한 프레임에 여러 번 나눠서 진행 (충돌이 빠지지 않게)
+      const steps = G.Run.st.speed || 1;
+      for (let i = 0; i < steps && G.Run.st; i++) G.Run.update(dt);
       if (G.Run.st) G.Scene.drawRun(ctx, G.Run.st, t);
     } else {
       const panel = $('panel');
@@ -67,7 +69,7 @@ G.Main = (function () {
     for (const k in G.PETS) s.pets.owned[k] = s.pets.owned[k] || 1;
     for (let i = 1; i <= 9; i++) s.cleared[i] = true;
     s.chapters = 12;
-    s.comps.active = s.comps.active || 'gombang';
+    s.comps.team = ['gombang', 'tobi', 'pengpeng'];
     for (const sl of G.SLOTS) {
       const it = G.Loot.makeItem(sl, 60, 4);
       s.inv.push(it);
@@ -122,11 +124,14 @@ G.Main = (function () {
     G.Input.onKey = (code) => {
       if (G.UI.onKey(code)) return;
       if (screen !== 'run' || !G.Run.st || G.UI.modalOpen()) return;
+      const st = G.Run.st;
       if (code === 'Space' || code === 'ShiftLeft') G.Player.dash();
       else if (code === 'KeyQ' || code === 'KeyJ') G.Player.skill(0);
-      else if (code === 'KeyE' || code === 'KeyK') G.Player.skill(1);
       else if (code === 'KeyR') G.Player.potion();
       else if (code === 'KeyP') G.UI.pause();
+      else if (code === 'KeyT') G.Actions.toggleAuto();
+      else if (code === 'KeyF') G.Actions.toggleSpeed();
+      else if (/^Digit[1-4]$/.test(code)) { const u = G.HUD.units(st)[+code.slice(5) - 1]; if (u) G.Team.useUlt(u); }
     };
     window.addEventListener('resize', resize);
     document.addEventListener('visibilitychange', () => {

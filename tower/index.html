@@ -48,28 +48,29 @@
     <button data-act="tab" data-tab="climb" class="on"><i>🏰</i>출발</button>
     <button data-act="tab" data-tab="gear"><i>🎒</i>장비</button>
     <button data-act="tab" data-tab="grow"><i>✨</i>성장</button>
-    <button data-act="tab" data-tab="friends"><i>🐾</i>친구</button>
+    <button data-act="tab" data-tab="friends"><i>👥</i>팀</button>
     <button data-act="tab" data-tab="shop"><i>🛒</i>상점</button>
   </nav>
 </div>
 
-<!-- 탑 안 HUD -->
+<!-- 탑 안 HUD: 팀 전투 관전 -->
 <div id="hud" class="hidden">
   <div class="hud-top">
-    <div class="hp"><div class="fill" id="hpFill"></div><div class="txt" id="hpTxt"></div></div>
     <div class="chip floor" id="hudFloor">1층</div>
     <div class="chip" id="hudGold">🪙 0</div>
+    <div class="grow"></div>
+    <button class="pill on" id="btnAuto" data-act="toggleAuto" aria-label="자동 전투">AUTO</button>
+    <button class="pill" id="btnSpeed" data-act="toggleSpeed" aria-label="배속">▶ ×1</button>
     <button class="icon-btn" data-act="pause" aria-label="일시정지">⏸</button>
   </div>
   <div class="exp"><div class="fill" id="expFill"></div><span id="hudLv">Lv 1</span></div>
   <div class="bossbar hidden" id="bossBar"><div class="name" id="bossName"></div><div class="bar"><div class="fill" id="bossFill"></div></div></div>
   <div class="hud-left" id="hudAbilities"></div>
   <div class="hud-btns">
-    <button class="act" id="btnSkill0" data-hud="skill0"><span class="ic"></span><span class="cd"></span></button>
-    <button class="act" id="btnSkill1" data-hud="skill1"><span class="ic"></span><span class="cd"></span></button>
-    <button class="act potion" id="btnPotion" data-hud="potion"><span class="ic">🧪</span><span class="cnt" id="potionCnt">3</span></button>
-    <button class="act dash" id="btnDash" data-hud="dash"><span class="ic">💨</span><span class="cd"></span></button>
+    <button class="act dash" id="btnDash" data-hud="dash" aria-label="대시"><span class="ic">💨</span><span class="cd"></span></button>
+    <button class="act potion" id="btnPotion" data-hud="potion" aria-label="팀 물약"><span class="ic">🧪</span><span class="cnt" id="potionCnt">3</span></button>
   </div>
+  <div class="teambar" id="teamBar"></div>
 </div>
 
 <div id="dialogue" class="hidden">
@@ -109,6 +110,7 @@
 <script src="js/game/ai.js"></script>
 <script src="js/game/bosses.js"></script>
 <script src="js/game/allies.js"></script>
+<script src="js/game/team.js"></script>
 <script src="js/game/player.js"></script>
 <script src="js/game/run.js"></script>
 <script src="js/render/scene.js"></script>

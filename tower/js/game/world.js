@@ -61,9 +61,9 @@ G.World = (function () {
     return null;
   }
 
-  function freePoint(arena, avoidX, avoidY, minDist, pad) {
+  function freePoint(arena, avoidX, avoidY, minDist, pad, yMax) {
     for (let i = 0; i < 40; i++) {
-      const x = U.rand(pad, arena.w - pad), y = U.rand(pad, arena.h - pad);
+      const x = U.rand(pad, arena.w - pad), y = U.rand(pad, Math.min(arena.h - pad, yMax || arena.h));
       if (avoidX != null && U.dist(x, y, avoidX, avoidY) < minDist) continue;
       if (inObstacle(x, y, pad + 4, arena)) continue;
       return { x, y };

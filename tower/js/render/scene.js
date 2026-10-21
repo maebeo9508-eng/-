@@ -37,6 +37,7 @@ G.Scene = (function () {
     for (const e of st.enemies) list.push({ y: e.y, f: () => drawEnemy(ctx, e) });
     for (const al of st.allies) list.push({ y: al.y, f: () => G.Allies.draw(ctx, al) });
     if (!st.player.dead) list.push({ y: st.player.y, f: () => G.Player.draw(ctx, st.player, st) });
+    else list.push({ y: st.player.y, f: () => A().creature(ctx, Object.assign({}, G.HERO_LOOK, { eyes: 'x', mouth: 'o' }), st.player.x, st.player.y, st.player.r, { t, alpha: 0.5, face: st.player.face }) });
     list.sort((p, q) => p.y - q.y);
     for (const it of list) it.f();
 
@@ -60,8 +61,62 @@ G.Scene = (function () {
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, V.w, V.h);
     }
-    drawJoystick(ctx);
+    if (!st.auto) drawJoystick(ctx);
     if (st.banner) drawBanner(ctx, st.banner);
+    if (st.cutin) drawCutin(ctx, st.cutin);
+  }
+
+  // 궁극기 컷인: 화면을 가로지르는 띠 + 초상화 + 기술 이름
+  function drawCutin(ctx, c) {
+    const V = G.View;
+    const k = c.t / c.max;
+    const inK = Math.min(1, (1 - k) * 6);
+    const outK = Math.min(1, k * 4);
+    const a = Math.min(inK, outK);
+    const y = V.h * 0.42, h = Math.min(120, V.h * 0.15);
+    ctx.save();
+    ctx.globalAlpha = a * 0.35;
+    ctx.fillStyle = '#2b2350';
+    ctx.fillRect(0, 0, V.w, V.h);
+    ctx.globalAlpha = a;
+    const slide = (1 - inK) * V.w * 0.6 - (1 - outK) * V.w * 0.6;
+    ctx.translate(slide, 0);
+    ctx.beginPath();
+    ctx.moveTo(-20, y - h / 2 + 14);
+    ctx.lineTo(V.w + 20, y - h / 2 - 14);
+    ctx.lineTo(V.w + 20, y + h / 2 - 14);
+    ctx.lineTo(-20, y + h / 2 + 14);
+    ctx.closePath();
+    ctx.fillStyle = c.color;
+    ctx.fill();
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = OL;
+    ctx.stroke();
+    // 속도선
+    ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 7; i++) {
+      const ly = y - h / 2 + 12 + i * (h - 24) / 6;
+      const lx = ((c.t * 900 + i * 137) % (V.w + 200)) - 100;
+      ctx.beginPath(); ctx.moveTo(V.w - lx, ly); ctx.lineTo(V.w - lx - 60, ly); ctx.stroke();
+    }
+    const ps = h * 1.25;
+    if (c.img && c.img.complete) ctx.drawImage(c.img, V.w * 0.06, y - ps * 0.58, ps, ps);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    const tx = V.w * 0.06 + ps + 6;
+    ctx.font = `${Math.round(h * 0.2)}px Jua, sans-serif`;
+    ctx.lineWidth = 4; ctx.strokeStyle = OL;
+    ctx.strokeText(c.name, tx, y - h * 0.18);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(c.name, tx, y - h * 0.18);
+    ctx.font = `${Math.round(h * 0.32)}px Jua, sans-serif`;
+    ctx.lineWidth = 6;
+    ctx.strokeText(c.skill, tx, y + h * 0.16);
+    ctx.fillStyle = '#fff3b0';
+    ctx.fillText(c.skill, tx, y + h * 0.16);
+    ctx.restore();
   }
 
   // PNG 장애물: 충돌 원(지름)의 약 2.4배 높이로, 바닥 기준점에 맞춰 그림
@@ -270,6 +325,16 @@ G.Scene = (function () {
         const st = G.Run.st;
         const it = st.rs.weaponItem;
         A().weapon(ctx, 'boomerang', it ? G.THEMES[it.theme].color : '#a0785a', b.r * 2.4);
+        break;
+      }
+      case 'lightarrow': {
+        const g = ctx.createLinearGradient(-40, 0, 10, 0);
+        g.addColorStop(0, 'rgba(255,240,170,0)');
+        g.addColorStop(1, 'rgba(255,250,220,0.95)');
+        ctx.fillStyle = g;
+        ctx.fillRect(-40, -4, 50, 8);
+        ctx.beginPath(); ctx.moveTo(14, 0); ctx.lineTo(4, -6); ctx.lineTo(4, 6); ctx.closePath();
+        ctx.fillStyle = '#fff3b0'; ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = OL; ctx.stroke();
         break;
       }
       case 'water':
@@ -666,14 +731,16 @@ G.Scene = (function () {
       const hop = Math.abs(Math.sin(t * 3)) * 5 * u;
       if (!G.Assets.draw(ctx, pk, 'idle', t, px, py - hop + r * 0.6, r * 1.6, false)) A().creature(ctx, G.PETS[pk].look, px, py - hop, r * 0.6, { t, face: 1, seed: 1 });
     }
-    // 동료
-    const ck = save.comps.active;
-    if (ck && G.COMPANIONS[ck]) {
-      const cx = fx + 46 * u;
-      if (!G.Assets.draw(ctx, ck, 'idle', t, cx, gy + r, r * 2.6, true)) A().creature(ctx, G.COMPANIONS[ck].look, cx, gy, r, { t, face: -1, seed: 2 });
-    }
-    // 구해낸 주민들은 뒤쪽에서 반쯤 졸며 쉬고 있어요
-    const rescued = Object.keys(save.comps.owned).filter((k) => k !== ck);
+    // 팀 동료: 모닥불 오른쪽과 앞쪽
+    const team = (save.comps.team || []).filter((k) => G.COMPANIONS[k]);
+    const spots = [[46, 0], [24, 26], [-14, 30]];
+    team.forEach((k, i) => {
+      const [dx, dy] = spots[i] || [60, 0];
+      const cx = fx + dx * u, cy = gy + dy * u;
+      if (!G.Assets.draw(ctx, k, 'idle', t + i, cx, cy + r * 0.9, r * 2.3, true)) A().creature(ctx, G.COMPANIONS[k].look, cx, cy, r * 0.9, { t: t + i, face: -1, seed: 2 + i });
+    });
+    // 팀에 없는 친구들은 뒤쪽에서 쉬고 있어요
+    const rescued = Object.keys(save.comps.owned).filter((k) => !team.includes(k) && G.COMPANIONS[k]);
     rescued.forEach((k, i) => {
       const side = i % 2 ? 1 : -1;
       const x = fx + side * (90 + Math.floor(i / 2) * 34) * u;
@@ -723,6 +790,16 @@ G.Scene = (function () {
     return url;
   }
 
+  const imgCache = new Map();
+  function portraitImg(look, key) {
+    const ck = key || JSON.stringify(look);
+    if (imgCache.has(ck)) return imgCache.get(ck);
+    const img = new Image();
+    img.src = portrait(look, key, 160);
+    imgCache.set(ck, img);
+    return img;
+  }
+
   const iconCache = new Map();
   function itemIcon(item, size) {
     size = size || 96;
@@ -748,5 +825,5 @@ G.Scene = (function () {
     return url;
   }
 
-  return { drawRun, drawCamp, portrait, itemIcon };
+  return { drawRun, drawCamp, portrait, portraitImg, itemIcon };
 })();

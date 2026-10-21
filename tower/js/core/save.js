@@ -20,7 +20,7 @@
       traits: {},
       skills: { owned: ['spin', 'heal'], eq: ['spin', 'heal'], lv: {} },
       pets: { owned: { chick: 1 }, active: 'chick' },
-      comps: { owned: {}, active: null },
+      comps: { owned: { mungchi: 1, bopul: 1, poksin: 1 }, team: ['mungchi', 'bopul', 'poksin'] },
       potionLv: 0,
       chapters: 1, // 열린 소설 장 수 (프롤로그 = 1)
       seen: {}, // 본 대사
@@ -28,7 +28,7 @@
       cleared: {}, // 처음 클리어한 스테이지
       stats: { runs: 0, kills: 0, deaths: 0, bosses: 0 },
       freeBoxAt: 0,
-      settings: { sound: true, vibe: true, dmgText: true },
+      settings: { sound: true, vibe: true, dmgText: true, auto: true, autoProgress: false, speed: 1 },
       started: false,
     };
   }
@@ -44,6 +44,16 @@
     return base;
   }
 
+  // 예전 저장(동료 1명 동행)을 팀 편성 방식으로 바꿉니다
+  function migrate(d) {
+    const c = d.comps;
+    if (!Array.isArray(c.team)) c.team = defaults().comps.team;
+    if (c.active && !c.team.includes(c.active)) c.team[0] = c.active;
+    delete c.active;
+    c.team = c.team.filter((k, i) => k && c.owned[k] != null && c.team.indexOf(k) === i).slice(0, 3);
+    return d;
+  }
+
   G.Save = {
     data: null,
     load() {
@@ -52,7 +62,7 @@
         const raw = localStorage.getItem(KEY);
         if (raw) saved = JSON.parse(raw);
       } catch (e) { saved = null; }
-      this.data = saved ? merge(defaults(), saved) : defaults();
+      this.data = saved ? migrate(merge(defaults(), saved)) : defaults();
       return this.data;
     },
     persist() {

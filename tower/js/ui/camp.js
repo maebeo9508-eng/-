@@ -4,7 +4,7 @@ G.Camp = (function () {
   const U = G.U;
   const $ = (id) => document.getElementById(id);
   const S = () => G.Save.data;
-  const ui = { tab: 'climb', grow: 'rune', friends: 'pet', filter: 'all', start: 1 };
+  const ui = { tab: 'climb', grow: 'rune', friends: 'team', filter: 'all', start: 1 };
   const GIFT_MS = 4 * 60 * 60 * 1000;
 
   function persist() { G.Save.persist(); refreshRes(); }
@@ -40,13 +40,12 @@ G.Camp = (function () {
     if (!floors.includes(ui.start)) ui.start = floors[floors.length - 1];
     const stage = G.stageOf(ui.start);
     const w = m.weaponItem;
-    const sk = s.skills.eq.map((k) => (k ? G.ACTIVE_SKILLS[k].icon : '·'));
     const pet = s.pets.active && G.PETS[s.pets.active];
-    const comp = s.comps.active && G.COMPANIONS[s.comps.active];
+    const team = s.comps.team.filter((k) => G.COMPANIONS[k]);
     const giftReady = Date.now() >= s.freeBoxAt;
     return `<div class="stack">
       <div class="card">
-        <div class="power"><div class="lbl">전투력</div><div class="num">${U.fmt(m.power)}</div></div>
+        <div class="power"><div class="lbl">팀 전투력</div><div class="num">${U.fmt(teamPower(s, m))}</div></div>
         <div class="statgrid">
           <div>공격력<b>${U.fmt(m.atk)}</b></div>
           <div>체력<b>${U.fmt(m.maxHp)}</b></div>
@@ -62,18 +61,28 @@ G.Camp = (function () {
         <div class="muted" style="margin-top:8px">${stage.name} · ${stage.sub}${s.checkpoint < 10 ? ' — 10층 보스를 물리치면 다음 스테이지부터 출발할 수 있어요' : ''}</div>
       </div>
       <button class="btn climb-btn" data-act="climb">🏰 ${ui.start}층부터 오르기!</button>
-      <div class="card">
+      <button class="card" data-act="tab" data-tab="friends" style="text-align:left">
         <div class="loadout">
-          <div class="slotmini">${w ? `<img src="${G.Scene.itemIcon(w, 96)}" alt="">` : '🐾'}</div>
-          <div class="slotmini">${sk[0]}</div>
-          <div class="slotmini">${sk[1]}</div>
+          <div class="slotmini"><img src="${G.Scene.portrait(G.HERO_LOOK, 'hero', 96)}" alt=""></div>
+          ${[0, 1, 2].map((i) => team[i] ? `<div class="slotmini"><img src="${G.Scene.portrait(G.COMPANIONS[team[i]].look, team[i], 96)}" alt=""></div>` : '<div class="slotmini">＋</div>').join('')}
           <div class="slotmini">${pet ? `<img src="${G.Scene.portrait(pet.look, s.pets.active, 96)}" alt="">` : '·'}</div>
-          <div class="slotmini">${comp ? `<img src="${G.Scene.portrait(comp.look, s.comps.active, 96)}" alt="">` : '·'}</div>
         </div>
-        <div class="muted" style="text-align:center;margin-top:6px">무기 · 스킬 1 · 스킬 2 · 펫 · 동료</div>
-      </div>
+        <div class="muted" style="text-align:center;margin-top:6px">모찌 · 동료 3 · 펫 — 눌러서 팀 편성 · 무기 ${w ? U.esc(w.name) : '맨발'}</div>
+      </button>
       ${giftReady ? `<button class="card gift row" data-act="gift" style="text-align:left"><span style="font-size:30px;font-family:var(--emoji)">🎁</span><span class="grow">무료 선물이 도착했어요! <span class="muted">눌러서 받기</span></span></button>` : ''}
     </div>`;
+  }
+
+  // 팀 전투력 (화면 표시용 어림값)
+  function teamPower(s, m) {
+    let k = 1;
+    for (const key of s.comps.team) {
+      const d = G.COMPANIONS[key];
+      if (!d) continue;
+      const lv = s.comps.owned[key] || 1;
+      k += (0.25 * d.atkMul * d.rate + 0.12 * d.hpMul) * (1 + 0.12 * (lv - 1));
+    }
+    return Math.round(m.power * k);
   }
 
   // ── 장비 ───────────────────────────────────────────────
@@ -276,7 +285,7 @@ G.Camp = (function () {
 
   function renderSkills() {
     const s = S();
-    return `<div class="muted" style="margin-bottom:8px">스킬은 2개까지 들고 갈 수 있어요. 탑 안 오른쪽 아래 버튼으로 사용!</div>
+    return `<div class="muted" style="margin-bottom:8px">슬롯 1은 모찌의 <b>궁극기</b> (팀 카드를 눌러 발동, AUTO면 알아서), 슬롯 2는 <b>보조 스킬</b> (쿨다운마다 자동 사용)이에요.</div>
       <div class="cards">${Object.keys(G.ACTIVE_SKILLS).map((k) => {
         const d = G.ACTIVE_SKILLS[k];
         const owned = s.skills.owned.includes(k);
@@ -299,7 +308,7 @@ G.Camp = (function () {
   // ── 친구: 펫 / 동료 ────────────────────────────────────
   function renderFriends() {
     const sub = `<div class="subtabs">
-      ${[['pet', '🐥 펫'], ['comp', '🤝 동료']].map(([k, n]) => `<button class="${ui.friends === k ? 'on' : ''}" data-act="sub" data-k="friends" data-v="${k}">${n}</button>`).join('')}
+      ${[['team', '👥 팀 편성'], ['pet', '🐥 펫']].map(([k, n]) => `<button class="${ui.friends === k ? 'on' : ''}" data-act="sub" data-k="friends" data-v="${k}">${n}</button>`).join('')}
     </div>`;
     return sub + (ui.friends === 'pet' ? renderPets() : renderComps());
   }
@@ -331,23 +340,45 @@ G.Camp = (function () {
 
   function renderComps() {
     const s = S();
-    return `<div class="muted" style="margin-bottom:8px">보스에게서 구해 낸 마을 친구들이 동료가 되어 함께 싸워요.</div><div class="cards">${Object.keys(G.COMPANIONS).map((k) => {
+    const m = G.Stats.meta(s);
+    const team = s.comps.team;
+    const roleOf = (d) => d.role.split(' · ')[1] || d.role;
+    const slot = (i) => {
+      const k = team[i];
+      if (!k || !G.COMPANIONS[k]) return '<div class="fslot empty">＋<br>빈 자리</div>';
       const d = G.COMPANIONS[k];
-      const lv = s.comps.owned[k];
-      const owned = lv != null;
-      const active = s.comps.active === k;
-      const cost = G.compUpCost(lv || 1);
-      const stage = G.STAGES.find((x) => x.villager === k);
-      return `<div class="ucard ${active ? 'active' : ''} ${owned ? '' : 'locked'}">
-        <div class="face"><img src="${G.Scene.portrait(d.look, k, 128, { dim: !owned })}" alt=""></div>
-        <div class="body"><div class="nm">${owned ? d.name : '???'} <small>${d.role}</small> ${owned ? `<small>Lv ${lv}/${G.COMP_MAX_LV}</small>` : ''}</div>
-          <div class="ds">${owned ? d.desc : `${stage ? stage.id * 10 : '?'}층 「${stage ? stage.name : ''}」의 보스를 물리치면 합류해요`}</div></div>
-        ${owned ? `<div class="acts">
-          ${active ? `<button class="btn small white" data-act="compActive" data-k="">쉬게 하기</button>` : `<button class="btn small mint" data-act="compActive" data-k="${k}">데려가기</button>`}
-          ${lv < G.COMP_MAX_LV ? `<button class="btn small ${s.gold >= cost ? 'butter' : 'off'}" data-act="compUp" data-k="${k}">🪙${U.fmt(cost)}</button>` : '<span class="badge">MAX</span>'}
-        </div>` : ''}
-      </div>`;
-    }).join('')}</div>`;
+      return `<button class="fslot" data-act="teamToggle" data-k="${k}"><img src="${G.Scene.portrait(d.look, k, 112)}" alt=""><span>${d.name}</span><span class="role">${d.pos === 'front' ? '앞줄' : '뒷줄'} · ${roleOf(d)}</span></button>`;
+    };
+    const fronts = team.filter((k) => G.COMPANIONS[k] && G.COMPANIONS[k].pos === 'front').length;
+    const hasHeal = team.some((k) => G.COMPANIONS[k] && G.COMPANIONS[k].ai === 'healer');
+    const tip = !fronts ? '앞에서 막아 줄 탱커가 없어요. 뭉치나 곰방을 넣어 보세요!' : !hasHeal ? '회복 담당이 있으면 훨씬 오래 버텨요.' : '앞줄과 회복이 갖춰진 좋은 팀이에요!';
+    return `<div class="card">
+        <div class="sec-title">팀 편성 <small>팀 전투력 ${U.fmt(teamPower(s, m))}</small></div>
+        <div class="formation">
+          <div class="fslot"><span class="lead">리더</span><img src="${G.Scene.portrait(G.HERO_LOOK, 'hero', 112)}" alt=""><span>모찌</span><span class="role">${G.WEAPONS[m.wtype].name}</span></div>
+          ${slot(0)}${slot(1)}${slot(2)}
+        </div>
+        <div class="muted" style="margin-top:8px">${tip} 동료의 체력·공격력은 모찌의 장비를 바탕으로 정해져요.</div>
+      </div>
+      <div class="sec-title" style="margin-top:14px">동료 <small>눌러서 편성 / 빼기</small></div>
+      <div class="cards">${Object.keys(G.COMPANIONS).map((k) => {
+        const d = G.COMPANIONS[k];
+        const lv = s.comps.owned[k];
+        const owned = lv != null;
+        const inTeam = team.includes(k);
+        const cost = G.compUpCost(lv || 1);
+        const stage = G.STAGES.find((x) => x.villager === k);
+        return `<div class="ucard ${inTeam ? 'active' : ''} ${owned ? '' : 'locked'}">
+          <div class="face"><img src="${G.Scene.portrait(d.look, k, 128, { dim: !owned })}" alt=""></div>
+          <div class="body"><div class="nm">${owned ? d.name : '???'} <small>${d.role}</small> ${owned ? `<small>Lv ${lv}/${G.COMP_MAX_LV}</small>` : ''}</div>
+            <div class="ds">${owned ? d.desc : `${stage ? stage.id * 10 : '?'}층 「${stage ? stage.name : ''}」의 보스를 물리치면 합류해요`}</div>
+            ${owned ? `<div class="ult">${d.ult.icon} <b>${d.ult.name}</b> · ${d.ult.desc}</div>` : ''}</div>
+          ${owned ? `<div class="acts">
+            <button class="btn small ${inTeam ? 'white' : 'mint'}" data-act="teamToggle" data-k="${k}">${inTeam ? '빼기' : '편성'}</button>
+            ${lv < G.COMP_MAX_LV ? `<button class="btn small ${s.gold >= cost ? 'butter' : 'off'}" data-act="compUp" data-k="${k}">🪙${U.fmt(cost)}</button>` : '<span class="badge">MAX</span>'}
+          </div>` : ''}
+        </div>`;
+      }).join('')}</div>`;
   }
 
   // ── 상점 ───────────────────────────────────────────────
@@ -508,7 +539,9 @@ G.Camp = (function () {
       <div class="setting"><span>효과음</span><button class="toggle ${s.settings.sound ? 'on' : ''}" data-act="tog" data-k="sound" aria-label="효과음"></button></div>
       <div class="setting"><span>진동</span><button class="toggle ${s.settings.vibe ? 'on' : ''}" data-act="tog" data-k="vibe" aria-label="진동"></button></div>
       <div class="setting"><span>피해 숫자 표시</span><button class="toggle ${s.settings.dmgText ? 'on' : ''}" data-act="tog" data-k="dmgText" aria-label="피해 숫자"></button></div>
-      <div class="setting"><span>조작</span><span class="muted">화면을 누르고 끌어서 이동 · 자동 공격<br>PC: WASD/방향키, Space 대시, Q·E 스킬, R 물약, Esc 일시정지</span></div>
+      <div class="setting"><span>AUTO 전투로 시작<br><span class="muted">끄면 모찌를 직접 조종해요</span></span><button class="toggle ${s.settings.auto !== false ? 'on' : ''}" data-act="tog" data-k="auto" aria-label="AUTO 전투"></button></div>
+      <div class="setting"><span>자동 진행<br><span class="muted">문·능력·장비를 알아서 골라요</span></span><button class="toggle ${s.settings.autoProgress ? 'on' : ''}" data-act="tog" data-k="autoProgress" aria-label="자동 진행"></button></div>
+      <div class="setting"><span>조작</span><span class="muted">AUTO: 구경하다가 반짝이는 팀 카드를 눌러 궁극기<br>수동: 화면을 끌어 이동 · 자동 공격<br>PC: WASD 이동, Space 대시, 1~4 궁극기, R 물약, T AUTO, F 배속, Esc 일시정지</span></div>
       <div class="setting"><span>기록</span><span class="muted">탑 ${s.stats.runs}회 · 처치 ${U.fmt(s.stats.kills)} · 보스 ${s.stats.bosses}</span></div>
       <div class="btnrow"><button class="btn white small" data-act="reset">${confirmReset ? '정말로 모든 기록을 지울까요? 한 번 더 누르세요' : '🗑️ 처음부터 다시 하기'}</button></div>
       <div class="btnrow"><button class="btn mint" data-act="close">닫기</button></div>`;
@@ -655,7 +688,15 @@ G.Camp = (function () {
       G.Sfx.play('upgrade');
       persist(); render();
     },
-    compActive(el) { S().comps.active = el.dataset.k || null; G.Sfx.play('pop'); persist(); render(); },
+    teamToggle(el) {
+      const s = S(), k = el.dataset.k;
+      const i = s.comps.team.indexOf(k);
+      if (i >= 0) s.comps.team.splice(i, 1);
+      else if (s.comps.team.length >= G.TEAM_SLOTS) { deny('자리가 꽉 찼어요. 팀에 있는 친구를 눌러 빼 주세요'); return; }
+      else s.comps.team.push(k);
+      G.Sfx.play('pop');
+      persist(); render();
+    },
     compUp(el) {
       const s = S(), k = el.dataset.k, lv = s.comps.owned[k];
       const c = G.compUpCost(lv);

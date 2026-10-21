@@ -144,6 +144,7 @@ G.Player = (function () {
     if (p.windT > 0) p.windT -= dt;
     if (p.dashCd > 0) p.dashCd -= dt;
     if (p.attackAnim > 0) p.attackAnim = Math.max(0, p.attackAnim - dt * 6);
+    if (p.cheerT > 0) p.cheerT -= dt;
     p.r = 11 * rs.size;
 
     // 이동
@@ -162,7 +163,12 @@ G.Player = (function () {
       if (p.dash.t <= 0) p.dash = null;
     } else {
       const slow = st.playerSlow ? 0.6 : 1;
-      vx = I.mx * rs.move * slow; vy = I.my * rs.move * slow;
+      let mx = I.mx, my = I.my;
+      if (st.auto) {
+        [mx, my] = G.Team.mochiMove(st);
+        if (p.wantDash) { p.wantDash = false; if (p.dashCd <= 0) dash(true); }
+      }
+      vx = mx * rs.move * slow; vy = my * rs.move * slow;
     }
     p.moving = Math.abs(vx) + Math.abs(vy) > 5;
     p.x += vx * dt; p.y += vy * dt;
@@ -186,6 +192,11 @@ G.Player = (function () {
       if (tg) { attack(st, p.aim); p.atkCd += 1 / W.rate; }
       else p.atkCd = 0;
     }
+    // 스킬: 슬롯 2(보조)는 늘 자동, 슬롯 1(궁극기)은 AUTO일 때 자동
+    if (st.skillCd[1] <= 0 && skillWanted(st, G.Save.data.skills.eq[1])) skill(1);
+    if (st.auto && st.skillCd[0] <= 0 && G.Team.wantsUlt(p)) G.Team.useUlt(p);
+    if (st.auto) G.Team.autoPotion(st);
+
     for (let i = p.queue.length - 1; i >= 0; i--) {
       const q = p.queue[i];
       q.t -= dt;
@@ -265,6 +276,17 @@ G.Player = (function () {
     }
   }
 
+  // 보조 스킬을 지금 쓸지
+  function skillWanted(st, key) {
+    if (!key) return false;
+    const p = st.player;
+    if (!st.enemies.some((e) => !e.dead && e.spawnT <= 0 && !e.burrowed)) return false;
+    if (key === 'heal') return G.Team.hpRatio(st) < 0.75;
+    if (key === 'shield') return G.Team.hpRatio(st) < 0.8 || st.eprojs.length > 5;
+    const near = key === 'spin' || key === 'frost' ? 100 : 260;
+    return !!G.Allies.nearestEnemy(p.x, p.y, near);
+  }
+
   function randomEnemy(st) {
     const list = st.enemies.filter((e) => !e.dead && !e.burrowed && e.spawnT <= 0);
     return list.length ? U.pick(list) : null;
@@ -282,9 +304,10 @@ G.Player = (function () {
   }
 
   // ── 버튼 동작 ──────────────────────────────────────────
-  function dash() {
+  function dash(fromAI) {
     const st = R();
     if (!st || st.paused) return;
+    if (st.auto && !fromAI) return;
     const p = st.player, rs = st.rs;
     if (p.dead || p.dashCd > 0 || p.dash) return;
     let dx = G.Input.mx, dy = G.Input.my;
@@ -303,20 +326,23 @@ G.Player = (function () {
     const st = R();
     if (!st || st.paused) return;
     const p = st.player;
-    if (p.dead || st.potions <= 0 || p.hp >= p.maxHp) return;
+    if (st.potions <= 0 || G.Team.hpRatio(st) >= 0.99) return;
     st.potions--;
-    C().heal(p.maxHp * (0.3 + 0.04 * G.Save.data.potionLv), true);
+    // 물약은 팀 모두를 회복시켜요
+    G.Team.healAll(0.3 + 0.04 * G.Save.data.potionLv, true);
+    G.Fx.ring(p.x, p.y, 10, 80, '#ff8fab', 0.5, 4);
     G.Sfx.play('heal');
   }
 
   function skill(idx) {
     const st = R();
-    if (!st || st.paused || st.phase !== 'fight') return;
+    if (!st || st.paused || st.phase !== 'fight') return false;
     const p = st.player, rs = st.rs;
-    if (p.dead || st.skillCd[idx] > 0) return;
+    if (p.dead || st.skillCd[idx] > 0) return false;
     const key = G.Save.data.skills.eq[idx];
     const def = G.ACTIVE_SKILLS[key];
-    if (!def) return;
+    if (!def) return false;
+    if (idx === 0) G.Team.cutin('모찌', def.name, G.HERO_LOOK, 'hero', '#ff8fab');
     const lv = G.Save.data.skills.lv[key] || 1;
     const cd = def.cd * (1 - rs.cdr) * (1 - 0.04 * (lv - 1));
     st.skillCd[idx] = cd;
@@ -333,7 +359,7 @@ G.Player = (function () {
         G.Fx.shake(3);
         break;
       case 'heal':
-        C().heal(p.maxHp * (def.heal + 0.05 * (lv - 1)), true);
+        G.Team.healAll(def.heal + 0.05 * (lv - 1), true);
         p.healBuffT = 3;
         G.Fx.ring(p.x, p.y, 8, 50, '#ff8fab', 0.5, 4);
         break;
@@ -369,6 +395,7 @@ G.Player = (function () {
       case 'shield':
         p.shieldT = def.dur + 0.3 * (lv - 1);
         p.invuln = Math.max(p.invuln, p.shieldT);
+        for (const u of G.Team.members(st)) if (u !== p) { u.bubble = Math.max(u.bubble || 0, 1); G.Fx.ring(u.x, u.y, 6, 28, '#9be7ff', 0.35, 3); }
         G.Fx.ring(p.x, p.y, 10, 40, '#9be7ff', 0.4, 5);
         break;
       case 'beam':
@@ -379,6 +406,7 @@ G.Player = (function () {
         G.Fx.burst(p.x, p.y, '#ffffff', 16, 140, 4, { shape: 'star' });
         break;
     }
+    return true;
   }
 
   // ── 그리기 ─────────────────────────────────────────────
@@ -392,9 +420,18 @@ G.Player = (function () {
     const aimUp = Math.sin(p.aim) < -0.3;
     if (aimUp) drawWeapon(ctx, p, W, wColor, rs);
     const state = p.attackAnim > 0.3 ? 'attack' : p.flash > 0 ? 'hurt' : p.moving ? 'walk' : 'idle';
-    if (!G.Assets.draw(ctx, 'hero', state, p.t, p.x, p.y + p.r, p.r * 2.6, p.face < 0, alpha)) {
-      G.Art.creature(ctx, G.HERO_LOOK, p.x, p.y, p.r, { t: p.t, moving: p.moving, face: p.face, flash: p.flash, alpha, seed: 0 });
+    const hop = p.cheerT > 0 ? Math.abs(Math.sin(p.cheerT * 9)) * 12 : 0;
+    if (st.skillCd[0] <= 0 && st.phase === 'fight') {
+      const g = 0.5 + Math.sin(p.t * 8) * 0.5;
+      G.Art.ell(ctx, p.x, p.y + p.r * 0.9, p.r * (1.3 + g * 0.2), p.r * 0.45);
+      ctx.strokeStyle = `rgba(255,143,171,${0.5 + g * 0.5})`;
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
     }
+    if (!G.Assets.draw(ctx, 'hero', state, p.t, p.x, p.y - hop + p.r, p.r * 2.6, p.face < 0, alpha)) {
+      G.Art.creature(ctx, G.HERO_LOOK, p.x, p.y, p.r, { t: p.t, moving: p.moving, face: p.face, flash: p.flash, alpha, seed: 0, hop });
+    }
+    G.Allies.unitBar(ctx, p.x, p.y - p.r * 2.1 - hop, p.hp / p.maxHp, false);
     if (!aimUp) drawWeapon(ctx, p, W, wColor, rs);
     if (p.bubble > 0) {
       ctx.beginPath();

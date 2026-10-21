@@ -4,7 +4,7 @@ G.Bosses = (function () {
   const U = G.U, TAU = U.TAU;
   const C = () => G.Combat;
   const R = () => G.Run.st;
-  const P_ = () => R().player;
+  const T = (e) => G.AI.target(e);
 
   function at(e, delay, fn) { e.s.events.push({ t: e.s.pt + delay, fn }); }
   const proj = (e, extra) => Object.assign({ type: 'ball', color: e.def.bullet || '#ff8fab', speed: 125, r: 6 }, extra || {});
@@ -23,7 +23,7 @@ G.Bosses = (function () {
     slam: {
       dur: 1.7,
       start(e) {
-        const p = P_();
+        const p = T(e);
         const tx = U.clamp(p.x, e.r, R().arena.w - e.r), ty = U.clamp(p.y, e.r, R().arena.h - e.r);
         G.Run.addZone({ kind: 'circle', x: tx, y: ty, r: 72, warn: 0.85, dmg: dmg(e, 1.4), color: '#ff6b6b' });
         e.s.jump = { sx: e.x, sy: e.y, tx, ty, t: 0, dur: 0.85 };
@@ -60,7 +60,7 @@ G.Bosses = (function () {
       start(e) {
         for (const t of [0.3, 0.8, 1.3]) {
           at(e, t, () => {
-            const p = P_();
+            const p = T(e);
             C().fan(e.x, e.y, U.angleTo(e.x, e.y, p.x, p.y), N(e, 5, 7), 0.9, proj(e, { speed: 160 }), dmg(e, 0.85));
             e.squash = 0.2; G.Sfx.play('shoot');
           });
@@ -78,7 +78,7 @@ G.Bosses = (function () {
     rain: {
       dur: 2.0,
       start(e) {
-        const st = R(), p = P_();
+        const st = R(), p = T(e);
         const n = N(e, 7, 10);
         for (let i = 0; i < n; i++) {
           const pt = i === 0 ? { x: p.x, y: p.y } : G.World.freePoint(st.arena, null, null, 0, 30);
@@ -102,7 +102,7 @@ G.Bosses = (function () {
       dur: 1.7,
       start(e) {
         e.s.hold = 1.3;
-        G.Run.addZone({ kind: 'line', x: e.x, y: e.y, ang: 0, len: 760, w: 18, warn: 0.9, active: 0.35, dmg: dmg(e, 1.3), follow: e, track: P_(), lock: 0.3, color: '#ff4d6d' });
+        G.Run.addZone({ kind: 'line', x: e.x, y: e.y, ang: 0, len: 760, w: 18, warn: 0.9, active: 0.35, dmg: dmg(e, 1.3), follow: e, track: T(e), lock: 0.3, color: '#ff4d6d' });
       },
     },
     laser3: {
@@ -110,7 +110,7 @@ G.Bosses = (function () {
       start(e) {
         e.s.hold = 1.4;
         for (const off of [-0.5, 0, 0.5]) {
-          G.Run.addZone({ kind: 'line', x: e.x, y: e.y, ang: 0, len: 760, w: 16, warn: 1.0, active: 0.35, dmg: dmg(e, 1.2), follow: e, track: P_(), trackOff: off, lock: 0.3, color: '#ff4d6d' });
+          G.Run.addZone({ kind: 'line', x: e.x, y: e.y, ang: 0, len: 760, w: 16, warn: 1.0, active: 0.35, dmg: dmg(e, 1.2), follow: e, track: T(e), trackOff: off, lock: 0.3, color: '#ff4d6d' });
         }
       },
     },
@@ -119,7 +119,7 @@ G.Bosses = (function () {
       start(e) {
         e.s.fade = -1;
         at(e, 0.35, () => {
-          const p = P_();
+          const p = T(e);
           const pt = G.World.freePoint(R().arena, p.x, p.y, 170, e.r + 10);
           G.Fx.burst(e.x, e.y, e.look.color, 14, 140, 4, { shape: 'star' });
           e.x = pt.x; e.y = pt.y;
@@ -131,7 +131,7 @@ G.Bosses = (function () {
     charge: {
       dur: 2.1,
       start(e) {
-        const p = P_();
+        const p = T(e);
         const a = U.angleTo(e.x, e.y, p.x, p.y);
         e.s.hold = 0.7;
         G.Run.addZone({ kind: 'line', x: e.x, y: e.y, ang: a, len: 520, w: e.r * 1.7, warn: 0.7, active: 0, dmg: 0, follow: e, ghost: true });
@@ -142,7 +142,7 @@ G.Bosses = (function () {
       dur: 2.1,
       start(e) {
         e.s.hold = 1.8;
-        const p = P_();
+        const p = T(e);
         const a0 = U.angleTo(e.x, e.y, p.x, p.y);
         for (let t = 0.3; t < 1.7; t += 0.07) {
           at(e, t, () => C().bullet(e.x, e.y, a0 + Math.sin(t * 4.5) * 0.55, { type: 'fire', color: '#ff9f1c', speed: 190, r: 6 }, dmg(e, 0.6)));
@@ -178,7 +178,7 @@ G.Bosses = (function () {
   }
 
   function update(e, dt) {
-    const s = e.s, p = P_();
+    const s = e.s, p = T(e);
     if (!s.rage && e.hp < e.maxHp * 0.5) {
       s.rage = true;
       s.order = [];

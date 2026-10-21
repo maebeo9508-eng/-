@@ -304,6 +304,37 @@ G.UI = (function () {
     }, { dismiss: true });
   }
 
+  // ── 문 선택 (AUTO 관전 중) ─────────────────────────────
+  const DOOR_DESC = {
+    battle: '평범한 전투 · 클리어하면 골드',
+    danger: '적이 더 많고 엘리트 등장 · 희귀 장비 상자',
+    treasure: '전투 없이 보물 상자',
+    rest: '팀 체력 40% 회복 · 쓰러진 친구 부활 · 물약 +1',
+    shop: '너굴 상점에서 수프·물약·능력·장비',
+    shrine: '희귀한 능력이 잘 나오는 축복',
+    home: '여기까지! 전리품을 챙겨 마을로',
+  };
+
+  function doorChoice(st, cb) {
+    const hp = Math.round(G.Team.hpRatio(st) * 100);
+    const html = `<h2>다음 문을 골라요</h2><div class="sub">${st.floor + 1}층으로 · 팀 체력 ${hp}%</div>
+      <div class="choices">${st.portals.map((pt, i) => {
+        const d = G.PORTALS[pt.type];
+        const desc = pt.type === 'boss' ? `${G.BOSSES[G.stageOf(st.floor + 1).boss].name} · ${G.BOSSES[G.stageOf(st.floor + 1).boss].title}` : DOOR_DESC[pt.type];
+        return `<button class="choice door ${pt.type}" data-act="door" data-i="${i}">
+          <div class="ic" style="background:${d.color}">${d.icon}</div>
+          <div class="grow"><div class="nm">${d.name}</div><div class="ds">${desc}</div></div>
+        </button>`;
+      }).join('')}</div>`;
+    openModal(html, {
+      door(el) {
+        const pt = st.portals[+el.dataset.i];
+        closeModal();
+        cb(pt);
+      },
+    });
+  }
+
   // ── 일시정지 ───────────────────────────────────────────
   function pause() {
     const st = G.Run.st;
@@ -315,6 +346,10 @@ G.UI = (function () {
     const sound = G.Save.data.settings.sound;
     openModal(`<h2>잠깐 쉬어요</h2><div class="sub">${st.floor}층 · ${U.esc(st.stage.name)} · Lv ${st.lv}</div>
       <div class="card"><div class="muted" style="margin-bottom:6px">이번 탑에서 얻은 능력</div><div class="row wrap">${abil || '<span class="muted">아직 없어요</span>'}</div></div>
+      <div class="card" style="margin-top:10px"><div class="muted" style="margin-bottom:6px">팀</div><div class="row wrap">${G.HUD.units(st).map((u) => {
+        const isP = u === st.player, down = isP ? u.dead : u.down;
+        return `<span class="chip" style="font-size:13px;${down ? 'opacity:.5' : ''}">${isP ? '모찌' : U.esc(u.def.name)} ${down ? '기절' : Math.round((u.hp / u.maxHp) * 100) + '%'}</span>`;
+      }).join(' ')}</div></div>
       <div class="card" style="margin-top:10px"><div class="stats-line">
         <span>처치 <b>${st.gained.kills}</b></span><span>골드 <b>${st.gained.gold >= 0 ? '+' : ''}${U.fmt(st.gained.gold)}</b></span><span>장비 <b>${st.gained.items.length}</b></span><span>물약 <b>${st.potions}</b></span><span>부활 <b>${st.revives}</b></span>
       </div></div>
@@ -337,7 +372,7 @@ G.UI = (function () {
   function result(st, reason) {
     const save = G.Save.data;
     const g = st.gained;
-    const title = reason === 'dead' ? '쓰러졌어요…' : reason === 'return' ? '무사히 귀환!' : '마을로 돌아왔어요';
+    const title = reason === 'dead' ? '팀이 모두 쓰러졌어요…' : reason === 'return' ? '무사히 귀환!' : '마을로 돌아왔어요';
     const line = reason === 'dead' ? U.pick(G.STORY.death) : '등불이 반짝이며 모찌를 야영지로 데려다주었어요.';
     const items = g.items.slice(0, 30).map((it) => slotHTML(it)).join('');
     const runes = g.runes.length ? `<div class="muted" style="text-align:center;margin-top:6px">룬 ${g.runes.length}개 획득</div>` : '';
@@ -388,7 +423,7 @@ G.UI = (function () {
 
   return {
     init, onKey, openModal, updateModal, closeModal, modalOpen, dialogue, advance, toast, fade,
-    slotHTML, itemCardHTML, fmtStat, levelUp, lootPopup, makeRunShop, runShop, pause, result,
+    slotHTML, itemCardHTML, fmtStat, levelUp, lootPopup, makeRunShop, runShop, pause, result, doorChoice,
     get dialogueOpen() { return dlg.open; },
   };
 })();

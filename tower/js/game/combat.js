@@ -12,12 +12,12 @@ G.Combat = (function () {
     const def = isBoss ? G.BOSSES[type] : G.MONSTERS[type];
     const S = G.S(st.floor);
     const elite = !!opts.elite;
-    const hpMul = (elite ? 5 : 1) * (opts.hpMul || 1) * (G.isEndless(st.floor) ? 1.25 : 1);
+    const hpMul = (elite ? 5 : 1) * (opts.hpMul || 1) * (G.isEndless(st.floor) ? 1.25 : 1) * (st.teamHp || 1) * (isBoss ? st.teamBoss || 1 : 1);
     const e = {
       id: U.uid(), type, def, name: def.name, boss: isBoss, elite,
       x, y, r: def.r * (elite ? 1.45 : 1) * (opts.small ? 0.75 : 1),
       maxHp: def.hp * S * hpMul * (opts.small ? 0.5 : 1),
-      atk: def.atk * S * 1.35 * (elite ? 1.35 : 1),
+      atk: def.atk * S * 1.35 * (elite ? 1.35 : 1) * (st.teamAtk || 1),
       spd: def.spd * (elite ? 1.05 : 1) * (1 + 0.025 * (G.stageOf(st.floor).id - 1)),
       ai: isBoss ? 'boss' : def.ai,
       look: def.look,
@@ -68,6 +68,9 @@ G.Combat = (function () {
       G.Sfx.play('hit');
     }
     st.gained.dmg += d;
+    // 궁극기 충전: 동료는 때릴수록 게이지가, 모찌는 때릴수록 쿨다운이 줄어듦
+    if (o.unit && o.unit.ult != null && !o.skill) o.unit.ult = Math.min(1, o.unit.ult + 0.012);
+    if (!o.ally && !o.skill && st.skillCd[0] > 0) st.skillCd[0] = Math.max(0, st.skillCd[0] - 0.04);
     // 흡혈 (한 번에 최대 체력 3%까지)
     if (!o.ally && rs.vamp > 0) heal(Math.min(st.player.maxHp * 0.03, d * rs.vamp), false);
     if (o.proc) procs(e, d, o);
@@ -220,7 +223,7 @@ G.Combat = (function () {
     }
     if (e.elite && Math.random() < 0.15) G.Run.drop('gem', e.x, e.y, U.randi(1, 2));
 
-    if (rs.killheal > 0) heal(st.player.maxHp * rs.killheal, false);
+    if (rs.killheal > 0) G.Team.healAll(rs.killheal, false);
     if (rs.explode > 0) {
       G.Fx.ring(e.x, e.y, 5, 42 + rs.explode * 8, '#ffb347', 0.25, 4);
       blast(e.x, e.y, 40 + rs.explode * 8, rs.atk * (0.5 + 0.3 * rs.explode), { color: '#ffb347', noCrit: true });

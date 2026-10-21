@@ -31,13 +31,20 @@ G.Run = (function () {
       time: 0, phase: 'fight', paused: false, clearT: 0,
       enemies: [], spawns: [], projs: [], eprojs: [], pickups: [], allies: [], zones: [], props: [], portals: [], swings: [], bolts: [], timers: [],
       arena: null, stage: null, room: 'battle', waves: null,
-      cam: { x: 0, y: 0 }, hitFlash: 0, banner: null, playerSlow: false, taunter: null, slowAura: null,
+      cam: { x: 0, y: 0 }, hitFlash: 0, banner: null, playerSlow: false, taunters: [], slowAura: null,
+      auto: save.settings.auto !== false, speed: save.settings.speed || 1, slowmo: 0, cutin: null, doorAsked: false,
     };
     st.rs = G.Stats.run(meta, st.abilities);
     st.player = G.Player.create(0, 0, st.rs);
+    st.allies = G.Allies.create(st);
+    // 동료 수만큼 적도 튼튼하고 많아집니다
+    const n = st.allies.filter((a) => a.kind === 'comp').length;
+    st.teamHp = 1 + 0.5 * n;
+    st.teamAtk = 1 + 0.15 * n;
+    st.teamCount = 1 + 0.2 * n;
+    st.teamBoss = 1 + 0.25 * n;
     G.Fx.clear();
     enterFloor(startFloor, 'battle');
-    st.allies = G.Allies.create(st);
     G.HUD.show(st);
     if (!save.seen.tutorial) {
       save.seen.tutorial = true;
@@ -60,12 +67,17 @@ G.Run = (function () {
     for (const k of ['enemies', 'spawns', 'projs', 'eprojs', 'pickups', 'zones', 'props', 'portals', 'swings', 'bolts', 'timers']) st[k] = [];
     st.allies = st.allies.filter((a) => a.kind === 'pet' || a.kind === 'comp');
     const p = st.player;
-    p.x = st.arena.w / 2; p.y = st.arena.h - 70; p.invuln = Math.max(p.invuln, 1); p.dash = null; p.queue = [];
-    for (const a of st.allies) { a.x = p.x + U.rand(-30, 30); a.y = p.y + 10; }
+    // 쓰러진 팀원은 다음 층에서 체력 30%로 다시 일어나요
+    if (p.dead) G.Team.revive(p, 0.3);
+    for (const a of st.allies) if (a.kind === 'comp' && a.down) G.Team.revive(a, 0.3);
+    p.x = st.arena.w / 2; p.y = st.arena.h - 80; p.invuln = Math.max(p.invuln, 1); p.dash = null; p.queue = [];
+    G.Allies.formation(st);
     st.cam.x = p.x - G.View.vw / 2; st.cam.y = p.y - G.View.vh / 2;
     st.phase = 'fight';
     st.waves = null;
     st.boss = null;
+    st.doorAsked = false;
+    st.cutin = null;
     // 높은 스테이지일수록 탄환이 빨라집니다
     st.bulletSpeed = 1 + 0.035 * (st.stage.id - 1 + (n > 100 ? 4 : 0));
 
@@ -131,6 +143,7 @@ G.Run = (function () {
     let count = Math.min(15, 4 + Math.floor(idx * 0.6) + Math.floor(Math.min(n, 100) / 9));
     if (room === 'danger') count = Math.round(count * 1.3);
     if (G.isEndless(n)) count += 2;
+    count = Math.round(count * (st.teamCount || 1));
     const list = [];
     for (let w = 0; w < waves; w++) {
       const wave = [];
@@ -149,13 +162,14 @@ G.Run = (function () {
     w.idx++;
     const wave = w.list[w.idx];
     w.lastCount = wave.length;
-    const p = st.player;
+    const c = G.Team.centroid(st);
     wave.forEach((m, i) => {
       if (m.boss) {
-        C().queueSpawn(m.type, st.arena.w / 2, st.arena.h * 0.32, { boss: true }, 1.0);
+        C().queueSpawn(m.type, st.arena.w / 2, st.arena.h * 0.3, { boss: true }, 1.0);
         return;
       }
-      const pt = G.World.freePoint(st.arena, p.x, p.y, 150, 28);
+      // 적은 방 위쪽에서 무리 지어 나타나 팀과 맞붙어요
+      const pt = G.World.freePoint(st.arena, c.x, c.y, 150, 28, st.arena.h * 0.6);
       C().queueSpawn(m.type, pt.x, pt.y, { elite: m.elite }, 0.75 + i * 0.04);
     });
   }
@@ -174,7 +188,9 @@ G.Run = (function () {
       st.eprojs = [];
       st.zones = st.zones.filter((z) => z.friendly);
       G.Sfx.play('clear');
-      st.banner = { text: '클리어!', sub: '', t: 1.2, max: 1.2, small: true };
+      st.banner = { text: '승리!', sub: '', t: 1.2, max: 1.2, small: true };
+      cheer();
+      if (st.rs.clearHeal) G.Team.healAll(st.rs.clearHeal, true);
       if (st.room === 'battle') burstGold(st.player.x, st.player.y - 40, (5 + st.floor * 2) * (1 + st.rs.goldP), 6);
       if (st.room === 'danger') st.props.push({ kind: 'chest', x: st.arena.w / 2, y: st.arena.h * 0.45, r: 14, rar: 2, opened: false, t: 0 });
     } else {
@@ -183,6 +199,16 @@ G.Run = (function () {
     for (const pk of st.pickups) pk.magnet = true;
     st.timers.push({ t: fight ? 1.0 : 0.3, fn: spawnPortals });
     G.Save.persist();
+  }
+
+  // 아직 열지 않은 상자, 쓰지 않은 샘·축복이 남았는지
+  function propsPending() {
+    return st.props.some((o) => (o.kind === 'chest' && !o.opened) || ((o.kind === 'fountain' || o.kind === 'shrine') && !o.used) || (o.kind === 'merchant' && o.armed && (st.auto || st.player.dead)));
+  }
+
+  function cheer() {
+    st.player.cheerT = 1.4;
+    for (const a of st.allies) if (a.kind === 'comp' && !a.down) a.cheerT = 1.4;
   }
 
   function spawnPortals() {
@@ -249,8 +275,13 @@ G.Run = (function () {
       const v = st.stage.villager;
       if (v && G.COMPANIONS[v] && !save.comps.owned[v]) {
         save.comps.owned[v] = 1;
-        if (!save.comps.active) save.comps.active = v;
-        unlockMsg = `동료 「${G.COMPANIONS[v].name}」 합류!`;
+        // 빈자리가 있으면 바로, 없으면 털실 인형과 교대해서 다음 탑부터 팀에 들어와요
+        const team = save.comps.team;
+        const doll = team.findIndex((k) => G.COMPANIONS[k] && G.COMPANIONS[k].doll);
+        let note = '';
+        if (team.length < G.TEAM_SLOTS) team.push(v);
+        else if (doll >= 0) { note = ` (${G.COMPANIONS[team[doll]].name}와 교대)`; team[doll] = v; }
+        unlockMsg = `동료 「${G.COMPANIONS[v].name}」 합류!${note}`;
       } else if (v && G.PETS[v] && !save.pets.owned[v]) {
         save.pets.owned[v] = 1;
         unlockMsg = `펫 「${G.PETS[v].name}」 합류!`;
@@ -281,26 +312,46 @@ G.Run = (function () {
   }
 
   // ── 쓰러짐 / 종료 ───────────────────────────────────────
+  // 모찌가 쓰러져도 동료가 남아 있으면 전투는 계속돼요
   function onPlayerDown() {
+    const p = st.player;
+    if (p.dead) return;
+    p.dead = true;
+    p.hp = 0;
+    p.dash = null;
+    G.Fx.burst(p.x, p.y, ['#ffffff', '#ffb3c6'], 24, 160, 4, { shape: 'star' });
+    G.Sfx.play('hurt');
+    if (G.Team.members(st).length) {
+      G.Fx.text(p.x, p.y - 30, '모찌 기절!', '#ffffff', 14, { force: true });
+      G.UI.toast('모찌가 쓰러졌어요! 동료들이 버티는 중… 다음 층에서 일어나요');
+      return;
+    }
+    onTeamWipe();
+  }
+
+  function onTeamWipe() {
+    if (st.phase === 'dead') return;
     const p = st.player;
     if (st.revives > 0) {
       st.revives--;
-      p.hp = p.maxHp * 0.5;
+      G.Team.reviveAll(0.5);
       p.invuln = 2.2;
-      G.Fx.ring(p.x, p.y, 10, 120, '#fff3b0', 0.6, 6);
-      G.Fx.burst(p.x, p.y, ['#fff3b0', '#ffffff'], 30, 200, 5, { shape: 'star' });
-      G.Fx.text(p.x, p.y - 30, '부활!', '#fff3b0', 18, { force: true });
+      G.Fx.ring(p.x, p.y, 10, 160, '#fff3b0', 0.6, 6);
+      G.Fx.text(p.x, p.y - 30, '팀 부활!', '#fff3b0', 18, { force: true });
       st.eprojs = [];
       G.Sfx.play('legend');
       return;
     }
-    p.dead = true;
-    p.hp = 0;
     st.phase = 'dead';
     G.Save.data.stats.deaths++;
     G.Sfx.play('die');
-    G.Fx.burst(p.x, p.y, ['#ffffff', '#ffb3c6'], 24, 160, 4, { shape: 'star' });
-    st.timers.push({ t: 1.4, fn: () => end('dead') });
+    st.banner = { text: '전멸…', sub: '등불이 모두를 데려다줄 거예요', t: 1.6, max: 1.6 };
+    st.timers.push({ t: 1.6, fn: () => end('dead') });
+  }
+
+  function hurtUnit(u, dmg) {
+    if (u === st.player) C().damagePlayer(dmg);
+    else G.Allies.hurt(u, dmg);
   }
 
   function end(reason) {
@@ -359,10 +410,23 @@ G.Run = (function () {
       st.lv++;
       st.expNext = expNeed(st.lv);
       st.pendingLv++;
+      const l = G.Team.leader(st);
+      G.Fx.text(l.x, l.y - 34, 'LEVEL UP!', '#fff3b0', 14, { force: true, life: 1.1 });
+      G.Fx.ring(l.x, l.y, 10, 60, '#fff3b0', 0.5, 4);
     }
   }
 
   // ── 레벨업 능력 ─────────────────────────────────────────
+  function autoLevel() {
+    const n = 3 + (st.meta.choices >= 2 ? 1 : 0);
+    const ch = abilityChoices(n);
+    if (!ch.length) return;
+    const a = G.Team.autoAbility(ch);
+    applyAbility(a.id);
+    G.UI.toast(`자동 선택: ${a.icon} ${a.name}`);
+    G.HUD.abilities(st);
+  }
+
   function abilityChoices(n, boost) {
     const W = st.rs.weapon;
     const proj = W.kind === 'proj';
@@ -384,7 +448,7 @@ G.Run = (function () {
     const def = G.ABILITIES.find((a) => a.id === id);
     const p = st.player;
     if (def.instant) {
-      C().heal(p.maxHp * 0.4, true);
+      G.Team.healAll(0.4, true);
       return;
     }
     st.abilities[id] = (st.abilities[id] || 0) + 1;
@@ -395,9 +459,13 @@ G.Run = (function () {
     if (p.maxHp > oldMax) p.hp += p.maxHp - oldMax;
     if (id === 'hp') C().heal(p.maxHp * 0.2, true);
     p.hp = Math.min(p.hp, p.maxHp);
+    resizeComps();
+  }
+
+  function resizeComps() {
     for (const a of st.allies) if (a.kind === 'comp') {
       const r = a.hp / a.maxHp;
-      a.maxHp = st.rs.maxHp * a.def.hpMul * 0.45 * (1 + 0.12 * (a.lv - 1));
+      a.maxHp = G.Allies.compMaxHp(st, a);
       a.hp = a.maxHp * r;
     }
   }
@@ -410,7 +478,8 @@ G.Run = (function () {
     st.meta = G.Stats.meta(G.Save.data);
     st.rs = G.Stats.run(st.meta, st.abilities);
     p.maxHp = st.rs.maxHp;
-    p.hp = Math.max(1, p.maxHp * ratio);
+    if (!p.dead) p.hp = Math.max(1, p.maxHp * ratio);
+    resizeComps();
   }
 
   function fireProj(o) {
@@ -418,7 +487,7 @@ G.Run = (function () {
       x: o.x, y: o.y, vx: Math.cos(o.ang) * o.speed, vy: Math.sin(o.ang) * o.speed, speed: o.speed,
       r: o.r || 5, dmg: o.dmg, type: o.type, life: o.life || 1.5, pierce: o.pierce || 0, bounce: o.bounce || 0,
       homing: o.homing || 0, hit: new Set(), ally: !!o.ally, aoe: o.aoe || 0, slow: o.slow || 0, burn: !!o.burn,
-      color: o.color, rainbow: !!o.rainbow, skill: !!o.skill, boomerang: o.boomerang || null, rot: o.ang, t: 0,
+      color: o.color, rainbow: !!o.rainbow, skill: !!o.skill, boomerang: o.boomerang || null, rot: o.ang, t: 0, src: o.src || null,
     });
   }
 
@@ -434,10 +503,14 @@ G.Run = (function () {
   }
 
   // ── 매 프레임 업데이트 ──────────────────────────────────
-  function update(dt) {
+  function update(realDt) {
     if (!st || !st.active) return;
+    if (st.cutin) { st.cutin.t -= realDt; if (st.cutin.t <= 0) st.cutin = null; }
+    let dt = realDt;
+    // 궁극기 순간에는 잠깐 슬로우 모션
+    if (st.slowmo > 0 && !st.paused) { st.slowmo -= realDt; dt = realDt * 0.3; }
     G.Fx.update(dt);
-    if (st.banner) { st.banner.t -= dt; if (st.banner.t <= 0) st.banner = null; }
+    if (st.banner) { st.banner.t -= realDt; if (st.banner.t <= 0) st.banner = null; }
     if (st.paused) return;
     st.time += dt;
     if (st.hitFlash > 0) st.hitFlash -= dt;
@@ -476,20 +549,39 @@ G.Run = (function () {
         roomCleared(true);
       }
     }
+    // 레벨업 선택: AUTO일 때는 전투가 끝난 뒤에 몰아서
+    const canChoose = !G.UI.modalOpen() && st.phase !== 'transition' && st.phase !== 'dead' && st.phase !== 'bossdead';
+    if (st.pendingLv > 0 && canChoose && !(st.auto && st.phase === 'fight')) {
+      st.pendingLv--;
+      if (G.Save.data.settings.autoProgress) autoLevel();
+      else G.UI.levelUp(st);
+    }
+
     // 문 들어가기
     if (st.phase === 'portal') {
-      for (const pt of st.portals) {
-        pt.t += dt;
-        if (U.dist(p.x, p.y, pt.x, pt.y) < pt.r + 4) { takePortal(pt); break; }
+      for (const pt of st.portals) pt.t += dt;
+      if (st.auto || p.dead) {
+        if (!st.doorAsked && canChoose && st.pendingLv === 0 && !propsPending()) {
+          st.doorAsked = true;
+          if (st.portals.length === 1) {
+            // 갈 길이 하나뿐이면 묻지 않고 바로
+            const pt = st.portals[0];
+            G.UI.toast(pt.type === 'boss' ? '👑 보스의 문이 열렸어요!' : '다음 층으로!');
+            st.timers.push({ t: 0.9, fn: () => takePortal(pt) });
+          } else if (G.Save.data.settings.autoProgress) {
+            const pt = G.Team.autoDoor(st);
+            G.UI.toast(`자동 진행: ${G.PORTALS[pt.type].icon} ${G.PORTALS[pt.type].name}`);
+            st.timers.push({ t: 0.8, fn: () => takePortal(pt) });
+          } else G.UI.doorChoice(st, (pt) => takePortal(pt));
+        }
+      } else {
+        for (const pt of st.portals) {
+          if (U.dist(p.x, p.y, pt.x, pt.y) < pt.r + 4) { takePortal(pt); break; }
+        }
       }
     }
 
     updateCamera(dt);
-
-    if (st.pendingLv > 0 && !G.UI.modalOpen() && st.phase !== 'transition' && st.phase !== 'dead') {
-      st.pendingLv--;
-      G.UI.levelUp(st);
-    }
     G.HUD.update(st);
   }
 
@@ -603,7 +695,7 @@ G.Run = (function () {
         b.hit.add(e.id);
         if (b.aoe) { projBlast(b); b.dead = true; break; }
         const ang = Math.atan2(b.vy, b.vx);
-        C().hitEnemy(e, b.dmg, { proc: !b.ally, ally: b.ally, skill: b.skill, rainbow: b.rainbow, knock: [Math.cos(ang), Math.sin(ang), b.type === 'boomerang' ? 60 : 90], color: b.ally ? '#ffe8a3' : undefined });
+        C().hitEnemy(e, b.dmg, { proc: !b.ally || !!b.src, ally: b.ally, skill: b.skill, rainbow: b.rainbow, unit: b.src, knock: [Math.cos(ang), Math.sin(ang), b.type === 'boomerang' ? 60 : 90], color: b.ally ? '#ffe8a3' : undefined });
         if (b.burn && !e.dead) e.burn = { t: 3, dps: b.dmg * 0.3, tick: 0.5 };
         if (b.pierce > 0) { b.pierce--; continue; }
         if (b.bounce > 0) {
@@ -633,7 +725,7 @@ G.Run = (function () {
     G.Fx.burst(b.x, b.y, b.color || '#ffffff', 8, 100, 3);
     for (const e of st.enemies) {
       if (e.dead || U.dist2(b.x, b.y, e.x, e.y) > (b.aoe + e.r) * (b.aoe + e.r)) continue;
-      C().hitEnemy(e, b.dmg, { ally: b.ally, color: '#ffe8a3' });
+      C().hitEnemy(e, b.dmg, { ally: b.ally, color: '#ffe8a3', unit: b.src, proc: !!b.src });
       if (b.slow) { e.slowT = 2; e.slowAmt = b.slow; }
     }
   }
@@ -694,7 +786,8 @@ G.Run = (function () {
             G.Fx.ring(z.x, z.y, 6, z.r, z.color || '#ffd166', 0.3, 5);
             if (big) G.Fx.shake(7);
             G.Sfx.play(z.star ? 'zap' : 'boom');
-            C().blast(z.x, z.y, z.r, z.dmg, { skill: z.skill, ally: z.ally, proc: !z.ally });
+            C().blast(z.x, z.y, z.r, z.dmg, { skill: z.skill, ally: z.ally, proc: true });
+            if (z.slow) for (const e of st.enemies) if (!e.dead && U.dist2(z.x, z.y, e.x, e.y) < z.r * z.r) { e.slowT = 2.5; e.slowAmt = z.slow; }
             if (z.burn) for (const e of st.enemies) if (!e.dead && U.dist2(z.x, z.y, e.x, e.y) < z.r * z.r) e.burn = { t: 3, dps: z.dmg * 0.15, tick: 0.5 };
           } else if (z.dmg > 0) {
             if (z.meteor) { G.Fx.burst(z.x, z.y, ['#ff9f1c', '#ffd166'], 10, 140, 3.5); G.Sfx.play('boom'); }
@@ -711,7 +804,7 @@ G.Run = (function () {
         if (z.t >= z.warn && z.t < end && z.dmg > 0) {
           if (!z.fired) { z.fired = true; G.Sfx.play('zap'); G.Fx.shake(3); }
           const ex = z.x + Math.cos(z.ang) * z.len, ey = z.y + Math.sin(z.ang) * z.len;
-          if (G.Player.segDist(p.x, p.y, z.x, z.y, ex, ey) < z.w / 2 + p.r * 0.6) C().damagePlayer(z.dmg);
+          for (const u of G.Team.members(st)) if (G.Player.segDist(u.x, u.y, z.x, z.y, ex, ey) < z.w / 2 + u.r * 0.6) hurtUnit(u, z.dmg);
         }
         if (z.t >= end + 0.12) z.dead = true;
       } else if (z.kind === 'rotline') {
@@ -719,15 +812,24 @@ G.Run = (function () {
         z.ang += z.spin * dt * (z.t < z.warn ? 0.3 : 1);
         if (z.t >= z.warn && z.t < z.warn + z.active) {
           const ex = z.x + Math.cos(z.ang) * z.len, ey = z.y + Math.sin(z.ang) * z.len;
-          if (G.Player.segDist(p.x, p.y, z.x, z.y, ex, ey) < z.w / 2 + p.r * 0.6) C().damagePlayer(z.dmg);
+          for (const u of G.Team.members(st)) if (G.Player.segDist(u.x, u.y, z.x, z.y, ex, ey) < z.w / 2 + u.r * 0.6) hurtUnit(u, z.dmg);
         }
         if (z.t >= z.warn + z.active || (z.follow && z.follow.dead)) z.dead = true;
       } else if (z.kind === 'hazard') {
         z.life -= dt;
         if (z.life <= 0) z.dead = true;
-        else if (U.dist2(z.x, z.y, p.x, p.y) < (z.r + p.r * 0.5) * (z.r + p.r * 0.5)) {
-          if (z.type === 'ink') st.playerSlow = true;
-          else if (st.phase === 'fight') C().damagePlayer(z.dmg);
+        else {
+          if (!p.dead && U.dist2(z.x, z.y, p.x, p.y) < (z.r + p.r * 0.5) * (z.r + p.r * 0.5)) {
+            if (z.type === 'ink') st.playerSlow = true;
+            else if (st.phase === 'fight') C().damagePlayer(z.dmg);
+          }
+          if (z.type !== 'ink' && st.phase === 'fight') {
+            z.tick = (z.tick || 0) - dt;
+            if (z.tick <= 0) {
+              z.tick = 0.5;
+              for (const a of st.allies) if (a.kind === 'comp' && !a.down && U.dist(z.x, z.y, a.x, a.y) < z.r + a.r * 0.5) G.Allies.hurt(a, z.dmg * 0.5);
+            }
+          }
         }
       }
     }
@@ -735,7 +837,7 @@ G.Run = (function () {
   }
 
   function updatePickups(dt) {
-    const p = st.player, rs = st.rs;
+    const p = G.Team.leader(st), rs = st.rs;
     const range = rs.pickup * (G.Save.data.pets.active === 'hoot' ? 1.4 : 1);
     for (const k of st.pickups) {
       k.t += dt;
@@ -757,26 +859,35 @@ G.Run = (function () {
   }
 
   function updateProps(dt) {
-    const p = st.player, save = G.Save.data;
+    const p = G.Team.leader(st), save = G.Save.data;
+    const auto = st.auto || st.player.dead;
     for (const o of st.props) {
       o.t += dt;
       const d = U.dist(o.x, o.y, p.x, p.y);
-      const touch = d < o.r + p.r + 6;
+      // AUTO면 잠깐 뒤 저절로 열리고 작동해요
+      const touch = d < o.r + p.r + 6 || (auto && o.t > 0.8 && !G.UI.modalOpen() && st.phase !== 'bossdead');
       if (o.kind === 'chest' && !o.opened && touch && st.phase !== 'fight') {
         o.opened = true;
         openChest(o);
       } else if (o.kind === 'fountain' && !o.used && touch) {
         o.used = true;
-        C().heal(p.maxHp * 0.4, true);
+        G.Team.reviveAll(0.3);
+        G.Team.healAll(0.4, true);
         st.potions = Math.min(st.meta.potions, st.potions + 1);
-        G.UI.toast('샘물을 마셨어요! 체력 회복 · 물약 +1');
+        G.UI.toast('샘물을 마셨어요! 팀 체력 회복 · 쓰러진 친구 부활 · 물약 +1');
         G.Sfx.play('heal');
       } else if (o.kind === 'shrine' && !o.used && touch) {
         o.used = true;
         G.Sfx.play('legend');
-        G.UI.levelUp(st, { boost: true, title: '별의 축복', sub: '하나를 골라 받아 가세요' });
+        if (save.settings.autoProgress) autoLevel();
+        else G.UI.levelUp(st, { boost: true, title: '별의 축복', sub: '하나를 골라 받아 가세요' });
       } else if (o.kind === 'merchant') {
-        if (touch && o.armed) { o.armed = false; G.UI.runShop(st, o); }
+        if (auto) {
+          if (o.armed && o.t > 0.8 && !G.UI.modalOpen()) {
+            o.armed = false;
+            if (!save.settings.autoProgress) G.UI.runShop(st, o);
+          }
+        } else if (touch && o.armed) { o.armed = false; G.UI.runShop(st, o); }
         else if (!touch && d > o.r + p.r + 30) o.armed = true;
       }
     }
@@ -795,24 +906,33 @@ G.Run = (function () {
     G.Sfx.play(item.rar >= 4 ? 'legend' : 'chest');
     if (Math.random() < 0.25 + o.rar * 0.1) drop('rune', o.x, o.y, G.Loot.makeRune(null, G.Loot.runeGradeFor(st.floor)));
     G.Save.persist();
-    G.UI.lootPopup(item, true);
-    void save;
+    if (save.settings.autoProgress) {
+      const cur = G.Stats.findItem(save, save.eq[item.slot]);
+      if (!cur || G.Loot.itemPower(item) > G.Loot.itemPower(cur)) {
+        G.Camp.equip(item);
+        refreshMeta();
+        G.UI.toast(`더 좋은 장비 자동 장착! <b style="color:${G.RARITIES[item.rar].color}">${U.esc(item.name)}</b>`);
+      } else G.UI.toast(`<b style="color:${G.RARITIES[item.rar].color}">[${G.RARITIES[item.rar].name}] ${U.esc(item.name)}</b> 가방에 쏙!`);
+    } else G.UI.lootPopup(item, true);
   }
 
   function updateCamera(dt) {
-    const V = G.View, a = st.arena, p = st.player, W = G.World.WALL;
+    const V = G.View, a = st.arena, W = G.World.WALL;
+    const p = st.auto || st.player.dead ? G.Team.centroid(st) : st.player;
     let tx = p.x - V.vw / 2, ty = p.y - V.vh / 2;
     if (V.vw >= a.w + W * 2) tx = (a.w - V.vw) / 2;
     else tx = U.clamp(tx, -W, a.w + W - V.vw);
-    if (V.vh >= a.h + W * 2) ty = (a.h - V.vh) / 2;
-    else ty = U.clamp(ty, -W - 40, a.h + W - V.vh);
+    // 아래쪽 팀 카드에 가리지 않도록 바닥 여유를 둡니다
+    const padB = 110 / V.scale;
+    if (V.vh >= a.h + W * 2 + padB + 40) ty = (a.h - V.vh) / 2 + padB / 2;
+    else ty = U.clamp(ty, -W - 40, a.h + W + padB - V.vh);
     const k = Math.min(1, dt * 7);
     st.cam.x += (tx - st.cam.x) * k;
     st.cam.y += (ty - st.cam.y) * k;
   }
 
   return {
-    start, update, end, drop, burstGold, addZone, addHazard, fireProj, onBossKilled, onPlayerDown,
+    start, update, end, drop, burstGold, addZone, addHazard, fireProj, onBossKilled, onPlayerDown, onTeamWipe, hurtUnit, takePortal,
     abilityChoices, applyAbility, refreshMeta, enterFloor, expNeed,
     get st() { return st; },
     set st(v) { st = v; },
