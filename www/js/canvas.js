@@ -107,6 +107,8 @@
         selWindow: v('--sel-window'),
         selCross: v('--sel-cross'),
         danger: v('--danger'),
+        roomFill: v('--room-fill'),
+        fg: v('--fg'),
       };
       this.requestRender();
     }

@@ -72,6 +72,85 @@
       return a.minX <= b.maxX && a.maxX >= b.minX && a.minY <= b.maxY && a.maxY >= b.minY;
     },
 
+    /** 다각형 넓이(부호 있음, mm²). 점 순서에 따라 + 또는 - */
+    signedArea(pts) {
+      let s = 0;
+      for (let i = 0, n = pts.length; i < n; i++) {
+        const a = pts[i], b = pts[(i + 1) % n];
+        s += a.x * b.y - b.x * a.y;
+      }
+      return s / 2;
+    },
+
+    perimeter(pts) {
+      let s = 0;
+      for (let i = 0, n = pts.length; i < n; i++) s += geom.dist(pts[i], pts[(i + 1) % n]);
+      return s;
+    },
+
+    pointInPolygon(p, pts) {
+      let inside = false;
+      for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+        const a = pts[i], b = pts[j];
+        if ((a.y > p.y) !== (b.y > p.y) && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
+      }
+      return inside;
+    },
+
+    /** 다각형 안쪽의 한 점 (이름표 자리). 무게중심이 안에 있으면 그것, 아니면 가장 넓은 가로 구간의 가운데 */
+    interiorPoint(pts) {
+      const a = geom.signedArea(pts);
+      let cx = 0, cy = 0;
+      for (let i = 0, n = pts.length; i < n; i++) {
+        const p = pts[i], q = pts[(i + 1) % n];
+        const f = p.x * q.y - q.x * p.y;
+        cx += (p.x + q.x) * f;
+        cy += (p.y + q.y) * f;
+      }
+      if (Math.abs(a) > EPS) {
+        const c = { x: cx / (6 * a), y: cy / (6 * a) };
+        if (geom.pointInPolygon(c, pts)) return c;
+      }
+      let minY = Infinity, maxY = -Infinity;
+      pts.forEach((p) => { minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y); });
+      let best = null, bestW = -1;
+      for (let k = 1; k < 8; k++) {
+        const y = minY + ((maxY - minY) * k) / 8;
+        const xs = [];
+        for (let i = 0, n = pts.length; i < n; i++) {
+          const p = pts[i], q = pts[(i + 1) % n];
+          if ((p.y > y) !== (q.y > y)) xs.push(p.x + ((y - p.y) * (q.x - p.x)) / (q.y - p.y));
+        }
+        xs.sort((u, v) => u - v);
+        for (let i = 0; i + 1 < xs.length; i += 2) {
+          if (xs[i + 1] - xs[i] > bestW) {
+            bestW = xs[i + 1] - xs[i];
+            best = { x: (xs[i] + xs[i + 1]) / 2, y };
+          }
+        }
+      }
+      return best || pts[0];
+    },
+
+    /** 일직선 위의 가운데 점을 뺌 (넓이는 그대로) */
+    simplify(pts, tol = 0.5) {
+      const out = pts.slice();
+      let changed = true;
+      while (changed && out.length > 3) {
+        changed = false;
+        for (let i = 0; i < out.length; i++) {
+          const a = out[(i - 1 + out.length) % out.length], b = out[i], c = out[(i + 1) % out.length];
+          const ab = geom.dist(a, b), bc = geom.dist(b, c), ac = geom.dist(a, c);
+          if (Math.abs(ab + bc - ac) < tol) {
+            out.splice(i, 1);
+            changed = true;
+            break;
+          }
+        }
+      }
+      return out;
+    },
+
     rectFromPoints(a, b) {
       return {
         minX: Math.min(a.x, b.x), minY: Math.min(a.y, b.y),

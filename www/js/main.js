@@ -6,6 +6,7 @@
   // 7단계에서 설정 화면과 저장 기능으로 옮김
   App.settings = {
     lengthUnit: 'mm',
+    areaUnit: '㎡',
     decimals: 0,
     gridSize: 100,
     showGrid: true,
@@ -22,6 +23,7 @@
   App.icons.apply(document);
 
   App.doc = new App.model.Doc();
+  App.doc.beforeCommit((tx) => App.rooms.syncRooms(tx)); // 벽이 바뀌면 방 경계도 같은 실행 취소 단계에서 맞춤
   App.selection = new App.Selection();
   const plan = (App.plan = new App.PlanCanvas(document.getElementById('plan'), document.getElementById('stage')));
   const nav = (App.nav = new App.ViewNavigator(plan));

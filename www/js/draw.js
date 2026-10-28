@@ -6,6 +6,8 @@
 
   const LABEL_FONT = '11px system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif';
   const TAG_FONT = '600 13px system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif';
+  const ROOM_NAME_FONT = '700 13px system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif';
+  const ROOM_AREA_FONT = '12px system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif';
   const MITER_LIMIT = 5; // 모서리가 두께의 5배보다 길게 뾰족해지면 맞춤 생략
 
   /* ── 벽 외곽선: 두 벽만 만나는 모서리는 비스듬히 잘라 이음매 없이 ── */
@@ -93,13 +95,16 @@
     const marks = App.tools ? App.tools.highlight() : null; // { ids, color }
 
     const visibleWalls = [];
+    const visibleRooms = [];
     for (const el of App.doc.all()) {
-      if (el.type !== 'wall') continue;
-      if (!G.rectsOverlap(App.model.TYPES.wall.bounds(el), vis)) continue;
-      visibleWalls.push(el);
+      const t = App.model.TYPES[el.type];
+      if (!t || !G.rectsOverlap(t.bounds(el), vis)) continue;
+      if (el.type === 'wall') visibleWalls.push(el);
+      else if (el.type === 'room') visibleRooms.push(el);
     }
 
     worldTransform(plan);
+    drawRooms(plan, visibleRooms, marks);
     const fillWalls = (list, color, alpha = 1) => {
       if (!list.length) return;
       ctx.beginPath();
@@ -115,6 +120,7 @@
 
     screenTransform(plan);
     drawWallLabels(plan, visibleWalls);
+    drawRoomLabels(plan, visibleRooms);
     // 선택한 벽의 끝점 표시
     ctx.fillStyle = c.canvasBg;
     ctx.strokeStyle = c.accent;
@@ -127,6 +133,96 @@
         ctx.strokeRect(s.x - 3.5, s.y - 3.5, 7, 7);
       });
     });
+  }
+
+  /** 방 바닥: 옅은 색. 선택은 주황, 경계를 못 찾은 방은 빨간 점선 */
+  function drawRooms(plan, rooms, marks) {
+    const ctx = plan.ctx;
+    const c = plan.colors;
+    const px = 1 / plan.view.scale; // 1 화면 px을 mm로
+    rooms.forEach((r) => {
+      const selected = App.selection.has(r.id);
+      const marked = marks && marks.ids.has(r.id);
+      ctx.beginPath();
+      polygon(ctx, r.points);
+      ctx.fillStyle = r.issue ? c.danger : selected || marked ? c.accent : c.roomFill;
+      ctx.globalAlpha = r.issue ? 0.08 : selected ? 0.16 : marked ? 0.1 : 1;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      if (selected || r.issue) {
+        ctx.setLineDash(r.issue ? [6 * px, 4 * px] : []);
+        ctx.lineWidth = 2 * px;
+        ctx.strokeStyle = r.issue ? c.danger : c.accent;
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    });
+  }
+
+  /** 방 이름과 바닥 면적. 방이 화면에서 너무 작으면 생략 */
+  function drawRoomLabels(plan, rooms) {
+    const ctx = plan.ctx;
+    const c = plan.colors;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    rooms.forEach((r) => {
+      const b = App.model.TYPES.room.bounds(r);
+      const wPx = (b.maxX - b.minX) * plan.view.scale;
+      const hPx = (b.maxY - b.minY) * plan.view.scale;
+      const name = r.name || '이름 없음';
+      const area = r.issue ? (r.issue === 'open' ? '경계 끊김' : '경계 겹침') : App.units.formatArea(App.model.TYPES.room.floorArea(r));
+      ctx.font = ROOM_NAME_FONT;
+      const nameW = ctx.measureText(name).width;
+      ctx.font = ROOM_AREA_FONT;
+      const areaW = ctx.measureText(area).width;
+      if (wPx < Math.max(nameW, areaW) + 12 || hPx < 40) return;
+      const center = G.interiorPoint(r.points); // seed는 경계를 다시 찾는 기준점이라 가운데가 아닐 수 있음
+      const s = plan.view.toScreen(center.x, center.y);
+      const selected = App.selection.has(r.id);
+      const lines = [[name, ROOM_NAME_FONT, selected ? c.accent : c.fg, -9], [area, ROOM_AREA_FONT, r.issue ? c.danger : c.label, 9]];
+      lines.forEach(([text, font, color, dy]) => {
+        ctx.font = font;
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = c.canvasBg;
+        ctx.strokeText(text, s.x, s.y + dy);
+        ctx.fillStyle = color;
+        ctx.fillText(text, s.x, s.y + dy);
+      });
+    });
+  }
+
+  /** 방 도구로 가리킨 곳: 등록될 범위와 면적 미리보기 */
+  function facePreview(plan, face) {
+    const ctx = plan.ctx;
+    const px = 1 / plan.view.scale;
+    worldTransform(plan);
+    ctx.beginPath();
+    polygon(ctx, face.points);
+    ctx.globalAlpha = 0.12;
+    ctx.fillStyle = plan.colors.accent;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.setLineDash([6 * px, 4 * px]);
+    ctx.lineWidth = 2 * px;
+    ctx.strokeStyle = plan.colors.accent;
+    ctx.stroke();
+    ctx.setLineDash([]);
+    screenTransform(plan);
+    const p = G.interiorPoint(face.points);
+    const s = plan.view.toScreen(p.x, p.y);
+    const text = `${App.units.formatArea(face.area)} · 눌러서 방 만들기`;
+    ctx.font = TAG_FONT;
+    const w = ctx.measureText(text).width + 16;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(s.x - w / 2, s.y - 12, w, 24, 6);
+    else ctx.rect(s.x - w / 2, s.y - 12, w, 24);
+    ctx.fillStyle = plan.colors.accent;
+    ctx.fill();
+    ctx.fillStyle = plan.colors.accentFg;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, s.x, s.y + 0.5);
   }
 
   /** 벽 길이 글자: 화면에서 일정한 크기, 벽이 짧게 보이면 생략 */
@@ -274,5 +370,5 @@
     ctx.setLineDash([]);
   }
 
-  App.draw = { scene, wallOutlines, previewWall, lengthTag, snapMarker, pointMarker, selectionBox };
+  App.draw = { scene, wallOutlines, previewWall, lengthTag, snapMarker, pointMarker, selectionBox, facePreview };
 })();

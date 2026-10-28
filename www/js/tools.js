@@ -111,7 +111,13 @@
       const sel = App.selection;
       if (!sel.has(p.hit)) sel.set([p.hit]);
       p.mode = 'move';
-      p.ids = sel.list();
+      // 방을 옮기면 그 방을 둘러싼 벽도 함께
+      const ids = new Set(sel.list());
+      sel.list().forEach((id) => {
+        const el = App.doc.get(id);
+        if (el && el.type === 'room') el.wallIds.forEach((w) => App.doc.has(w) && ids.add(w));
+      });
+      p.ids = [...ids];
       p.orig = new Map(p.ids.map((id) => [id, App.model.clone(App.doc.get(id))]));
       p.exclude = new Set(p.ids);
       p.points = [];
@@ -349,10 +355,74 @@
     }
   }
 
+  /* ── 방 도구: 벽으로 닫힌 곳을 누르면 방으로 등록 ── */
+  class RoomTool {
+    activate() {
+      this.press = null;
+      this.preview = null; // { face, existing }
+    }
+    lookup(p) {
+      const existing = App.doc.hitTest(p, 1, (el) => el.type === 'room');
+      return { face: App.rooms.faceAt(p), existing };
+    }
+    hover(ev) {
+      this.preview = ev ? this.lookup(ev.world) : null;
+      render();
+    }
+    down(ev) {
+      this.press = ev;
+      this.preview = null;
+    }
+    move(ev) {
+      if (!this.press) this.hover(ev);
+    }
+    up(ev) {
+      const pr = this.press;
+      this.press = null;
+      if (!pr || dragged(ev, pr)) return;
+      const p = ev.world;
+      const tol = (ev.touch ? HIT_PX.touch : HIT_PX.mouse) / App.plan.view.scale;
+      if (App.doc.hitTest(p, tol, (el) => el.type === 'wall')) {
+        App.ui.hint('벽이 아니라 방 안쪽 빈 곳을 누르세요.');
+        return;
+      }
+      const { face, existing } = this.lookup(p);
+      const room = existing && App.doc.get(existing);
+      if (room && face && !room.issue && Math.abs(App.model.TYPES.room.floorArea(room) - face.area) < 1) {
+        App.selection.set([existing]);
+        App.ui.hint(`이미 ‘${room.name}’(으)로 등록된 곳입니다.`);
+        return;
+      }
+      if (!face) {
+        App.ui.hint('벽으로 닫힌 곳이 아닙니다. 벽 끝이 서로 붙어 있는지 확인하세요.', 4000);
+        return;
+      }
+      const created = App.model.TYPES.room.create(face.points, face.wallIds, App.rooms.nextName());
+      // 둘러싼 벽 높이가 모두 같으면 그 값을 방의 벽 높이로
+      const heights = new Set(face.wallIds.map((id) => App.doc.get(id).height));
+      if (heights.size === 1) created.wallHeight = created.ceilingHeight = [...heights][0];
+      App.doc.transact('방 만들기', () => App.doc.add(created));
+      App.selection.set([created.id]);
+      App.ui.toast(`${created.name}: 바닥 ${App.units.formatArea(face.area)}`);
+      if (!ev.touch) this.hover(ev);
+    }
+    cancel() {
+      this.press = null;
+    }
+    highlight() {
+      const pv = this.preview;
+      return pv && pv.existing ? { ids: new Set([pv.existing]), color: 'accent' } : null;
+    }
+    overlay(plan) {
+      const pv = this.preview;
+      if (pv && pv.face && !pv.existing) App.draw.facePreview(plan, pv.face);
+    }
+  }
+
   /** 아직 만들지 않은 도구: 캔버스를 눌러도 아무 일도 하지 않음 */
   class IdleTool {}
 
-  const REGISTRY = { select: SelectTool, wall: WallTool, erase: EraseTool };
+  const REGISTRY = { select: SelectTool, wall: WallTool, room: RoomTool, erase: EraseTool };
 
   function removeElements(ids, label) {
     App.doc.transact(label, () => ids.forEach((id) => App.doc.remove(id)));
