@@ -1,6 +1,6 @@
-/* 화면 이동·확대.
-   PC: 마우스 휠 확대·축소, 스페이스+드래그 또는 가운데 버튼 드래그로 이동
-   모바일: 두 손가락 핀치 확대·축소와 이동을 동시에. 한 손가락은 그리기 도구용으로 남겨 둠 */
+/* 화면 이동·확대와 도구 입력 나누기.
+   PC: 마우스 휠 확대·축소, 스페이스+드래그 또는 가운데 버튼 드래그로 이동, 왼쪽 버튼은 도구
+   모바일: 두 손가락 핀치 확대·축소와 이동을 동시에, 한 손가락은 도구 */
 (function () {
   'use strict';
   const App = (window.App = window.App || {});
@@ -13,8 +13,10 @@
       this.el = plan.canvas;
       this.pointers = new Map(); // pointerId → 캔버스 기준 위치
       this.gesture = null;       // { type: 'pan' | 'pinch', ... }
+      this.toolPointer = null;   // 도구가 쓰고 있는 포인터
       this.spaceDown = false;
-      this.touchLocked = false;  // 핀치 뒤 남은 손가락이 그리기로 이어지지 않게
+      this.touchLocked = false;  // 핀치 뒤 남은 손가락이 도구로 이어지지 않게
+      this.lastMouse = null;     // Shift 누름·휠 확대 뒤 도구 미리보기 갱신용 { e, p }
       this.hoverListeners = [];
 
       const el = this.el;
@@ -23,7 +25,10 @@
       el.addEventListener('pointerup', (e) => this.up(e));
       el.addEventListener('pointercancel', (e) => this.up(e));
       el.addEventListener('pointerleave', (e) => {
-        if (e.pointerType !== 'touch' && !this.pointers.size) this.emitHover(null);
+        if (e.pointerType === 'touch' || this.pointers.size) return;
+        this.lastMouse = null;
+        this.emitHover(null);
+        this.tool('hover', null);
       });
       el.addEventListener('wheel', (e) => this.wheel(e), { passive: false });
       el.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -37,26 +42,65 @@
       return { x: e.clientX - r.left, y: e.clientY - r.top };
     }
 
+    /** 도구에 넘길 이벤트 */
+    toolEvent(e, p, shift = e.shiftKey) {
+      return {
+        x: p.x,
+        y: p.y,
+        world: this.plan.view.toWorld(p.x, p.y),
+        shift,
+        alt: e.altKey,
+        ctrl: e.ctrlKey || e.metaKey,
+        touch: e.pointerType === 'touch',
+      };
+    }
+
+    tool(method, e, p, shift) {
+      const t = App.tools && App.tools.current;
+      if (!t || !t[method]) return;
+      t[method](e ? this.toolEvent(e, p, shift) : null);
+    }
+
     down(e) {
       const p = this.local(e);
       this.pointers.set(e.pointerId, p);
       try { this.el.setPointerCapture(e.pointerId); } catch (_) { /* 이미 끝난 포인터 */ }
 
       if (e.pointerType === 'touch') {
-        if (this.pointers.size === 2) this.startPinch();
+        if (this.pointers.size === 1 && !this.touchLocked) {
+          this.toolPointer = e.pointerId;
+          this.tool('down', e, p);
+        } else if (this.pointers.size === 2) {
+          if (this.toolPointer !== null) {
+            this.toolPointer = null;
+            this.tool('cancel'); // 두 번째 손가락: 그리던 것은 취소하고 핀치로
+          }
+          this.startPinch();
+        }
         return;
       }
       if (e.button === 1 || (e.button === 0 && this.spaceDown)) {
         e.preventDefault();
         this.gesture = { type: 'pan', x: p.x, y: p.y };
         this.updateCursor();
+      } else if (e.button === 0) {
+        this.toolPointer = e.pointerId;
+        this.tool('down', e, p);
+      } else if (e.button === 2) {
+        this.tool('context', e, p);
       }
     }
 
     move(e) {
       const p = this.local(e);
-      if (e.pointerType !== 'touch') this.emitHover(p);
-      if (!this.pointers.has(e.pointerId)) return;
+      if (e.pointerType !== 'touch') {
+        this.lastMouse = { e, p };
+        this.emitHover(p);
+      }
+      if (!this.pointers.has(e.pointerId)) {
+        if (e.pointerType !== 'touch' && !this.gesture) this.tool('hover', e, p);
+        return;
+      }
       this.pointers.set(e.pointerId, p);
 
       const g = this.gesture;
@@ -67,11 +111,20 @@
         this.plan.requestRender();
       } else if (g && g.type === 'pinch') {
         this.updatePinch();
+      } else if (e.pointerId === this.toolPointer) {
+        this.tool('move', e, p);
       }
     }
 
     up(e) {
-      if (!this.pointers.delete(e.pointerId)) return;
+      if (!this.pointers.has(e.pointerId)) return;
+      const p = this.local(e);
+      this.pointers.delete(e.pointerId);
+      if (e.pointerId === this.toolPointer) {
+        this.toolPointer = null;
+        if (e.type === 'pointercancel') this.tool('cancel');
+        else this.tool('up', e, p);
+      }
       const g = this.gesture;
       if (g && g.type === 'pinch') {
         if (this.pointers.size >= 2) {
@@ -121,9 +174,22 @@
       this.plan.view.zoomAt(p.x, p.y, Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.0015)));
       this.plan.requestRender();
       this.emitHover(p);
+      this.refreshTool(e.shiftKey);
+    }
+
+    /** 마우스가 가만히 있어도 Shift나 배율이 바뀌면 도구 미리보기를 다시 계산 */
+    refreshTool(shift) {
+      const m = this.lastMouse;
+      if (!m || this.gesture) return;
+      if (this.toolPointer !== null) this.tool('move', m.e, m.p, shift);
+      else this.tool('hover', m.e, m.p, shift);
     }
 
     key(e, isDown) {
+      if (e.key === 'Shift') {
+        this.refreshTool(isDown);
+        return;
+      }
       if (e.code !== 'Space' || isTyping(e.target)) return;
       e.preventDefault(); // 페이지 스크롤, 버튼 눌림 방지
       if (this.spaceDown === isDown) return;
@@ -137,6 +203,8 @@
     }
 
     reset() {
+      if (this.toolPointer !== null) this.tool('cancel');
+      this.toolPointer = null;
       this.spaceDown = false;
       this.gesture = null;
       this.pointers.clear();

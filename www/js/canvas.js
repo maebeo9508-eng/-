@@ -71,12 +71,18 @@
       // 캔버스 위를 덮는 UI(모바일 서랍 등). 화면 맞춤 때 이 부분을 피함
       this.insets = { top: 0, right: 0, bottom: 0, left: 0 };
       this._raf = 0;
+      this._layers = [];      // 격자 위에 그릴 것들 (도면 요소, 도구 미리보기)
       this._renderHooks = [];
 
       this.readTheme();
       this.resize();
       if ('ResizeObserver' in window) new ResizeObserver(() => this.resize()).observe(host);
       window.addEventListener('resize', () => this.resize()); // 기기 배율(dpr) 변화 포함
+    }
+
+    /** 격자 위에 차례로 그릴 함수 추가 */
+    addLayer(fn) {
+      this._layers.push(fn);
     }
 
     /** 다시 그릴 때마다 호출 (축척 막대 등 화면 표시 갱신용) */
@@ -89,10 +95,18 @@
       const cs = getComputedStyle(document.documentElement);
       const v = (name) => cs.getPropertyValue(name).trim();
       this.colors = {
-        bg: v('--canvas-bg'),
+        canvasBg: v('--canvas-bg'),
         gridMinor: v('--grid-minor'),
         gridMajor: v('--grid-major'),
         axis: v('--axis'),
+        wall: v('--wall'),
+        label: v('--label'),
+        accent: v('--accent'),
+        accentFg: v('--accent-fg'),
+        snap: v('--snap'),
+        selWindow: v('--sel-window'),
+        selCross: v('--sel-cross'),
+        danger: v('--danger'),
       };
       this.requestRender();
     }
@@ -122,9 +136,9 @@
       });
     }
 
-    /** 그린 요소 전체 범위(mm). 요소는 2단계부터 생김 */
+    /** 그린 요소 전체 범위(mm). 비어 있으면 null */
     contentBounds() {
-      return null;
+      return App.doc ? App.doc.bounds() : null;
     }
 
     /** 도면 전체가 한 화면에 들어오게. 그린 것이 없으면 기본 범위 */
@@ -148,10 +162,15 @@
       }
       const { ctx, canvas } = this;
       ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.fillStyle = this.colors.bg || '#fff';
+      ctx.fillStyle = this.colors.canvasBg || '#fff';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       if (App.settings.showGrid) this.drawGrid();
       this.drawAxes();
+      for (const fn of this._layers) {
+        ctx.save();
+        fn(this);
+        ctx.restore();
+      }
       for (const fn of this._renderHooks) fn(this);
     }
 
