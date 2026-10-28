@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#ffffff">
+<title>현장 도면·물량</title>
+<link rel="stylesheet" href="css/style.css">
+<script src="js/icons.js" defer></script>
+<script src="js/canvas.js" defer></script>
+<script src="js/input.js" defer></script>
+<script src="js/ui.js" defer></script>
+<script src="js/main.js" defer></script>
+</head>
+<body>
+<div class="app" id="app">
+
+  <header class="topbar">
+    <div class="brand pc-only"><span class="brand-mark" aria-hidden="true"></span>현장도면 <small>물량 집계</small></div>
+
+    <div class="menu-wrap">
+      <button type="button" class="tb-btn" id="btnFile" aria-haspopup="menu" aria-expanded="false" aria-controls="fileMenu">
+        <span class="ico" data-icon="file"></span><span>파일</span><span class="ico ico-sm" data-icon="chevron"></span>
+      </button>
+      <div class="menu" id="fileMenu" role="menu" hidden>
+        <div class="menu-label">프로젝트</div>
+        <button type="button" class="menu-item" role="menuitem" disabled>새 프로젝트<span class="menu-tag">8단계</span></button>
+        <button type="button" class="menu-item" role="menuitem" disabled>불러오기 (JSON)<span class="menu-tag">8단계</span></button>
+        <button type="button" class="menu-item" role="menuitem" disabled>백업 저장 (JSON)<span class="menu-tag">8단계</span></button>
+        <div class="menu-sep" role="separator"></div>
+        <div class="menu-label">내보내기</div>
+        <button type="button" class="menu-item" role="menuitem" disabled>집계표 CSV<span class="menu-tag">6단계</span></button>
+        <button type="button" class="menu-item" role="menuitem" disabled>도면 PNG<span class="menu-tag">11단계</span></button>
+        <button type="button" class="menu-item" role="menuitem" disabled>도면+집계표 PDF<span class="menu-tag">11단계</span></button>
+      </div>
+    </div>
+
+    <span class="tb-divider pc-only" aria-hidden="true"></span>
+    <button type="button" class="tb-btn" id="btnUndo" title="실행 취소 (Ctrl+Z)" aria-label="실행 취소" disabled><span class="ico" data-icon="undo"></span></button>
+    <button type="button" class="tb-btn" id="btnRedo" title="다시 실행 (Ctrl+Y)" aria-label="다시 실행" disabled><span class="ico" data-icon="redo"></span></button>
+
+    <span class="tb-spacer"></span>
+
+    <button type="button" class="tb-btn tb-chip pc-only" id="btnUnits" title="단위 설정"><span class="ico" data-icon="ruler"></span><span id="unitLabel">mm · ㎡</span></button>
+    <button type="button" class="tb-btn" id="btnSettings" aria-label="설정"><span class="ico" data-icon="gear"></span><span class="pc-only">설정</span></button>
+  </header>
+
+  <div class="workspace">
+    <nav class="toolbar" id="toolbar" role="toolbar" aria-label="그리기 도구"></nav>
+
+    <main class="stage" id="stage">
+      <canvas class="plan" id="plan" aria-label="도면"></canvas>
+
+      <div class="tool-hint" id="toolHint" role="status" aria-live="polite"></div>
+
+      <div class="hud" aria-hidden="true">
+        <div class="scalebar"><div class="scalebar-bar" id="scaleBar"></div><span id="scaleLabel"></span></div>
+        <span class="coords" id="coords" hidden></span>
+      </div>
+
+      <button type="button" class="fab" id="btnFit" title="화면 맞춤" aria-label="화면 맞춤">
+        <span class="ico" data-icon="fit"></span><span class="pc-only">화면 맞춤</span>
+      </button>
+    </main>
+
+    <aside class="panel" id="panel" aria-label="속성과 집계">
+      <div class="sheet-head" id="sheetHead">
+        <div class="sheet-grip" aria-hidden="true"></div>
+        <div class="tabs" role="tablist">
+          <button type="button" class="tab" role="tab" id="tab-props" aria-selected="true" aria-controls="pane-props">속성</button>
+          <button type="button" class="tab" role="tab" id="tab-summary" aria-selected="false" aria-controls="pane-summary">집계</button>
+        </div>
+      </div>
+
+      <section class="pane" id="pane-props" role="tabpanel" aria-labelledby="tab-props">
+        <div class="empty">
+          <div class="empty-title">선택한 항목 없음</div>
+          <p>도면에서 벽·문·아이템을 고르면 높이, 두께, 메모, 레이어를 여기서 고칠 수 있습니다.</p>
+        </div>
+      </section>
+
+      <section class="pane" id="pane-summary" role="tabpanel" aria-labelledby="tab-summary" hidden>
+        <div class="empty">
+          <div class="empty-title">집계할 항목 없음</div>
+          <p>벽과 방을 그리면 벽 면적, 바닥·천장 면적, 문·창문 수량이 여기에 자동으로 정리됩니다.</p>
+        </div>
+      </section>
+    </aside>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+</div>
+</body>
+</html>
