@@ -5,10 +5,37 @@ G.Scene = (function () {
   const A = () => G.Art;
   const OL = '#3b2a4d';
 
+  // ── 도트 감성 ──────────────────────────────────────────
+  // 세상을 작은 캔버스에 그린 뒤 픽셀이 또렷하게 보이도록 k배 확대합니다.
+  // (글자·체력바·화면 고정 UI는 원래 해상도로 그려 선명하게 유지)
+  let pixCanvas = null, pixCtx = null;
+  function pixelK() {
+    const set = G.Save.data && G.Save.data.settings;
+    if (!set || set.pixel === false) return 1;
+    const V = G.View;
+    return Math.max(2, Math.round(V.scale * V.dpr * 1.2)); // 화면 픽셀 k개 = 그림 픽셀 1개 (월드 1단위 ≈ 그림 픽셀 1개)
+  }
+  function beginPix(out, k) {
+    const w = Math.ceil(out.canvas.width / k), h = Math.ceil(out.canvas.height / k);
+    if (!pixCanvas) { pixCanvas = document.createElement('canvas'); pixCtx = pixCanvas.getContext('2d'); }
+    if (pixCanvas.width !== w || pixCanvas.height !== h) { pixCanvas.width = w; pixCanvas.height = h; }
+    pixCtx.imageSmoothingEnabled = true;
+    pixCtx.imageSmoothingQuality = 'high';
+    return pixCtx;
+  }
+  function endPix(out, k) {
+    out.setTransform(1, 0, 0, 1, 0, 0);
+    out.imageSmoothingEnabled = false;
+    out.drawImage(pixCanvas, 0, 0, pixCanvas.width * k, pixCanvas.height * k);
+    out.imageSmoothingEnabled = true;
+  }
+
   // ── 탑 안 ──────────────────────────────────────────────
   function drawRun(ctx, st, t) {
     const V = G.View;
-    const dpr = V.dpr;
+    const out = ctx, k = pixelK();
+    if (k > 1) ctx = beginPix(out, k);
+    const dpr = V.dpr / k;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = U.shade(st.stage.wall, -0.45);
     ctx.fillRect(0, 0, V.w, V.h);
@@ -34,10 +61,11 @@ G.Scene = (function () {
       list.push({ y: o.y, f: img ? () => drawObstacleImg(ctx, img, o) : () => A().obstacle(ctx, o.kind, o.x, o.y, o.r, o.seed, t) });
     }
     for (const o of st.props) list.push({ y: o.y, f: () => drawProp(ctx, o, t) });
+    for (const c of st.corpses) list.push({ y: c.y, f: () => drawCorpse(ctx, c) });
     for (const e of st.enemies) list.push({ y: e.y, f: () => drawEnemy(ctx, e) });
     for (const al of st.allies) list.push({ y: al.y, f: () => G.Allies.draw(ctx, al) });
     if (!st.player.dead) list.push({ y: st.player.y, f: () => G.Player.draw(ctx, st.player, st) });
-    else list.push({ y: st.player.y, f: () => A().creature(ctx, Object.assign({}, G.HERO_LOOK, { eyes: 'x', mouth: 'o' }), st.player.x, st.player.y, st.player.r, { t, alpha: 0.5, face: st.player.face }) });
+    else list.push({ y: st.player.y, f: () => drawDownHero(ctx, st.player, t) });
     list.sort((p, q) => p.y - q.y);
     for (const it of list) it.f();
 
@@ -46,11 +74,17 @@ G.Scene = (function () {
     for (const b of st.eprojs) drawEProj(ctx, b, t);
     for (const b of st.bolts) drawBolt(ctx, b);
     G.Fx.draw(ctx);
+    if (k > 1) {
+      endPix(out, k);
+      ctx = out;
+      const s2 = V.scale * V.dpr;
+      ctx.setTransform(s2, 0, 0, s2, (-st.cam.x * V.scale + sx) * V.dpr, (-st.cam.y * V.scale + sy) * V.dpr);
+    }
     for (const e of st.enemies) if ((e.elite || e.hp < e.maxHp) && !e.boss && !e.burrowed && e.spawnT <= 0) drawHpBar(ctx, e);
     G.Fx.drawTexts(ctx);
 
     // 화면 고정 요소
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.setTransform(V.dpr, 0, 0, V.dpr, 0, 0);
     const p = st.player;
     const low = p.hp / p.maxHp;
     if (st.hitFlash > 0 || low < 0.3) {
@@ -128,6 +162,18 @@ G.Scene = (function () {
     ctx.drawImage(img, o.x - w / 2, o.y + o.r * 0.5 - h, w, h);
   }
 
+  // 쓰러진 모찌: 기절 동작 그림이 있으면 그것, 없으면 X눈 모찌
+  function drawDownHero(ctx, p, t) {
+    if (G.Assets.drawEnt(ctx, 'hero', p, 'die', p.x, p.y + p.r, p.r * 2.6, p.face < 0, G.Assets.hasState('hero', 'die') ? 1 : 0.5, 0)) return;
+    A().creature(ctx, Object.assign({}, G.HERO_LOOK, { eyes: 'x', mouth: 'o' }), p.x, p.y, p.r, { t, alpha: 0.5, face: p.face });
+  }
+
+  // 쓰러지는 동작을 끝까지 보여 준 뒤 사라지는 몬스터
+  function drawCorpse(ctx, c) {
+    const fade = Math.min(1, Math.max(0, (c.life - c.t) / 0.3));
+    G.Assets.drawEnt(ctx, c.type, c, 'die', c.x, c.y + c.r, c.r * 2.6, c.face < 0, fade, 0);
+  }
+
   function drawEnemy(ctx, e) {
     if (e.burrowed) {
       ctx.save();
@@ -145,8 +191,7 @@ G.Scene = (function () {
     let scale = 1;
     if (e.spawnT > 0) scale = 1 - e.spawnT / 0.35;
     const r = e.r * Math.max(0.05, scale);
-    const state = e.flash > 0 ? 'hurt' : e.moving ? 'walk' : 'idle';
-    const drawn = G.Assets.draw(ctx, e.type, state, e.t, e.x, e.y - (e.hop || 0) + r, r * 2.6, e.face < 0, e.alpha);
+    const drawn = G.Assets.drawEnt(ctx, e.type, e, e.moving ? 'walk' : 'idle', e.x, e.y - (e.hop || 0) + r, r * 2.6, e.face < 0, e.alpha, e.flash);
     if (!drawn) {
       A().creature(ctx, e.look, e.x, e.y, r, { t: e.t, moving: e.moving, face: e.face, flash: e.flash, seed: e.seed, alpha: e.alpha, elite: e.elite, hop: e.hop, squash: e.squash, lookX: 0, lookY: 0 });
     }
@@ -618,7 +663,14 @@ G.Scene = (function () {
   for (let i = 0; i < 70; i++) campStars.push({ x: Math.random(), y: Math.random() * 0.55, r: Math.random() * 1.4 + 0.4, p: Math.random() * 6 });
 
   function drawCamp(ctx, t, areaH) {
-    const V = G.View, dpr = V.dpr;
+    const out = ctx, k = pixelK();
+    if (k > 1) ctx = beginPix(out, k);
+    drawCampScene(ctx, t, areaH, G.View.dpr / k);
+    if (k > 1) endPix(out, k);
+  }
+
+  function drawCampScene(ctx, t, areaH, dpr) {
+    const V = G.View;
     const W = V.w, H = areaH || V.h;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const sky = ctx.createLinearGradient(0, 0, 0, H);

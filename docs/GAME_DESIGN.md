@@ -378,7 +378,8 @@ S(층) = 1.06^(층-1) × (1 + 0.02 × (층-1))
 tower/
   index.html            진입점
   css/style.css         스티커 스타일 UI
-  assets/manifest.js    PNG 에셋 등록 (비어 있으면 코드로 그린 그림 사용)
+  assets/manifest.js    PNG 에셋 등록 (손으로). manifest.auto.js 는 가져오기 도구가 자동 작성
+  assets/asset-plan.json  AI 에셋 생성 계획 (프롬프트·동작·크기·크레딧)
   js/core/              유틸, 저장, 효과음(WebAudio 합성), 입력, 에셋 로더
   js/render/art.js      "몽글 아트 엔진" — look 데이터로 모든 생물/무기/장애물을 그림
   js/render/fx.js       파티클, 피해 숫자, 화면 흔들림
@@ -387,8 +388,16 @@ tower/
   js/game/              능력치, 전리품, 방 생성, 전투, AI, 보스, 아군, 팀(자동 전투·궁극기), 플레이어, 런 진행
   js/ui/                공용 모달·대화, HUD, 마을 화면
   tools/build-novel.js  docs/novel → js/data/novel.js 변환
-  tools/sprite-packer.html  AI 이미지 → 스프라이트 시트 변환 도구
+  tools/sprite-packer.html  AI 이미지 → 스프라이트 시트 변환 도구 (손으로)
+  tools/build-asset-plan.js 게임 데이터 → asset-plan.json + docs/ASSET_PLAN.md
+  tools/export-refs.js      코드 그림 → AI 참고 그림 PNG
+  tools/import_sprites.py   AI 결과(시트·GIF·동영상) → 배경 제거·크기·발 정렬·도트 처리 → 자동 등록
+  tools/gallery.html        캐릭터 도감 (코드 그림 / AI 스프라이트 동작 재생)
 ```
+
+- 그림체: **귀여운 동물 친구들 + 도트 감성**. 몬스터도 동물 특징(고양이 귀 슬라임, 진저 쿠키 곰, 오리 기사…)을 가져요
+- 도트 감성 화면: 월드를 작은 캔버스에 그린 뒤 픽셀 그대로 k배 확대 (글자·체력바는 원래 해상도로 선명하게). 설정에서 끌 수 있어요
+- 동작 재생: 반복(idle·walk) + 한 번 재생(attack·hurt·ult·cast·die). 행동한 순간 첫 프레임부터 재생하고, 쓰러진 몬스터는 die 동작을 끝까지 보여 준 뒤 사라져요
 
 - 저장: `localStorage` (`mongle_tower_save_v1`). 저장이 막힌 환경에서도 메모리로 플레이 가능
 - 테스트용 주소: `tower/index.html?dev` → 자원·동료·체크포인트 90층 지급 (개발 확인용)

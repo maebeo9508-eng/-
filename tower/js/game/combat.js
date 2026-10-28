@@ -55,6 +55,7 @@ G.Combat = (function () {
     if (!o.noCrit && Math.random() < rs.crit) { crit = true; d *= rs.critDmg; }
     e.hp -= d;
     e.flash = 0.09;
+    if (!e.boss) G.Assets.trigger(e, 'hurt');
     if (o.knock && !e.boss) {
       const k = o.knock[2] * (e.elite ? 0.4 : 1);
       e.kx += o.knock[0] * k;
@@ -201,6 +202,9 @@ G.Combat = (function () {
     G.Fx.burst(e.x, e.y, [col, '#ffffff', '#fff3b0'], e.boss ? 40 : e.elite ? 20 : 9, e.boss ? 260 : 150, e.boss ? 6 : 3.5, { shape: 'star' });
     G.Fx.ring(e.x, e.y, e.r * 0.5, e.r * 1.6, '#ffffff', 0.3, 3);
     G.Sfx.play(e.boss ? 'boom' : 'pop');
+    // 쓰러지는 동작 그림이 있으면 끝까지 재생하고 사라져요
+    const dieT = G.Assets.duration(e.type, 'die');
+    if (dieT > 0) st.corpses.push({ type: e.type, x: e.x, y: e.y - (e.hop || 0), r: e.r, face: e.face, t: 0, downAt: 0, life: dieT + 0.35 });
     if (e.boss) { G.Run.onBossKilled(e); return; }
 
     // 경험치 구슬

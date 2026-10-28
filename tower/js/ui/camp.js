@@ -538,6 +538,7 @@ G.Camp = (function () {
     const html = () => `<h2>⚙️ 설정</h2>
       <div class="setting"><span>효과음</span><button class="toggle ${s.settings.sound ? 'on' : ''}" data-act="tog" data-k="sound" aria-label="효과음"></button></div>
       <div class="setting"><span>진동</span><button class="toggle ${s.settings.vibe ? 'on' : ''}" data-act="tog" data-k="vibe" aria-label="진동"></button></div>
+      <div class="setting"><span>도트 감성 화면<br><span class="muted">끄면 매끈한 그림으로 보여요</span></span><button class="toggle ${s.settings.pixel !== false ? 'on' : ''}" data-act="tog" data-k="pixel" aria-label="도트 감성 화면"></button></div>
       <div class="setting"><span>피해 숫자 표시</span><button class="toggle ${s.settings.dmgText ? 'on' : ''}" data-act="tog" data-k="dmgText" aria-label="피해 숫자"></button></div>
       <div class="setting"><span>AUTO 전투로 시작<br><span class="muted">끄면 모찌를 직접 조종해요</span></span><button class="toggle ${s.settings.auto !== false ? 'on' : ''}" data-act="tog" data-k="auto" aria-label="AUTO 전투"></button></div>
       <div class="setting"><span>자동 진행<br><span class="muted">문·능력·장비를 알아서 골라요</span></span><button class="toggle ${s.settings.autoProgress ? 'on' : ''}" data-act="tog" data-k="autoProgress" aria-label="자동 진행"></button></div>

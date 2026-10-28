@@ -62,6 +62,7 @@ G.AI = (function () {
     const a = U.angleTo(e.x, e.y, tg.x, tg.y);
     C().fan(e.x, e.y, a, def.count || 1, def.spread || 0.3, def.proj, e.atk * 0.9);
     e.squash = 0.18;
+    G.Assets.trigger(e, 'attack');
     G.Sfx.play('shoot');
   }
 
@@ -378,9 +379,14 @@ G.AI = (function () {
     },
   };
 
+  // 공격 준비 자세(조준·도약·퓨즈 등)에 들어가는 순간 공격 동작을 한 번 재생해요
+  const WINDUP = { wind: 1, emerge: 1 };
   function update(e, dt) {
     if (e.frozenT > 0) { e.moving = false; return; }
+    const s = e.s, st0 = s.state, w0 = s.wind > 0, j0 = !!s.jump, f0 = s.fuse > 0, cd0 = e.cd;
     (A[e.ai] || A.chase)(e, dt);
+    if ((s.state !== st0 && WINDUP[s.state]) || (!w0 && s.wind > 0) || (!j0 && s.jump) || (!f0 && s.fuse > 0) ||
+        ((e.ai === 'turret' || e.ai === 'ambusher') && e.cd > cd0 + 0.1)) G.Assets.trigger(e, 'attack');
   }
 
   return { update, target, steer, faceTo };

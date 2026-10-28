@@ -28,7 +28,7 @@
       cleared: {}, // 처음 클리어한 스테이지
       stats: { runs: 0, kills: 0, deaths: 0, bosses: 0 },
       freeBoxAt: 0,
-      settings: { sound: true, vibe: true, dmgText: true, auto: true, autoProgress: false, speed: 1 },
+      settings: { sound: true, vibe: true, dmgText: true, auto: true, autoProgress: false, speed: 1, pixel: true },
       started: false,
     };
   }

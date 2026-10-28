@@ -10,8 +10,10 @@
 - **플레이**: `tower/index.html` 을 브라우저로 열면 바로 실행됩니다. (GitHub Pages를 켜면 `…/tower/` 주소로 휴대폰에서도 플레이)
 - **기획서**: [`docs/GAME_DESIGN.md`](docs/GAME_DESIGN.md) — 팀 전투·궁극기·스테이지·몬스터·보스·장비·룬·특성·스킬·펫·동료 전체 설계
 - **원작 소설**: [`docs/novel/`](docs/novel/README.md) — 『모찌와 백 층의 꿈』 프롤로그 + 10장 + 에필로그
-- **에셋 제작**: [`docs/ASSET_PROMPTS.md`](docs/ASSET_PROMPTS.md) — ChatGPT · Gemini 프롬프트, 애니메이션 규격, 적용 방법
-- **스프라이트 패커**: [`tower/tools/sprite-packer.html`](tower/tools/sprite-packer.html) — AI 그림/동영상을 스프라이트 시트로
+- **그림체**: 귀여운 동물 친구들 + 도트 감성. 설정의 "도트 감성 화면"(기본 켜짐)이 모든 그림을 같은 픽셀 크기로 맞춰요
+- **AI 에셋 계획**: [`docs/ASSET_PLAN.md`](docs/ASSET_PLAN.md) — 캐릭터 72명·동작 318개·아이콘 44개의 프롬프트, 단계별 크레딧 비용
+- **에셋 제작 가이드**: [`docs/ASSET_PROMPTS.md`](docs/ASSET_PROMPTS.md) — ChatGPT · Gemini · AutoSprite 파이프라인, 애니메이션 규격
+- **도구**: [`tower/tools/gallery.html`](tower/tools/gallery.html) 캐릭터 도감 · `export-refs.js` 참고 그림 · `import_sprites.py` AI 그림 자동 가져오기 · [`sprite-packer.html`](tower/tools/sprite-packer.html) 손으로 시트 만들기
 
 ### 로컬에서 실행
 

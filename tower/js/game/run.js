@@ -29,7 +29,7 @@ G.Run = (function () {
       skillCd: [0, 0], skillCdMax: [1, 1], dashCdMax: 2.4,
       gained: { gold: 0, gems: 0, shards: 0, items: [], runes: [], kills: 0, floors: 0, dmg: 0, bosses: 0 },
       time: 0, phase: 'fight', paused: false, clearT: 0,
-      enemies: [], spawns: [], projs: [], eprojs: [], pickups: [], allies: [], zones: [], props: [], portals: [], swings: [], bolts: [], timers: [],
+      enemies: [], corpses: [], spawns: [], projs: [], eprojs: [], pickups: [], allies: [], zones: [], props: [], portals: [], swings: [], bolts: [], timers: [],
       arena: null, stage: null, room: 'battle', waves: null,
       cam: { x: 0, y: 0 }, hitFlash: 0, banner: null, playerSlow: false, taunters: [], slowAura: null,
       auto: save.settings.auto !== false, speed: save.settings.speed || 1, slowmo: 0, cutin: null, doorAsked: false,
@@ -64,7 +64,7 @@ G.Run = (function () {
     st.stage = G.stageOf(n);
     st.arena = G.World.makeArena(room, n, st.stage);
     G.World.renderGround(st.arena, st.stage, groundRes());
-    for (const k of ['enemies', 'spawns', 'projs', 'eprojs', 'pickups', 'zones', 'props', 'portals', 'swings', 'bolts', 'timers']) st[k] = [];
+    for (const k of ['enemies', 'corpses', 'spawns', 'projs', 'eprojs', 'pickups', 'zones', 'props', 'portals', 'swings', 'bolts', 'timers']) st[k] = [];
     st.allies = st.allies.filter((a) => a.kind === 'pet' || a.kind === 'comp');
     const p = st.player;
     // 쓰러진 팀원은 다음 층에서 체력 30%로 다시 일어나요
@@ -317,6 +317,7 @@ G.Run = (function () {
     const p = st.player;
     if (p.dead) return;
     p.dead = true;
+    p.downAt = p.t;
     p.hp = 0;
     p.dash = null;
     G.Fx.burst(p.x, p.y, ['#ffffff', '#ffb3c6'], 24, 160, 4, { shape: 'star' });
@@ -587,6 +588,8 @@ G.Run = (function () {
 
   function updateEnemies(dt) {
     const p = st.player;
+    for (const c of st.corpses) c.t += dt;
+    if (st.corpses.length) st.corpses = st.corpses.filter((c) => c.t < c.life);
     for (const e of st.enemies) {
       e.t += dt;
       if (e.spawnT > 0) { e.spawnT -= dt; continue; }

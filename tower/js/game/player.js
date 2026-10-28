@@ -51,6 +51,7 @@ G.Player = (function () {
     for (const d of dirs) fireOne(st, base + d, m * (d === 0 ? 1 : 0.85));
     for (let k = 1; k <= rs.multi; k++) st.player.queue.push({ t: 0.11 * k, base, m });
     st.player.attackAnim = 1;
+    G.Assets.trigger(st.player, 'attack');
   }
 
   function fireOne(st, ang, m) {
@@ -135,7 +136,7 @@ G.Player = (function () {
   // ── 매 프레임 ──────────────────────────────────────────
   function update(dt) {
     const st = R(), p = st.player, rs = st.rs;
-    if (p.dead) return;
+    if (p.dead) { p.t += dt; return; }
     p.t += dt;
     if (p.invuln > 0) p.invuln -= dt;
     if (p.flash > 0) p.flash -= dt;
@@ -343,6 +344,7 @@ G.Player = (function () {
     const def = G.ACTIVE_SKILLS[key];
     if (!def) return false;
     if (idx === 0) G.Team.cutin('모찌', def.name, G.HERO_LOOK, 'hero', '#ff8fab');
+    G.Assets.trigger(p, idx === 0 ? 'ult' : 'cast', true);
     const lv = G.Save.data.skills.lv[key] || 1;
     const cd = def.cd * (1 - rs.cdr) * (1 - 0.04 * (lv - 1));
     st.skillCd[idx] = cd;
@@ -419,7 +421,6 @@ G.Player = (function () {
     // 무기가 뒤에 있을 때 (위를 볼 때) 먼저 그립니다
     const aimUp = Math.sin(p.aim) < -0.3;
     if (aimUp) drawWeapon(ctx, p, W, wColor, rs);
-    const state = p.attackAnim > 0.3 ? 'attack' : p.flash > 0 ? 'hurt' : p.moving ? 'walk' : 'idle';
     const hop = p.cheerT > 0 ? Math.abs(Math.sin(p.cheerT * 9)) * 12 : 0;
     if (st.skillCd[0] <= 0 && st.phase === 'fight') {
       const g = 0.5 + Math.sin(p.t * 8) * 0.5;
@@ -428,7 +429,7 @@ G.Player = (function () {
       ctx.lineWidth = 2.5;
       ctx.stroke();
     }
-    if (!G.Assets.draw(ctx, 'hero', state, p.t, p.x, p.y - hop + p.r, p.r * 2.6, p.face < 0, alpha)) {
+    if (!G.Assets.drawEnt(ctx, 'hero', p, p.moving ? 'walk' : 'idle', p.x, p.y - hop + p.r, p.r * 2.6, p.face < 0, alpha, p.flash)) {
       G.Art.creature(ctx, G.HERO_LOOK, p.x, p.y, p.r, { t: p.t, moving: p.moving, face: p.face, flash: p.flash, alpha, seed: 0, hop });
     }
     G.Allies.unitBar(ctx, p.x, p.y - p.r * 2.1 - hop, p.hp / p.maxHp, false);

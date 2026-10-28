@@ -239,6 +239,7 @@ G.Team = (function () {
 
   function castUlt(u) {
     const st = R(), rs = st.rs;
+    G.Assets.trigger(u, 'ult', true);
     const base = rs.atk * (1 + 0.12 * (u.lv - 1));
     const o = { ally: true, skill: true, proc: true, unit: u };
     switch (u.key) {

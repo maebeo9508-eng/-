@@ -29,6 +29,7 @@ G.Bosses = (function () {
         e.s.jump = { sx: e.x, sy: e.y, tx, ty, t: 0, dur: 0.85 };
         at(e, 0.85, () => {
           e.s.jump = null; e.hop = 0; e.squash = 0.35;
+          G.Assets.trigger(e, 'attack', true);
           C().ring(e.x, e.y, N(e, 10, 14), proj(e, { speed: 110 }), dmg(e, 0.7), Math.random());
           G.Fx.shake(9); G.Sfx.play('slam');
           G.Fx.burst(e.x, e.y + e.r * 0.7, '#ffffff', 16, 180, 5);
@@ -174,6 +175,7 @@ G.Bosses = (function () {
     s.pat = s.order.shift();
     s.pt = 0;
     s.events = [];
+    G.Assets.trigger(e, 'cast', true);
     PAT[s.pat].start(e);
   }
 

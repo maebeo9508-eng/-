@@ -82,6 +82,7 @@ G.Allies = (function () {
     const ang = U.angleTo(a.x, a.y, e.x, e.y);
     G.Run.fireProj(Object.assign({ x: a.x, y: a.y, ang, speed: 300, r: 5, life: 1.2, ally: true, pierce: 0, src: a.kind === 'comp' ? a : null }, o));
     a.face = e.x < a.x ? -1 : 1;
+    G.Assets.trigger(a, 'attack');
   }
 
   function hurt(a, dmg) {
@@ -98,9 +99,11 @@ G.Allies = (function () {
     a.hp -= d;
     a.flash = 0.12;
     a.ult = Math.min(1, a.ult + 0.03);
+    G.Assets.trigger(a, 'hurt');
     G.Fx.text(a.x, a.y - 20, '-' + U.fmt(d), '#ffb3c6', 10);
     if (a.hp <= 0) {
       a.down = true;
+      a.downAt = a.t;
       a.hp = 0;
       a.reviveT = rs.compRevive || 0;
       G.Fx.text(a.x, a.y - 24, `${a.def.name} 기절!`, '#ffffff', 12, { force: true });
@@ -127,6 +130,7 @@ G.Allies = (function () {
           C().hitEnemy(e, dmgBase * m, { ally: true, proc: false, color: '#ffe066' });
           a.cd = ab === 'scratch' ? 0.4 : ab === 'gold' ? 1.0 : 0.75;
           a.squash = 0.25;
+          G.Assets.trigger(a, 'attack');
           if (ab === 'gold' && Math.random() < 0.2) G.Run.drop('gold', e.x, e.y, Math.ceil(1 + st.floor * 0.2));
         }
         return;
@@ -255,6 +259,7 @@ G.Allies = (function () {
         if (a.cd <= 0 && d < tgt.r + def.range + 4) {
           a.cd = 1 / def.rate;
           a.squash = 0.25;
+          G.Assets.trigger(a, 'attack');
           if (def.aoe) {
             G.Fx.ring(tgt.x, tgt.y, 6, def.aoe, '#ffffff', 0.2, 3);
             C().blast(tgt.x, tgt.y, def.aoe, atk, { ally: true, proc: true, color: '#ffd8a8', unit: a });
@@ -268,6 +273,7 @@ G.Allies = (function () {
         if (tgt && a.cd <= 0) {
           a.cd = 1 / def.rate;
           a.squash = 0.2;
+          G.Assets.trigger(a, 'attack');
           const o = { dmg: atk, ally: true };
           if (def.proj === 'cream') Object.assign(o, { type: 'cream', speed: 220, aoe: def.aoe, slow: def.slow, color: '#fff6ee', r: 7 });
           else if (def.proj === 'fireball') Object.assign(o, { type: 'fire', speed: 230, aoe: def.aoe, color: '#ff9f1c', r: 7 });
@@ -296,6 +302,7 @@ G.Allies = (function () {
           if (targets.length) {
             a.cd = 1 / def.rate;
             a.squash = 0.2;
+            G.Assets.trigger(a, 'attack');
             for (let i = 0; i < 3; i++) {
               const e = U.pick(targets);
               G.Run.addZone({ kind: 'circle', friendly: true, x: e.x + U.rand(-10, 10), y: e.y + U.rand(-10, 10), r: 34, warn: 0.55, dmg: atk, color: '#ffe66d', star: true, ally: true });
@@ -370,7 +377,8 @@ G.Allies = (function () {
       ctx.lineWidth = 2.5;
       ctx.stroke();
     }
-    if (!G.Assets.draw(ctx, key, a.down ? 'hurt' : a.moving ? 'walk' : 'idle', a.t, a.x, a.y - hop + a.r, a.r * 2.6, flip, alpha)) {
+    const sprAlpha = a.down && G.Assets.hasState(key, 'die') ? 1 : alpha;
+    if (!G.Assets.drawEnt(ctx, key, a, a.down ? 'die' : a.moving ? 'walk' : 'idle', a.x, a.y - hop + a.r, a.r * 2.6, flip, sprAlpha, a.flash)) {
       const L = a.down ? Object.assign({}, look, { eyes: 'x', mouth: 'o' }) : look;
       G.Art.creature(ctx, L, a.x, a.y, a.r, { t: a.t, moving: a.moving, face: a.face, flash: a.flash, alpha, seed: 2, squash: a.squash, hop });
     }

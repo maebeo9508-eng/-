@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>몽글타워 캐릭터 도감</title>
+<style>
+  :root { --bg: #fff7ef; --ink: #3b2a4d; --card: #ffffff; --muted: #8a7a99; --line: #ead9f2; --ok: #43b38a; }
+  body { margin: 0; font: 14px/1.45 system-ui, sans-serif; background: var(--bg); color: var(--ink); }
+  header { padding: 16px; position: sticky; top: 0; background: var(--bg); border-bottom: 2px solid var(--line); z-index: 2; }
+  h1 { margin: 0 0 4px; font-size: 20px; }
+  h2 { margin: 24px 16px 8px; font-size: 16px; }
+  .muted { color: var(--muted); font-size: 12px; }
+  .bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+  .bar label { display: inline-flex; gap: 4px; align-items: center; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; padding: 0 16px; }
+  .card { background: var(--card); border: 2px solid var(--line); border-radius: 14px; padding: 8px; text-align: center; }
+  .card canvas { width: 100%; aspect-ratio: 1; image-rendering: pixelated; background: repeating-conic-gradient(#f6eefb 0 25%, #fff 0 50%) 0 0 / 16px 16px; border-radius: 10px; }
+  .name { font-weight: 700; margin-top: 4px; }
+  .key { font-family: ui-monospace, monospace; font-size: 11px; color: var(--muted); }
+  .png { font-size: 11px; color: var(--ok); }
+  .states { display: flex; flex-wrap: wrap; gap: 3px; justify-content: center; margin-top: 4px; }
+  .states button { font-size: 11px; border: 1px solid var(--line); background: #fff; border-radius: 8px; padding: 1px 6px; cursor: pointer; }
+  .states button.on { background: var(--ink); color: #fff; }
+</style>
+</head>
+<body>
+<header>
+  <h1>몽글타워 캐릭터 도감</h1>
+  <div class="muted">코드로 그린 기본 그림과, assets/ 에 등록된 AI 스프라이트(초록 표시)를 한눈에 확인해요. 카드 아래 동작 버튼을 누르면 그 동작을 반복 재생해요.</div>
+  <div class="bar">
+    <label><input type="checkbox" id="pixel" checked> 도트 감성(게임과 같은 픽셀 크기)</label>
+    <label><input type="checkbox" id="move"> 걷는 모습</label>
+  </div>
+</header>
+<main id="main"></main>
+
+<script>window.G = window.G || {};</script>
+<script src="../assets/manifest.auto.js"></script>
+<script src="../assets/manifest.js"></script>
+<script src="../js/core/util.js"></script>
+<script src="../js/core/assets.js"></script>
+<script src="../js/render/art.js"></script>
+<script src="../js/render/fx.js"></script>
+<script src="../js/data/stages.js"></script>
+<script src="../js/data/monsters.js"></script>
+<script src="../js/data/items.js"></script>
+<script src="../js/data/runes.js"></script>
+<script src="../js/data/skills.js"></script>
+<script src="../js/data/allies.js"></script>
+<script>
+'use strict';
+// 도감에 실을 캐릭터 목록: [그룹 이름, [[키, 이름, look, 크기(반지름)]...]]
+function roster() {
+  const groups = [];
+  groups.push(['주인공', [['hero', '모찌', G.HERO_LOOK, 11]]]);
+  groups.push(['펫', Object.entries(G.PETS).map(([k, v]) => [k, v.name, v.look, 7])]);
+  groups.push(['동료', Object.entries(G.COMPANIONS).map(([k, v]) => [k, v.name, v.look, 11])]);
+  for (const s of G.STAGES) {
+    const list = s.monsters.map((k) => [k, G.MONSTERS[k].name, G.MONSTERS[k].look, G.MONSTERS[k].r]);
+    const b = G.BOSSES[s.boss];
+    list.push([s.boss, b.name + ' (보스)', b.look, b.r]);
+    groups.push([`${s.id}스테이지 · ${s.name}`, list]);
+  }
+  groups.push(['마을 사람들', [['grandma', '솜솜 할머니', G.CHARACTERS.grandma.look, 11], ['lumi', '루미', G.CHARACTERS.lumi.look, 11]]]);
+  return groups;
+}
+
+// 한 캐릭터를 캔버스에 그립니다. 발밑 중심이 아래쪽 82% 지점에 오도록.
+function drawOne(ctx, size, key, look, state, t, opt) {
+  ctx.clearRect(0, 0, size, size);
+  const r = size * 0.28;
+  const x = size / 2, footY = size * 0.84;
+  const ent = { t, oneShot: null };
+  if (state !== 'code' && G.Assets.has(key)) {
+    if (G.Assets.hasState(key, state) || state === 'idle' || state === 'walk') {
+      // 한 번 재생하는 동작은 도감에서 계속 반복해 보여 줘요
+      const dur = state === 'idle' || state === 'walk' ? 0 : G.Assets.duration(key, state);
+      G.Assets.draw(ctx, key, state, dur ? t % (dur + 0.4) : t, x, footY, r * 2.6, false);
+      return true;
+    }
+  }
+  if (!look) return false;
+  G.Art.creature(ctx, look, x, footY - r, r, { t, moving: !!opt.move, face: 1, seed: 1 });
+  return false;
+}
+
+// 참고 그림 내보내기용 (tools/export-refs.js 가 호출). PNG data URL을 돌려줘요. bg 없으면 투명 배경.
+window.renderRef = function (key, size, bg) {
+  size = size || 512;
+  let look = null;
+  for (const [, list] of roster()) for (const it of list) if (it[0] === key) look = it[2];
+  if (!look) return null;
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const ctx = c.getContext('2d');
+  drawOne(ctx, size, key, look, 'code', 0.35, { move: false });
+  if (bg) {
+    ctx.globalCompositeOperation = 'destination-over';
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, size, size);
+    ctx.globalCompositeOperation = 'source-over';
+  }
+  return c.toDataURL('image/png');
+};
+window.rosterKeys = () => roster().flatMap(([g, list]) => list.map((it) => ({ group: g, key: it[0], name: it[1] })));
+
+const cards = [];
+function build() {
+  const main = document.getElementById('main');
+  for (const [title, list] of roster()) {
+    const h = document.createElement('h2'); h.textContent = title; main.appendChild(h);
+    const grid = document.createElement('div'); grid.className = 'grid'; main.appendChild(grid);
+    for (const [key, name, look, r] of list) {
+      const card = document.createElement('div'); card.className = 'card';
+      const cv = document.createElement('canvas');
+      card.appendChild(cv);
+      card.insertAdjacentHTML('beforeend', `<div class="name">${name}</div><div class="key">${key}</div>`);
+      const item = { key, look, r, cv, state: 'idle', card };
+      const states = ['code', 'idle', 'walk', 'attack', 'hurt', 'ult', 'cast', 'die'].filter((s) => s === 'code' || s === 'idle' || G.Assets.hasState(key, s));
+      if (G.Assets.has(key)) {
+        card.insertAdjacentHTML('beforeend', '<div class="png">● AI 스프라이트 있음</div>');
+        const row = document.createElement('div'); row.className = 'states';
+        for (const s of states) {
+          const b = document.createElement('button'); b.textContent = s === 'code' ? '코드 그림' : s;
+          if (s === item.state) b.classList.add('on');
+          b.onclick = () => { item.state = s; row.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b)); };
+          row.appendChild(b);
+        }
+        card.appendChild(row);
+      }
+      grid.appendChild(card);
+      cards.push(item);
+    }
+  }
+}
+
+function frame(now) {
+  const t = now / 1000;
+  const pixel = document.getElementById('pixel').checked;
+  const move = document.getElementById('move').checked;
+  for (const it of cards) {
+    // 도트 감성: 게임과 비슷한 해상도(반지름 r ≈ 실제 픽셀)로 그린 뒤 CSS로 확대
+    const size = pixel ? Math.round(it.r * 3.6) : 240;
+    if (it.cv.width !== size) { it.cv.width = it.cv.height = size; }
+    const ctx = it.cv.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    drawOne(ctx, size, it.key, it.look, it.state, t, { move });
+  }
+  requestAnimationFrame(frame);
+}
+
+G.Assets.load();
+build();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

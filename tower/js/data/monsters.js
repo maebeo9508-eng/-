@@ -7,12 +7,12 @@ G.MONSTERS = {
   // ── 1. 새싹 정원 ─────────────────────
   slime: {
     name: '말랑 슬라임', desc: '말랑말랑 다가와 몸통 박치기!', ai: 'chase', hp: 16, atk: 6, spd: 52, r: 11, exp: 1,
-    look: { body: 'slime', color: '#86e3a0', eyes: 'cute', mouth: 'cat', translucent: true },
+    look: { body: 'slime', color: '#86e3a0', ears: 'cat', innerEar: '#c9f5d4', eyes: 'cute', mouth: 'cat', translucent: true },
   },
   mushroom: {
     name: '버섯돌이', desc: '멀리서 포자를 퐁퐁 쏩니다.', ai: 'shooter', hp: 14, atk: 6, spd: 30, r: 11, exp: 1,
     range: 170, cd: 2.4, proj: BALL('#ffe08a', 120, 5),
-    look: { body: 'round', color: '#fff1d6', eyes: 'dot', mouth: 'smile', acc: ['cap'], capColor: '#ff7b7b', eyeY: 0.15, mouthY: 0.22 },
+    look: { body: 'round', color: '#ffe2b8', color2: '#fff6e6', pat: ['belly'], ears: 'mouse', innerEar: '#ffc4c4', eyes: 'dot', mouth: 'cat', acc: ['cap'], capColor: '#ff7b7b', eyeY: 0.15, mouthY: 0.22 },
   },
   bee: {
     name: '붕붕 꿀벌', desc: '잠깐 멈췄다가 쏜살같이 돌진!', ai: 'dasher', hp: 11, atk: 8, spd: 62, r: 9, exp: 1,
@@ -20,13 +20,13 @@ G.MONSTERS = {
   },
   sprout: {
     name: '새싹 꼬마', desc: '통통 뛰어올라 쿵 하고 내려앉아요.', ai: 'jumper', hp: 18, atk: 7, spd: 48, r: 11, exp: 1,
-    look: { body: 'egg', color: '#c9a27a', color2: '#e8d2b5', pat: ['belly'], eyes: 'happy', mouth: 'cat', acc: ['sprout'] },
+    look: { body: 'egg', color: '#c9a27a', color2: '#e8d2b5', pat: ['belly'], ears: 'mouse', innerEar: '#f0c7b0', eyes: 'happy', mouth: 'cat', acc: ['sprout'] },
   },
 
   // ── 2. 달콤 과자숲 ───────────────────
   cookie: {
     name: '진저 쿠키 병정', desc: '자리를 잡고 일직선으로 돌격합니다.', ai: 'charger', hp: 20, atk: 8, spd: 46, r: 12, exp: 1,
-    look: { body: 'square', color: '#d99058', pat: ['icing'], eyes: 'button', mouth: 'smile' },
+    look: { body: 'square', color: '#d99058', ears: 'bear', pat: ['icing'], eyes: 'button', mouth: 'smile' },
   },
   macaron: {
     name: '마카롱 박쥐', desc: '물결처럼 날아오며 크림을 뿌려요.', ai: 'flyer', hp: 13, atk: 7, spd: 58, r: 10, exp: 1,
@@ -36,7 +36,7 @@ G.MONSTERS = {
   cottonghost: {
     name: '솜사탕 유령', desc: '뿅 사라졌다 나타나 사탕을 던져요.', ai: 'blinker', hp: 15, atk: 7, spd: 0, r: 11, exp: 1,
     cd: 2.6, proj: BALL('#ff8fab', 140, 5), count: 3,
-    look: { body: 'ghost', color: '#ffc6e5', eyes: 'happy', mouth: 'o', float: true, pat: ['sprinkles'] },
+    look: { body: 'ghost', color: '#ffc6e5', ears: 'bunny', innerEar: '#ffe3f1', eyes: 'happy', mouth: 'o', float: true, pat: ['sprinkles'] },
   },
   gummybear: {
     name: '말랑 곰젤리', desc: '젤리 몸으로 폴짝폴짝 덮쳐요.', ai: 'jumper', hp: 22, atk: 8, spd: 52, r: 11, exp: 1,
@@ -61,14 +61,14 @@ G.MONSTERS = {
   dustspirit: {
     name: '모래바람 정령', desc: '빙글빙글 날아다니며 모래를 뿌려요.', ai: 'flyer', hp: 16, atk: 8, spd: 66, r: 10, exp: 1,
     cd: 2.2, proj: BALL('#f0c674', 150, 4),
-    look: { body: 'ghost', color: '#efcf8f', eyes: 'sleepy', mouth: 'o', float: true },
+    look: { body: 'ghost', color: '#efcf8f', ears: 'fox', innerEar: '#fff1cf', eyes: 'sleepy', mouth: 'cat', float: true },
   },
 
   // ── 4. 눈꽃 설원 ─────────────────────
   snowman: {
     name: '꼬마 눈사람', desc: '눈덩이를 던져 발을 느리게 해요.', ai: 'shooter', hp: 24, atk: 8, spd: 26, r: 12, exp: 2,
     range: 190, cd: 2.2, proj: { type: 'ball', color: '#ffffff', speed: 140, r: 6, slow: 0.35 }, count: 2, spread: 0.25,
-    look: { body: 'round', color: '#ffffff', eyes: 'dot', mouth: 'smile', acc: ['beanie', 'carrot'], hatColor: '#ff6b8b' },
+    look: { body: 'round', color: '#ffffff', ears: 'bear', eyes: 'dot', mouth: 'smile', acc: ['beanie', 'carrot'], hatColor: '#ff6b8b' },
   },
   babypenguin: {
     name: '아기 펭귄', desc: '배로 미끄러지며 길게 돌진!', ai: 'dasher', hp: 20, atk: 9, spd: 50, r: 11, exp: 2,
@@ -89,7 +89,7 @@ G.MONSTERS = {
   fireimp: {
     name: '불씨 도깨비', desc: '달려와서 펑! 하고 터져요.', ai: 'bomber', hp: 14, atk: 16, spd: 78, r: 10, exp: 2,
     radius: 52,
-    look: { body: 'round', color: '#ff7b54', ears: 'horns', eyes: 'angry', mouth: 'grin', acc: ['flame'] },
+    look: { body: 'round', color: '#ff7b54', ears: 'horns', back: ['foxtail'], tailColor: '#ff7b54', eyes: 'angry', mouth: 'grin', acc: ['flame'] },
   },
   lavasnail: {
     name: '용암 달팽이', desc: '지나간 자리에 뜨거운 용암이 남아요.', ai: 'trailer', hp: 40, atk: 9, spd: 30, r: 12, exp: 2,
@@ -103,7 +103,7 @@ G.MONSTERS = {
   magmaslime: {
     name: '마그마 슬라임', desc: '쓰러지면 불바다를 남겨요.', ai: 'chase', hp: 30, atk: 10, spd: 50, r: 12, exp: 2,
     deathZone: true,
-    look: { body: 'slime', color: '#ff6b5b', pat: ['lavaglow'], eyes: 'angry', mouth: 'cat', translucent: true },
+    look: { body: 'slime', color: '#ff6b5b', ears: 'cat', innerEar: '#ffb36b', pat: ['lavaglow'], eyes: 'angry', mouth: 'cat', translucent: true },
   },
 
   // ── 6. 유령 도서관 ───────────────────
@@ -115,24 +115,24 @@ G.MONSTERS = {
   candleghost: {
     name: '촛불 유령', desc: '순간이동하며 불씨를 뿌려요.', ai: 'blinker', hp: 20, atk: 9, spd: 0, r: 11, exp: 2,
     cd: 2.4, proj: { type: 'fire', color: '#ffb347', speed: 150, r: 5 }, count: 5,
-    look: { body: 'ghost', color: '#f6f0ff', eyes: 'sleepy', mouth: 'o', acc: ['candle'], float: true },
+    look: { body: 'ghost', color: '#f6f0ff', ears: 'cat', innerEar: '#e2d6ff', eyes: 'sleepy', mouth: 'cat', acc: ['candle'], float: true },
   },
   inkslime: {
     name: '잉크 슬라임', desc: '끈적한 잉크 웅덩이를 남겨요.', ai: 'trailer', hp: 30, atk: 9, spd: 48, r: 12, exp: 2,
     trail: 'ink',
-    look: { body: 'slime', color: '#5a5694', eyes: 'cute', mouth: 'o', translucent: true },
+    look: { body: 'slime', color: '#5a5694', ears: 'mouse', innerEar: '#9d98d9', eyes: 'cute', mouth: 'o', translucent: true },
   },
   quillknight: {
     name: '깃펜 기사', desc: '날카로운 깃펜을 조준해 던져요.', ai: 'shooter', hp: 26, atk: 10, spd: 40, r: 12, exp: 2,
     range: 210, cd: 1.8, proj: { type: 'feather', color: '#7ed9c3', speed: 210, r: 5 },
-    look: { body: 'tall', color: '#fffaf0', eyes: 'angry', mouth: 'cat', acc: ['helmet', 'feather'], helmColor: '#b9a6ff', plumeColor: '#7ed9c3' },
+    look: { body: 'tall', color: '#fffaf0', eyes: 'angry', mouth: 'none', acc: ['helmet', 'feather', 'beak'], helmColor: '#b9a6ff', plumeColor: '#7ed9c3' },
   },
 
   // ── 7. 태엽 장난감 공장 ──────────────
   windupsoldier: {
     name: '태엽 병정', desc: '뚜벅뚜벅 행진하며 콩알탄을 쏴요.', ai: 'chase', hp: 32, atk: 10, spd: 44, r: 12, exp: 2,
     cd: 2.4, proj: BALL('#ffd166', 150, 4),
-    look: { body: 'tall', color: '#ef5f7f', back: ['windkey'], eyes: 'button', mouth: 'smile', acc: ['soldierHat'] },
+    look: { body: 'tall', color: '#d9d2e6', color2: '#ef5f7f', pat: ['belly'], ears: 'mouse', innerEar: '#ffb3c6', back: ['windkey'], eyes: 'button', mouth: 'cat', acc: ['soldierHat'] },
   },
   jackbox: {
     name: '깜짝상자', desc: '가까이 가면 깜짝! 튀어나와요.', ai: 'ambusher', hp: 36, atk: 11, spd: 60, r: 12, exp: 2,
@@ -147,7 +147,7 @@ G.MONSTERS = {
   robo: {
     name: '꼬마 로봇', desc: '조준선을 그린 뒤 레이저 발사!', ai: 'laser', hp: 30, atk: 12, spd: 40, r: 12, exp: 2,
     cd: 3.2, range: 260,
-    look: { body: 'square', color: '#b8c4d9', ears: 'antenna', tipColor: '#ff4d6d', eyes: 'glow', eyeColor: '#6ef0ff', mouth: 'zig', blush: false },
+    look: { body: 'square', color: '#b8c4d9', ears: 'cat', innerEar: '#8fa0bd', eyes: 'glow', eyeColor: '#6ef0ff', mouth: 'cat', blush: false },
   },
 
   // ── 8. 물방울 수족관 ─────────────────
@@ -185,7 +185,7 @@ G.MONSTERS = {
   nebula: {
     name: '성운 정령', desc: '별가루 속으로 사라졌다 나타나요.', ai: 'blinker', hp: 28, atk: 12, spd: 0, r: 11, exp: 2,
     cd: 2.0, proj: { type: 'star', color: '#c3a6ff', speed: 160, r: 6 }, count: 6,
-    look: { body: 'ghost', color: '#9d8df1', pat: ['stars'], eyes: 'glow', eyeColor: '#fff3b0', mouth: 'o', float: true },
+    look: { body: 'ghost', color: '#9d8df1', ears: 'cat', innerEar: '#c9bfff', pat: ['stars'], eyes: 'glow', eyeColor: '#fff3b0', mouth: 'cat', float: true },
   },
   clockbird: {
     name: '뻐꾸기 시계새', desc: '째깍째깍, 정해진 박자로 깃털을 쏴요.', ai: 'flyer', hp: 26, atk: 12, spd: 64, r: 11, exp: 2,
@@ -197,7 +197,7 @@ G.MONSTERS = {
   nightslime: {
     name: '악몽 슬라임', desc: '어둠으로 물든 슬라임. 쓰러지면 둘로 나뉘어요.', ai: 'chase', hp: 40, atk: 14, spd: 58, r: 12, exp: 3,
     split: 'nightslime',
-    look: { body: 'slime', color: '#5b4a8a', eyes: 'glow', eyeColor: '#ff6bd6', mouth: 'fang', translucent: true },
+    look: { body: 'slime', color: '#5b4a8a', ears: 'horns', hornColor: '#2f2650', eyes: 'glow', eyeColor: '#ff6bd6', mouth: 'fang', translucent: true },
   },
   nightbat: {
     name: '악몽 박쥐', desc: '어둠 속에서 쏜살같이 덮쳐요.', ai: 'dasher', hp: 30, atk: 14, spd: 70, r: 10, exp: 3,
@@ -206,7 +206,7 @@ G.MONSTERS = {
   shadowknight: {
     name: '그림자 기사', desc: '묵직한 걸음, 사방으로 그림자 칼날.', ai: 'tank', hp: 80, atk: 15, spd: 36, r: 13, exp: 3,
     cd: 3.0, ring: 10, proj: BALL('#b06cff', 120, 5),
-    look: { body: 'tall', color: '#4b3d70', eyes: 'glow', eyeColor: '#c3a6ff', mouth: 'none', acc: ['helmet'], helmColor: '#2f2650', plumeColor: '#b06cff', blush: false },
+    look: { body: 'tall', color: '#4b3d70', ears: 'fox', innerEar: '#2f2650', back: ['bigtail'], tailColor: '#4b3d70', eyes: 'glow', eyeColor: '#c3a6ff', mouth: 'fang', acc: ['helmet'], helmColor: '#2f2650', plumeColor: '#b06cff', blush: false },
   },
   nightmareeye: {
     name: '악몽의 눈', desc: '거대한 눈으로 노려본 뒤 레이저!', ai: 'laser', hp: 46, atk: 16, spd: 34, r: 12, exp: 3,
@@ -221,12 +221,12 @@ G.BOSSES = {
   puddingking: {
     name: '푸딩 임금님', title: '흔들흔들 새싹 정원의 왕', hp: 520, atk: 10, spd: 46, r: 34,
     patterns: ['slam', 'ring', 'summon'], rage: ['slam2'], minion: 'slime', bullet: '#ffcf70',
-    look: { body: 'slime', color: '#ffd480', color2: '#a0522d', pat: ['caramel'], eyes: 'cute', mouth: 'grin', acc: ['crown'], translucent: true },
+    look: { body: 'slime', color: '#ffd480', color2: '#a0522d', ears: 'cat', innerEar: '#ffeab8', pat: ['caramel'], eyes: 'cute', mouth: 'grin', acc: ['crown'], translucent: true },
   },
   cakegolem: {
     name: '생크림 대장', title: '세 겹 케이크 거인', hp: 720, atk: 12, spd: 40, r: 36,
     patterns: ['fan', 'nova', 'rain'], rage: ['spiral'], minion: 'cookie', bullet: '#ff8fab',
-    look: { body: 'square', color: '#fff6ee', color2: '#ffb3c6', pat: ['frosting', 'sprinkles'], eyes: 'angry', mouth: 'grin', acc: ['candle', 'cherry'] },
+    look: { body: 'square', color: '#fff6ee', color2: '#ffb3c6', ears: 'bear', innerEar: '#ffb3c6', pat: ['frosting', 'sprinkles'], eyes: 'angry', mouth: 'grin', acc: ['candle', 'cherry'] },
   },
   sphinx: {
     name: '냥크스', title: '수수께끼를 내는 모래 고양이', hp: 900, atk: 13, spd: 48, r: 34,
@@ -246,7 +246,7 @@ G.BOSSES = {
   libra: {
     name: '책벌레 마녀 리브라', title: '읽히지 못한 이야기들의 주인', hp: 1500, atk: 17, spd: 50, r: 32,
     patterns: ['spiral', 'summon', 'teleport', 'fan'], rage: ['laser3'], minion: 'flybook', bullet: '#fffaf0',
-    look: { body: 'round', color: '#c7a6f0', eyes: 'cute', mouth: 'smile', acc: ['glasses', 'witchHat'], hatColor: '#4b3d70', bandColor: '#7ed9c3' },
+    look: { body: 'round', color: '#c7a6f0', ears: 'cat', innerEar: '#ffd6f0', back: ['cattail'], tailColor: '#c7a6f0', eyes: 'cute', mouth: 'cat', acc: ['glasses', 'witchHat'], hatColor: '#4b3d70', bandColor: '#7ed9c3' },
   },
   teddymachine: {
     name: '테디 머신', title: '멈춰버린 장난감 공장의 심장', hp: 1800, atk: 18, spd: 44, r: 40,
