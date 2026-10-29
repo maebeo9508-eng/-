@@ -74,6 +74,11 @@
     },
     room: {
       ceilingHeight: { label: '천장 높이', min: 100, max: 20000, get: (r) => r.ceilingHeight, set: (r, v) => ({ ceilingHeight: v }) },
+      // 면적 칸: 설정 면적 단위로 입력. 비우면 바닥 면적과 같음 (천장이 없는 곳은 0)
+      ceilingArea: {
+        label: '천장 면적 (비우면 바닥과 같음)', area: true, min: 0, max: 1e12, allowEmpty: true, emptyText: '바닥과 같음',
+        get: (r) => r.ceilingArea, set: (r, v) => ({ ceilingArea: v }),
+      },
       // 방의 벽 높이를 바꾸면 그 방을 둘러싼 벽들의 높이도 함께 바꿈
       wallHeight: {
         label: '벽 높이', min: 100, max: 20000, get: (r) => r.wallHeight,
@@ -151,11 +156,13 @@
 
   function validate(text, f) {
     if (f.allowEmpty && String(text).trim() === '') return { value: null };
-    const mm = App.units.parseLength(text);
+    const U = App.units;
+    const mm = f.area ? U.parseArea(text) : U.parseLength(text);
+    const fmt = (v) => (f.area ? U.formatArea(v) : U.formatLength(v));
     if (String(text).trim() === '' || Number.isNaN(mm)) return { error: '숫자를 입력하세요.' };
     if (f.min > 0 && mm <= 0) return { error: '0보다 큰 값을 입력하세요.' };
-    if (mm < f.min) return { error: `${App.units.formatLength(f.min)} 이상으로 입력하세요.` };
-    if (mm > f.max) return { error: `${App.units.formatLength(f.max)} 이하로 입력하세요.` };
+    if (mm < f.min) return { error: `${fmt(f.min)} 이상으로 입력하세요.` };
+    if (mm > f.max) return { error: `${fmt(f.max)} 이하로 입력하세요.` };
     const problem = f.check && els.map((e) => f.check(e, mm)).find(Boolean);
     if (problem) return { error: problem };
     return { value: mm };
@@ -172,7 +179,7 @@
     const first = f.get(els[0]);
     if (!els.every((e) => sameNumber(f.get(e), first))) return { value: '', placeholder: '여러 값' };
     if (first == null) return { value: '', placeholder: f.emptyText || '자동' };
-    return { value: App.units.inputLength(first), placeholder: '' };
+    return { value: f.area ? App.units.inputArea(first) : App.units.inputLength(first), placeholder: '' };
   }
   const commonText = (get) => (els.every((e) => get(e) === get(els[0])) ? get(els[0]) : null);
 
@@ -185,7 +192,7 @@
         <div class="field-box">
           <input id="f-${key}" type="text" inputmode="decimal" enterkeyhint="done" autocomplete="off"
             value="${esc(value)}" ${placeholder ? `placeholder="${placeholder}"` : ''}>
-          <span class="field-unit">${App.units.lengthLabel()}</span>
+          <span class="field-unit">${f.area ? App.units.areaLabel() : App.units.lengthLabel()}</span>
         </div>
         <div class="field-error" role="alert" hidden></div>
       </div>`;
@@ -307,6 +314,10 @@
     const area = els.reduce((sum, r) => sum + R.floorArea(r), 0);
     const r = els[0];
     const issue = els.find((e) => e.issue);
+    const qs = els.map((e) => App.measure.room(e));
+    const total = (k) => qs.reduce((t, q) => t + q[k], 0);
+    const boards = new Map();
+    qs.forEach((q) => q.boards.forEach((b) => boards.set(b.spec, (boards.get(b.spec) || 0) + b.area)));
     return `
       ${head('방', single ? '' : `${els.length}개 선택`)}
       ${issue ? `<div class="notice notice-danger" id="p-issue">${esc(ISSUE_TEXT[issue.issue])}</div>` : ''}
@@ -317,12 +328,16 @@
         </div>` : ''}
       <div class="stats">
         ${stat(single ? '바닥 면적' : '바닥 면적 합계', App.units.formatArea(area))}
+        ${stat(single ? '천장 면적' : '천장 면적 합계', App.units.formatArea(total('ceiling')), els.some((e) => e.ceilingArea != null) ? '직접 입력' : '바닥과 같음')}
+        ${stat('벽 면적 (방 쪽)', App.units.formatArea(total('wallArea')), total('openingArea') ? `문·창문 ${App.units.formatArea(total('openingArea'))} 뺌` : '')}
+        ${[...boards].map(([spec, a]) => stat(`${spec} (방 쪽)`, App.units.formatArea(a), '겹 수 반영')).join('')}
         ${single ? stat('둘레', App.units.formatLength(G.perimeter(r.points))) : ''}
       </div>
       <div class="field-grid">
         ${numberField('ceilingHeight')}
         ${numberField('wallHeight')}
       </div>
+      ${numberField('ceilingArea')}
       ${commonFields(single)}
       ${deleteButton('방')}
       <p class="props-meta">방을 지워도 벽은 남습니다.</p>`;

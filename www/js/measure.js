@@ -24,10 +24,30 @@
     const d = App.settings.decimals;
     return (v || 0).toLocaleString('ko-KR', { minimumFractionDigits: d, maximumFractionDigits: d });
   };
+  const round = (v) => Number((v || 0).toFixed(App.settings.decimals));
 
   const units = {
     lengthLabel() {
       return unit().label;
+    },
+    areaLabel() {
+      return areaUnit().label;
+    },
+    /** 표 내보내기용 숫자: 설정 단위, 설정 소수점 자리 (쉼표 없음) */
+    lengthValue(mm) {
+      return round(mm / unit().factor);
+    },
+    areaValue(mm2) {
+      return round(mm2 / areaUnit().factor);
+    },
+    /** 면적 입력 칸용 글자와 입력 → mm² */
+    inputArea(mm2) {
+      return String(Number((mm2 / areaUnit().factor).toFixed(4)));
+    },
+    parseArea(text) {
+      const s = String(text).replace(/[,\s]/g, '');
+      if (!/^[-+]?(\d+\.?\d*|\.\d+)$/.test(s)) return NaN;
+      return Number(s) * areaUnit().factor;
     },
 
     /** 화면 표시용: 천 단위 쉼표, 설정한 소수점 자리 */
@@ -96,21 +116,160 @@
     return itemIndex.map.get(pointKey(p)) || null;
   }
 
-  /** 그 점이 들어 있는 방의 천장 높이. 방 밖이면 기본 벽 높이 */
-  function ceilingAt(p) {
+  /** 그 점이 들어 있는 방 (방 안에 방이 있으면 작은 쪽). 방 밖이면 null */
+  function roomAt(p) {
     let best = null, bestArea = Infinity;
     for (const r of App.doc.all()) {
       if (r.type !== 'room' || !App.geom.pointInPolygon(p, r.points)) continue;
       const a = Math.abs(App.geom.signedArea(r.points));
       if (a < bestArea) { best = r; bestArea = a; }
     }
-    return best ? best.ceilingHeight : App.settings.wallHeight;
+    return best;
+  }
+
+  /** 그 점이 들어 있는 방의 천장 높이. 방 밖이면 기본 벽 높이 */
+  function ceilingAt(p) {
+    const r = roomAt(p);
+    return r ? r.ceilingHeight : App.settings.wallHeight;
+  }
+
+  /* ── 방별 집계 ──
+     방 경계는 벽 중심선이라 바닥 면적과 같은 기준으로 벽 면적도 중심선 길이 × 벽 높이로 셈.
+     방 경계의 변마다 그 변이 놓인 벽을 찾아, 그 벽의 문·창문 중 이 변 위에 있는 것을 빼고,
+     석고는 그 벽에서 방 쪽 면의 겹 수만 셈 (칸막이 벽은 양쪽 방에 한 면씩) */
+  const G = () => App.geom;
+  const sub = (a, b) => ({ x: a.x - b.x, y: a.y - b.y });
+  const dot = (a, b) => a.x * b.x + a.y * b.y;
+
+  /** 방 경계를 벽별 조각으로 나눈 목록 { a, b, len, wall }.
+      경계의 한 변이 여러 벽에 걸칠 수 있어(일직선으로 이어진 벽) 변마다 그 위에 놓인 벽 구간을 찾음.
+      벽이 없는 구간은 wall이 null */
+  function roomEdges(r) {
+    const walls = r.wallIds.map((id) => App.doc.get(id)).filter((w) => w && w.type === 'wall');
+    const pts = r.points;
+    const pieces = [];
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i], b = pts[(i + 1) % pts.length];
+      const len = G().dist(a, b);
+      if (len < 0.5) continue;
+      const dir = G().unit(sub(b, a));
+      const n = G().perp(dir);
+      const at = (s) => ({ x: a.x + dir.x * s, y: a.y + dir.y * s });
+      let covered = 0;
+      walls.forEach((w) => {
+        // 이 변과 같은 직선 위의 벽만
+        if (Math.abs(dot(sub(w.start, a), n)) > 1 || Math.abs(dot(sub(w.end, a), n)) > 1) return;
+        const s0 = Math.max(0, Math.min(dot(sub(w.start, a), dir), dot(sub(w.end, a), dir)));
+        const s1 = Math.min(len, Math.max(dot(sub(w.start, a), dir), dot(sub(w.end, a), dir)));
+        if (s1 - s0 < 0.5) return;
+        pieces.push({ a: at(s0), b: at(s1), len: s1 - s0, wall: w });
+        covered += s1 - s0;
+      });
+      if (len - covered > 0.5) pieces.push({ a, b, len: len - covered, wall: null });
+    }
+    return pieces;
+  }
+
+  /** 방이 벽의 어느 쪽에 있는지: 벽 방향의 왼쪽(+1) / 오른쪽(-1) */
+  function roomSide(r, wall, a, b) {
+    const d = G().unit(sub(wall.end, wall.start));
+    const n = G().perp(d);
+    const mid = { x: (a.x + b.x) / 2 + n.x * 2, y: (a.y + b.y) / 2 + n.y * 2 };
+    return G().pointInPolygon(mid, r.points) ? 1 : -1;
+  }
+
+  /** 문·창문이 속한 방: 문은 열리는 쪽 방, 창문은 방이 있는 쪽 (양쪽 다 방이면 벽 왼쪽) */
+  function openingRoom(o) {
+    const g = App.model.openingGeom(o);
+    if (!g) return null;
+    const probe = (side) => roomAt({ x: g.center.x + g.n.x * side * (g.th / 2 + 50), y: g.center.y + g.n.y * side * (g.th / 2 + 50) });
+    const first = o.type === 'door' ? (o.side || 1) : 1;
+    return probe(first) || probe(-first);
+  }
+
+  /** 선의 평면 길이를 방별로 나눔: 방 경계에서 잘라 조각마다 가운데가 든 방으로. Map(방 id 또는 null → mm) */
+  function lineRooms(l, rooms) {
+    const a = l.start, b = l.end;
+    const d = sub(b, a);
+    const L = Math.hypot(d.x, d.y);
+    const out = new Map();
+    if (L < 0.001) return out;
+    const ts = [0, 1];
+    const box = { minX: Math.min(a.x, b.x), minY: Math.min(a.y, b.y), maxX: Math.max(a.x, b.x), maxY: Math.max(a.y, b.y) };
+    rooms.forEach((r) => {
+      if (!G().rectsOverlap(box, r.box)) return;
+      const pts = r.points;
+      for (let i = 0; i < pts.length; i++) {
+        const p = pts[i], q = pts[(i + 1) % pts.length];
+        const e = sub(q, p);
+        const den = d.x * e.y - d.y * e.x;
+        if (Math.abs(den) < 1e-9) continue; // 평행: 겹쳐 지나가는 경우는 조각 가운데로 판단
+        const w = sub(p, a);
+        const t = (w.x * e.y - w.y * e.x) / den;
+        const u = (w.x * d.y - w.y * d.x) / den;
+        if (t > 0 && t < 1 && u >= 0 && u <= 1) ts.push(t);
+      }
+    });
+    ts.sort((x, y) => x - y);
+    for (let i = 0; i + 1 < ts.length; i++) {
+      const t0 = ts[i], t1 = ts[i + 1];
+      if (t1 - t0 < 1e-9) continue;
+      const tm = (t0 + t1) / 2;
+      const r = roomAt({ x: a.x + d.x * tm, y: a.y + d.y * tm });
+      const key = r ? r.id : null;
+      out.set(key, (out.get(key) || 0) + L * (t1 - t0));
+    }
+    return out;
   }
 
   const measure = {
     openingsOf,
     itemAt,
+    roomAt,
     ceilingAt,
+    roomEdges,
+    openingRoom,
+    lineRooms,
+
+    /** 방 하나의 면적들 (mm²): 바닥, 천장(따로 정하지 않으면 바닥과 같음), 방 쪽 벽 면적, 방 쪽 석고 */
+    room(r) {
+      const floor = Math.abs(App.geom.signedArea(r.points));
+      let wallGross = 0, openingArea = 0;
+      const boards = new Map();
+      roomEdges(r).forEach((e) => {
+        const H = e.wall ? e.wall.height : r.wallHeight;
+        const gross = e.len * H;
+        let cut = 0;
+        if (e.wall) {
+          const dir = App.geom.unit(sub(e.b, e.a));
+          openingsOf(e.wall.id).forEach((o) => {
+            const g = App.model.openingGeom(o);
+            if (!g) return;
+            const s = dot(sub(g.center, e.a), dir);
+            if (s >= -0.5 && s <= e.len + 0.5) cut += App.model.TYPES[o.type].area(o);
+          });
+        }
+        cut = Math.min(cut, gross);
+        wallGross += gross;
+        openingArea += cut;
+        const t = e.wall && App.catalog.typeOf(e.wall);
+        if (!t) return;
+        const face = e.wall.flip ? -1 : 1; // 마감 쪽: 벽 방향의 왼쪽, 뒤집으면 오른쪽
+        const layers = roomSide(r, e.wall, e.a, e.b) === face ? t.boardFace : t.boardBack;
+        if (!layers) return;
+        const spec = `석고보드 ${Number(t.boardT)}T`;
+        boards.set(spec, (boards.get(spec) || 0) + (gross - cut) * layers);
+      });
+      return {
+        floor,
+        ceiling: r.ceilingArea != null ? r.ceilingArea : floor,
+        perimeter: App.geom.perimeter(r.points),
+        wallGross,
+        openingArea,
+        wallArea: wallGross - openingArea,
+        boards: [...boards.entries()].map(([spec, area]) => ({ spec, area })),
+      };
+    },
 
     /** 기구 설치 높이(mm). null(천장)이면 그 자리 방의 천장 높이 */
     itemHeight(it) {

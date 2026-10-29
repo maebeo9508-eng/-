@@ -145,6 +145,12 @@
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') close();
     });
+    // 메뉴 항목: 누르면 메뉴를 닫고 실행
+    const item = (sel, fn) => $(sel).addEventListener('click', () => {
+      close();
+      fn();
+    });
+    item('#menuCsv', () => App.summary.exportCsv());
     $('#btnUndo').addEventListener('click', () => App.actions.undo());
     $('#btnRedo').addEventListener('click', () => App.actions.redo());
     $('#btnSettings').addEventListener('click', () => toast('설정 화면은 7단계에서 만듭니다.'));

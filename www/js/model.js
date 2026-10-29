@@ -240,6 +240,7 @@
           wallIds: wallIds.slice(),
           seed: G.interiorPoint(points),
           ceilingHeight: App.settings.wallHeight,
+          ceilingArea: null, // 천장 면적(mm²). null이면 바닥 면적과 같음
           wallHeight: App.settings.wallHeight,
           issue: null,
         };

@@ -437,6 +437,33 @@ button { font: inherit; color: inherit; }
 .sum-table th { font-weight: 400; color: var(--fg-muted); text-align: left; }
 .sum-table td { font-weight: 700; text-align: right; }
 .sum-table td small { display: block; font-size: 11px; font-weight: 400; color: var(--fg-muted); }
+.sum-title small { margin-left: 6px; font-size: 12px; font-weight: 400; color: var(--fg-muted); }
+.sum-title small.is-warn { color: var(--danger); font-weight: 600; }
+.sum-table tr.is-head th { padding-top: 12px; color: var(--fg); font-weight: 700; font-size: 13px; }
+.sum-table tr.is-sub th { padding-left: 14px; }
+.sum-table tr.is-sub td { font-weight: 400; }
+.sum-table tr.is-item th { color: var(--fg); font-weight: 600; }
+.sum-table tr.is-subtotal th, .sum-table tr.is-subtotal td { background: var(--surface-2); }
+.sum-table tr.is-subtotal th { padding-left: 8px; color: var(--fg); }
+.sum-table tr.is-subtotal td { padding-right: 8px; }
+.sum-table tr.is-total th, .sum-table tr.is-total td { border-top: 2px solid var(--fg); border-bottom: none; color: var(--fg); font-weight: 700; }
+.sum-sec.is-grand { padding: 10px 12px; border: 2px solid var(--accent); border-radius: 10px; }
+.sum-sec.is-grand .sum-title { color: var(--accent); }
+.sum-bar {
+  position: sticky;
+  top: -16px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: -16px -16px 0;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+.sum-views { display: flex; flex: 1; gap: 4px; min-width: 0; }
+.sum-views .seg-btn { flex: 1; min-width: 0; padding: 0 6px; white-space: nowrap; }
+.sum-bar > .btn { flex: none; padding: 0 10px; white-space: nowrap; }
 
 .finish-btn {
   position: absolute;
