@@ -22,6 +22,7 @@
         return;
       }
       if (e.altKey || e.repeat) return;
+      if (!document.getElementById('catalogModal').hidden) return; // 목록 편집 창이 열려 있으면 도면 단축키 끔
 
       if (e.key === 'Escape') {
         if (!App.tools.escape() && App.tools.id !== 'select') App.ui.setTool('select');

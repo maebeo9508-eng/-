@@ -15,7 +15,6 @@
     snapMid: true,
     ortho: true,          // 직교 고정. Shift를 누르는 동안 반대로
     stretchWalls: true,   // 벽을 옮길 때 이어진 벽도 같이 늘림 (끄면 고른 것만 이동)
-    wallThickness: 100,
     wallHeight: 2400,
   };
   // 그린 것이 없을 때 '화면 맞춤' 범위(mm): 10m × 8m
@@ -24,7 +23,12 @@
   App.icons.apply(document);
 
   App.doc = new App.model.Doc();
-  App.doc.beforeCommit((tx) => App.rooms.syncRooms(tx)); // 벽이 바뀌면 방 경계도 같은 실행 취소 단계에서 맞춤
+  // 기록 직전에 딸린 데이터를 같은 실행 취소 단계 안에서 맞춤: 벽 두께·없어진 벽의 문·창문, 그다음 방 경계
+  App.doc.beforeCommit((tx) => App.catalog.syncHook(tx));
+  App.doc.beforeCommit((tx) => App.rooms.syncRooms(tx));
+  App.doc.reset(App.catalog.defaultElements()); // 새 도면: 기본 벽 종류·프리셋 (8단계에서 저장된 도면 불러오기)
+  App.current = {}; // 도구가 쓸 지금 고른 벽 종류·프리셋
+  App.catalog.ensureCurrent();
   App.selection = new App.Selection();
   const plan = (App.plan = new App.PlanCanvas(document.getElementById('plan'), document.getElementById('stage')));
   const nav = (App.nav = new App.ViewNavigator(plan));
@@ -69,13 +73,14 @@
 
   App.ui.init();
   App.props.init();
+  App.catalogUI.init();
   App.keys.init();
   App.ui.updateHistory();
 
-  // 화면 맞춤 때 위쪽 스냅 버튼 줄에 도면이 가리지 않게
-  const snapbar = document.getElementById('snapbar');
+  // 화면 맞춤 때 위쪽 버튼 묶음에 도면이 가리지 않게
+  const stageTop = document.getElementById('stageTop');
   const fit = () => {
-    plan.insets.top = snapbar.offsetTop + snapbar.offsetHeight;
+    plan.insets.top = stageTop.offsetTop + stageTop.offsetHeight;
     plan.fitToContent();
   };
   document.getElementById('btnFit').addEventListener('click', fit);

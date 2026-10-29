@@ -108,6 +108,15 @@
         selCross: v('--sel-cross'),
         danger: v('--danger'),
         roomFill: v('--room-fill'),
+        layerBoard: v('--layer-board'),
+        layerWood: v('--layer-wood'),
+        layerWoodStud: v('--layer-wood-stud'),
+        layerMetal: v('--layer-metal'),
+        layerMetalStud: v('--layer-metal-stud'),
+        layerConcrete: v('--layer-concrete'),
+        layerHatch: v('--layer-hatch'),
+        layerLine: v('--layer-line'),
+        glass: v('--glass'),
         fg: v('--fg'),
       };
       this.requestRender();

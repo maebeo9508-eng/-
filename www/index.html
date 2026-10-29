@@ -10,6 +10,7 @@
 <script src="js/geom.js" defer></script>
 <script src="js/measure.js" defer></script>
 <script src="js/model.js" defer></script>
+<script src="js/catalog.js" defer></script>
 <script src="js/canvas.js" defer></script>
 <script src="js/draw.js" defer></script>
 <script src="js/snap.js" defer></script>
@@ -18,6 +19,7 @@
 <script src="js/tools.js" defer></script>
 <script src="js/ui.js" defer></script>
 <script src="js/props.js" defer></script>
+<script src="js/catalog-ui.js" defer></script>
 <script src="js/keys.js" defer></script>
 <script src="js/main.js" defer></script>
 </head>
@@ -60,12 +62,22 @@
     <main class="stage" id="stage">
       <canvas class="plan" id="plan" aria-label="도면"></canvas>
 
+      <div class="stage-top" id="stageTop">
       <div class="snapbar" id="snapbar" role="group" aria-label="그리기 보조">
         <button type="button" class="snap-btn" data-snap="snapGrid" aria-pressed="true" title="격자 스냅">격자</button>
         <button type="button" class="snap-btn" data-snap="snapEnd" aria-pressed="true" title="끝점 스냅">끝점</button>
         <button type="button" class="snap-btn" data-snap="snapMid" aria-pressed="true" title="중간점 스냅">중간점</button>
         <button type="button" class="snap-btn" data-snap="ortho" aria-pressed="true" title="직교 고정 (Shift로 잠깐 전환)">직교</button>
         <button type="button" class="snap-btn" data-snap="stretchWalls" data-only="select" aria-pressed="true" title="벽을 옮기거나 끝을 끌 때 이어진 벽도 같이 늘리기 (끄면 고른 벽만 이동)">늘리기</button>
+      </div>
+      <div class="menu-wrap tool-opt-wrap">
+        <button type="button" class="tool-opt" id="toolOpt" aria-haspopup="menu" aria-expanded="false" aria-controls="toolOptMenu" hidden>
+          <span class="tool-opt-label" id="toolOptLabel"></span>
+          <span class="tool-opt-value" id="toolOptValue"></span>
+          <span class="ico ico-sm" data-icon="chevron"></span>
+        </button>
+        <div class="menu tool-opt-menu" id="toolOptMenu" role="menu" hidden></div>
+      </div>
       </div>
       <button type="button" class="finish-btn" id="btnFinish" hidden>그리기 끝내기</button>
 
@@ -104,6 +116,22 @@
         </div>
       </section>
     </aside>
+  </div>
+
+  <div class="modal" id="catalogModal" hidden>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="catalogTitle">
+      <header class="modal-head">
+        <h2 class="modal-title" id="catalogTitle">목록 편집</h2>
+        <button type="button" class="tb-btn" id="catalogClose">닫기</button>
+      </header>
+      <div class="seg" role="tablist" id="catalogTabs" aria-label="목록 종류">
+        <button type="button" class="seg-btn" role="tab" data-kind="wallType" aria-selected="true">벽 종류</button>
+        <button type="button" class="seg-btn" role="tab" data-kind="door" aria-selected="false">문</button>
+        <button type="button" class="seg-btn" role="tab" data-kind="window" aria-selected="false">창문</button>
+        <button type="button" class="seg-btn" role="tab" data-kind="column" aria-selected="false">기둥</button>
+      </div>
+      <div class="modal-body" id="catalogBody"></div>
+    </div>
   </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>

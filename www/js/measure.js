@@ -57,4 +57,92 @@
   };
 
   App.units = units;
+
+  /* ── 물량 계산 ──
+     벽 하나: 길이 L, 높이 H, 한 면 면적 = L × H − 문·창문 면적
+     틀(벽 종류에 틀이 있을 때): 세로재 = (L ÷ 세로 간격 올림 + 1)개 × H
+                                 가로재 = (위·아래 2줄 + 중간 줄) × L, 중간 줄 = H ÷ 가로 간격 올림 − 1
+       다루끼는 세로·가로 모두 '다루끼', 경량은 세로 '스터드', 가로 '런너'
+       문·창문 자리의 틀은 빼지 않음 (그 자리에 보강재가 들어가는 것으로 봄)
+     석고보드: 한 면 면적 × 겹 수
+     본 수·장 수는 여러 벽의 길이·면적을 다 더한 뒤 (1 + 로스%)를 곱해 마지막에 올림 */
+  const EPS = 1e-9;
+  let openingIndex = { version: -1, map: new Map() };
+
+  /** 벽 id → 그 벽의 문·창문 목록 (도면이 바뀔 때만 다시 만듦) */
+  function openingsOf(wallId) {
+    if (openingIndex.version !== App.doc.version) {
+      const map = new Map();
+      for (const el of App.doc.all()) {
+        if (el.type !== 'door' && el.type !== 'window') continue;
+        if (!map.has(el.wallId)) map.set(el.wallId, []);
+        map.get(el.wallId).push(el);
+      }
+      openingIndex = { version: App.doc.version, map };
+    }
+    return openingIndex.map.get(wallId) || [];
+  }
+
+  const measure = {
+    openingsOf,
+
+    /** 벽 하나의 기본 수치와 자재 (길이 mm, 면적 mm²) */
+    wall(w) {
+      const L = Math.hypot(w.end.x - w.start.x, w.end.y - w.start.y);
+      const H = w.height;
+      const openings = openingsOf(w.id);
+      const openingArea = Math.min(L * H, openings.reduce((sum, o) => sum + App.model.TYPES[o.type].area(o), 0));
+      const area = L * H - openingArea;
+      const q = { length: L, height: H, grossArea: L * H, openingArea, openings: openings.length, area, frames: [], boards: [] };
+      const t = App.catalog.typeOf(w);
+      if (!t || L <= 0 || H <= 0) return q;
+      if (t.frameKind !== 'none') {
+        const verticalCount = Math.ceil(L / t.frameSpacing - EPS) + 1;
+        const rows = 2 + (t.frameRowSpacing > 0 ? Math.max(0, Math.ceil(H / t.frameRowSpacing - EPS) - 1) : 0);
+        q.frameDetail = { verticalCount, rows };
+        const item = (name, length) => ({ name, length, piece: t.framePiece, loss: t.frameLoss });
+        if (t.frameKind === 'wood') q.frames.push(item('다루끼', verticalCount * H + rows * L));
+        else q.frames.push(item('스터드', verticalCount * H), item('런너', rows * L));
+      }
+      const layers = t.boardFace + t.boardBack;
+      if (layers > 0) {
+        q.boards.push({
+          spec: `석고보드 ${Number(t.boardT)}T ${Number(t.boardW)}×${Number(t.boardL)}`,
+          area: area * layers, sheetArea: t.boardW * t.boardL, loss: t.boardLoss, layers,
+        });
+      }
+      return q;
+    },
+
+    /** 여러 벽의 자재를 같은 규격끼리 더하고 본·장 수를 계산 */
+    materials(walls) {
+      const frames = new Map(), boards = new Map();
+      walls.forEach((w) => {
+        const q = measure.wall(w);
+        q.frames.forEach((f) => {
+          const key = `${f.name}|${f.piece}|${f.loss}`;
+          const cur = frames.get(key) || { name: f.name, piece: f.piece, loss: f.loss, length: 0 };
+          cur.length += f.length;
+          frames.set(key, cur);
+        });
+        q.boards.forEach((b) => {
+          const key = `${b.spec}|${b.loss}`;
+          const cur = boards.get(key) || { spec: b.spec, sheetArea: b.sheetArea, loss: b.loss, area: 0 };
+          cur.area += b.area;
+          boards.set(key, cur);
+        });
+      });
+      const out = { frames: [...frames.values()], boards: [...boards.values()] };
+      out.frames.forEach((f) => { f.pieces = f.length > 0 ? Math.ceil((f.length * (1 + f.loss / 100)) / f.piece - EPS) : 0; });
+      out.boards.forEach((b) => { b.sheets = b.area > 0 ? Math.ceil((b.area * (1 + b.loss / 100)) / b.sheetArea - EPS) : 0; });
+      return out;
+    },
+
+    /** 자재 길이 표시: 미터, 소수 1자리 */
+    meters(mm) {
+      return `${(mm / 1000).toLocaleString('ko-KR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}m`;
+    },
+  };
+
+  App.measure = measure;
 })();

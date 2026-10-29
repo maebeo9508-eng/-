@@ -33,6 +33,9 @@
       touch: '끌어서 벽을 그리거나, 점을 차례로 눌러 이어 그립니다',
     },
     room: { pc: '벽으로 닫힌 곳 안쪽을 클릭하면 방이 됩니다', touch: '벽으로 닫힌 곳 안쪽을 누르면 방이 됩니다' },
+    door: { pc: '벽 위를 클릭하면 문이 붙습니다 · 마우스가 있는 쪽으로 열림', touch: '벽 위를 누르면 문이 붙습니다 · 누른 쪽으로 열림' },
+    window: { pc: '벽 위를 클릭하면 창문이 붙습니다', touch: '벽 위를 누르면 창문이 붙습니다' },
+    column: { pc: '기둥을 놓을 곳을 클릭하세요', touch: '기둥을 놓을 곳을 누르세요' },
     erase: { pc: '지울 항목을 클릭하거나 문지르세요', touch: '지울 항목을 누르거나 문지르세요' },
   };
 
@@ -52,6 +55,7 @@
       bindTopbar();
       bindTabs();
       bindCanvasControls();
+      bindToolOptions();
       initSheet();
     },
     setTool,
@@ -175,6 +179,90 @@
     ui.on('toolstate', (tool) => {
       $('#btnFinish').hidden = !(tool && tool.isChaining && tool.isChaining());
     });
+  }
+
+  /* ── 도구 옵션: 지금 쓸 벽 종류·문·창문·기둥 프리셋 고르기 ── */
+  const TOOL_OPTIONS = {
+    wall: {
+      label: '벽 종류', key: 'wallTypeId', edit: 'wallType',
+      list: () => App.catalog.wallTypes(),
+      text: (t) => `${t.name} · ${App.units.formatLength(App.catalog.thickness(t))}`,
+      sub: (t) => App.catalog.describe(t),
+    },
+    door: { label: '문', key: 'doorPresetId', edit: 'door', list: () => App.catalog.presets('door'), text: (p) => p.name, sub: (p) => App.catalog.describePreset(p) },
+    window: { label: '창문', key: 'windowPresetId', edit: 'window', list: () => App.catalog.presets('window'), text: (p) => p.name, sub: (p) => App.catalog.describePreset(p) },
+    column: { label: '기둥', key: 'columnPresetId', edit: 'column', list: () => App.catalog.presets('column'), text: (p) => p.name, sub: (p) => App.catalog.describePreset(p) },
+  };
+
+  function updateToolOption() {
+    const o = TOOL_OPTIONS[ui.tool];
+    const btn = $('#toolOpt');
+    btn.hidden = !o;
+    if (!o) {
+      closeToolMenu();
+      return;
+    }
+    App.catalog.ensureCurrent();
+    const cur = App.doc.get(App.current[o.key]);
+    $('#toolOptLabel').textContent = o.label;
+    $('#toolOptValue').textContent = cur ? o.text(cur) : '목록이 비었습니다';
+    if (!$('#toolOptMenu').hidden) renderToolMenu();
+  }
+
+  function renderToolMenu() {
+    const o = TOOL_OPTIONS[ui.tool];
+    const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    $('#toolOptMenu').innerHTML = `
+      ${o.list().map((item) => `
+        <button type="button" class="menu-item opt-item" role="menuitemradio" aria-checked="${item.id === App.current[o.key]}" data-id="${item.id}">
+          <span class="opt-text"><b>${esc(item.name)}</b><small>${esc(o.sub(item))}</small></span>
+        </button>`).join('')}
+      <div class="menu-sep" role="separator"></div>
+      <button type="button" class="menu-item" role="menuitem" data-act="edit">목록 편집…</button>`;
+  }
+
+  function closeToolMenu() {
+    $('#toolOptMenu').hidden = true;
+    $('#toolOpt').setAttribute('aria-expanded', 'false');
+  }
+
+  function bindToolOptions() {
+    const btn = $('#toolOpt');
+    const menu = $('#toolOptMenu');
+    btn.addEventListener('click', () => {
+      if (!menu.hidden) return closeToolMenu();
+      renderToolMenu();
+      menu.hidden = false;
+      btn.setAttribute('aria-expanded', 'true');
+    });
+    menu.addEventListener('click', (e) => {
+      const o = TOOL_OPTIONS[ui.tool];
+      const item = e.target.closest('[data-id]');
+      if (item) {
+        App.current[o.key] = item.dataset.id;
+        closeToolMenu();
+        updateToolOption();
+        App.nav.refreshTool(false);
+        App.plan.requestRender();
+      } else if (e.target.closest('[data-act="edit"]')) {
+        closeToolMenu();
+        App.catalogUI.open(o.edit, App.current[o.key]);
+      }
+    });
+    document.addEventListener('pointerdown', (e) => {
+      if (!menu.hidden && !e.target.closest('.tool-opt-wrap')) closeToolMenu();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeToolMenu();
+    });
+    ui.on('tool', updateToolOption);
+    App.doc.onChange(updateToolOption);
+
+    // 캔버스 위쪽 버튼 묶음 높이: 안내 문구와 '화면 맞춤'이 그 아래를 쓰도록
+    const top = $('#stageTop');
+    const setTop = () => $('#stage').style.setProperty('--stage-top-h', `${top.offsetHeight}px`);
+    if ('ResizeObserver' in window) new ResizeObserver(setTop).observe(top);
+    setTop();
   }
 
   /* ── 속성·집계 탭 ─────────────────────── */

@@ -94,12 +94,15 @@
       if (!p) return this.hover(ev);
       if (!p.mode) {
         if (!dragged(ev, p.ev)) return;
+        const hitEl = p.hit && App.doc.get(p.hit);
         if (p.handle) this.startStretch(p);
+        else if (hitEl && (hitEl.type === 'door' || hitEl.type === 'window')) this.startSlide(p, hitEl);
         else if (p.hit) this.startMove(p);
         else p.mode = 'box';
       }
       if (p.mode === 'move') this.updateMove(p, ev);
       else if (p.mode === 'stretch') this.updateStretch(p, ev);
+      else if (p.mode === 'slide') this.updateSlide(p, ev);
       else p.cur = ev;
       render();
     }
@@ -112,7 +115,7 @@
         if (p.handle) { /* 손잡이를 누르기만 함: 선택 그대로 */ }
         else if (p.hit) ev.shift ? sel.toggle(p.hit) : sel.set([p.hit]);
         else if (!ev.shift) sel.clear();
-      } else if (p.mode === 'move' || p.mode === 'stretch') {
+      } else if (p.mode === 'move' || p.mode === 'stretch' || p.mode === 'slide') {
         App.doc.commit();
       } else if (p.mode === 'box') {
         const crossing = ev.x < p.ev.x; // 오른쪽에서 왼쪽으로 끌면 걸친 것도 선택
@@ -192,8 +195,21 @@
       syncRoomsLive();
     }
 
+    /** 문·창문 끌기: 벽을 따라 미끄러지고, 다른 벽 가까이 가면 그 벽으로 옮겨 붙음 */
+    startSlide(p, el) {
+      App.selection.set([el.id]);
+      p.mode = 'slide';
+      p.el = App.model.clone(el);
+      App.doc.begin(`${App.model.TYPES[el.type].label} 이동`);
+    }
+    updateSlide(p, ev) {
+      const loc = locateOnWall(ev, p.el.width, p.el.id);
+      p.loc = loc;
+      if (loc && !loc.error) App.doc.update(p.el.id, { wallId: loc.wall.id, t: loc.t });
+    }
+
     cancel() {
-      if (this.press && (this.press.mode === 'move' || this.press.mode === 'stretch')) App.doc.rollback();
+      if (this.press && ['move', 'stretch', 'slide'].includes(this.press.mode)) App.doc.rollback();
       this.press = null;
       render();
     }
@@ -216,6 +232,15 @@
       if (!p) return;
       if (p.mode === 'box' && p.cur) App.draw.selectionBox(plan, p.ev, p.cur, p.cur.x < p.ev.x);
       if (p.mode === 'move' && p.snap && p.snap.kind === 'end') App.draw.snapMarker(plan, { ...p.snap.at, kind: 'end' });
+      if (p.mode === 'slide' && p.loc) {
+        const el = App.doc.get(p.el.id);
+        const g = el && App.model.openingGeom(el);
+        if (g && !p.loc.error) {
+          App.draw.screenTransform(plan);
+          App.draw.distanceTag(plan, g.wall.start, g.a, g.n, g.th);
+          App.draw.distanceTag(plan, g.b, g.wall.end, g.n, g.th);
+        }
+      }
       if (p.mode === 'stretch' && p.target) {
         App.draw.snapMarker(plan, p.target);
         App.draw.lengthTag(plan, p.fixed, p.target, p.lastEv && p.lastEv.touch);
@@ -366,7 +391,8 @@
     }
     overlay(plan) {
       const D = App.draw;
-      const thickness = App.settings.wallThickness;
+      const type = App.current.wallTypeId && App.doc.get(App.current.wallTypeId);
+      const thickness = type ? App.catalog.thickness(type) : 100;
       const p = this.press;
       if (p && p.dragging && p.end) {
         D.previewWall(plan, p.start, p.end, thickness);
@@ -495,10 +521,165 @@
     }
   }
 
+  /** 가리킨 곳에서 가장 가까운 벽 위에 폭 width인 개구부를 놓을 자리.
+      가까운 끝을 격자에 맞추고, 벽 끝을 넘지 않게. 다른 문·창문과 겹치면 error */
+  function locateOnWall(ev, width, excludeId) {
+    const tol = (ev.touch ? 28 : 16) / App.plan.view.scale;
+    let best = null, bestD = Infinity;
+    for (const w of App.doc.all()) {
+      if (w.type !== 'wall') continue;
+      const r = G.closestOnSegment(ev.world, w.start, w.end);
+      const d = r.dist - w.thickness / 2;
+      if (d <= tol && d < bestD) {
+        best = { w, r };
+        bestD = d;
+      }
+    }
+    if (!best) return null;
+    const w = best.w;
+    const L = G.dist(w.start, w.end);
+    if (L < width) return { wall: w, L, t: 0.5, side: 1, hinge: 'start', error: `벽(${App.units.formatLength(L)})이 폭보다 짧습니다.` };
+    const cursorAt = best.r.t * L;
+    let c = cursorAt;
+    if (App.settings.snapGrid) {
+      const g = App.settings.gridSize;
+      c = Math.round((c - width / 2) / g) * g + width / 2;
+    }
+    c = G.clamp(c, width / 2, L - width / 2);
+    const d = G.unit({ x: w.end.x - w.start.x, y: w.end.y - w.start.y });
+    const n = G.perp(d);
+    const side = (ev.world.x - best.r.point.x) * n.x + (ev.world.y - best.r.point.y) * n.y >= 0 ? 1 : -1;
+    const loc = { wall: w, L, t: c / L, c, side, hinge: cursorAt < c ? 'start' : 'end', error: null };
+    for (const o of App.measure.openingsOf(w.id)) {
+      if (o.id === excludeId) continue;
+      const g = App.model.openingGeom(o);
+      if (g && Math.abs(g.c - c) < g.half + width / 2 - 0.5) {
+        loc.error = '다른 문·창문과 겹칩니다.';
+        break;
+      }
+    }
+    return loc;
+  }
+
+  /* ── 문·창문 도구: 벽 가까이를 누르면 고른 프리셋으로 붙임 ── */
+  class OpeningTool {
+    constructor(kind) {
+      this.kind = kind;
+    }
+    activate() {
+      this.press = null;
+      this.preview = null;
+    }
+    preset() {
+      return App.doc.get(App.current[`${this.kind}PresetId`]);
+    }
+    hover(ev) {
+      const preset = this.preset();
+      this.preview = ev && preset ? locateOnWall(ev, preset.width) : null;
+      render();
+    }
+    down(ev) {
+      this.press = ev;
+      this.preview = null;
+    }
+    move(ev) {
+      if (!this.press) this.hover(ev);
+    }
+    up(ev) {
+      const pr = this.press;
+      this.press = null;
+      if (!pr || dragged(ev, pr)) return;
+      const T = App.model.TYPES[this.kind];
+      const preset = this.preset();
+      if (!preset) {
+        App.ui.hint('프리셋이 없습니다. 위쪽 목록에서 ‘목록 편집’으로 추가하세요.', 4000);
+        return;
+      }
+      const loc = locateOnWall(ev, preset.width);
+      if (!loc) {
+        App.ui.hint(`${T.label}을 붙일 벽 위를 누르세요.`);
+        return;
+      }
+      if (loc.error) {
+        App.ui.hint(loc.error);
+        return;
+      }
+      const el = this.kind === 'door'
+        ? T.create(loc.wall.id, loc.t, preset, loc.side, loc.hinge)
+        : T.create(loc.wall.id, loc.t, preset);
+      App.doc.transact(`${T.label} 놓기`, () => App.doc.add(el));
+      App.selection.set([el.id]);
+      App.ui.toast(`${preset.name} ${App.catalog.describePreset(preset)}`);
+      if (!ev.touch) this.hover(ev);
+    }
+    cancel() {
+      this.press = null;
+    }
+    overlay(plan) {
+      if (this.preview && !this.press) App.draw.openingPreview(plan, this.kind, this.preview, this.preset());
+    }
+  }
+
+  /* ── 기둥 도구: 누른 곳(격자·끝점 스냅)에 고른 프리셋으로 놓음 ── */
+  class ColumnTool {
+    activate() {
+      this.press = null;
+      this.cursor = null;
+    }
+    preset() {
+      return App.doc.get(App.current.columnPresetId);
+    }
+    pointAt(ev) {
+      return App.snap.point(ev.world, { touch: ev.touch });
+    }
+    hover(ev) {
+      this.cursor = ev ? this.pointAt(ev) : null;
+      render();
+    }
+    down(ev) {
+      this.press = ev;
+      this.cursor = null;
+    }
+    move(ev) {
+      if (!this.press) this.hover(ev);
+    }
+    up(ev) {
+      const pr = this.press;
+      this.press = null;
+      if (!pr || dragged(ev, pr)) return;
+      const preset = this.preset();
+      if (!preset) {
+        App.ui.hint('기둥 프리셋이 없습니다. 위쪽 목록에서 ‘목록 편집’으로 추가하세요.', 4000);
+        return;
+      }
+      const col = App.model.TYPES.column.create(this.pointAt(ev), preset);
+      App.doc.transact('기둥 놓기', () => App.doc.add(col));
+      App.selection.set([col.id]);
+      App.ui.toast(`${preset.name} ${App.catalog.describePreset(preset)}`);
+      if (!ev.touch) this.hover(ev);
+    }
+    cancel() {
+      this.press = null;
+    }
+    overlay(plan) {
+      if (!this.cursor || this.press) return;
+      App.draw.columnPreview(plan, this.cursor, this.preset());
+      App.draw.snapMarker(plan, this.cursor);
+    }
+  }
+
   /** 아직 만들지 않은 도구: 캔버스를 눌러도 아무 일도 하지 않음 */
   class IdleTool {}
 
-  const REGISTRY = { select: SelectTool, wall: WallTool, room: RoomTool, erase: EraseTool };
+  const REGISTRY = {
+    select: () => new SelectTool(),
+    wall: () => new WallTool(),
+    room: () => new RoomTool(),
+    door: () => new OpeningTool('door'),
+    window: () => new OpeningTool('window'),
+    column: () => new ColumnTool(),
+    erase: () => new EraseTool(),
+  };
 
   function removeElements(ids, label) {
     App.doc.transact(label, () => ids.forEach((id) => App.doc.remove(id)));
@@ -511,7 +692,7 @@
     set(id) {
       if (this.current && this.current.deactivate) this.current.deactivate();
       this.id = id;
-      this.current = new (REGISTRY[id] || IdleTool)();
+      this.current = REGISTRY[id] ? REGISTRY[id]() : new IdleTool();
       if (this.current.activate) this.current.activate();
       this.changed();
       render();
@@ -568,4 +749,5 @@
   App.Selection = Selection;
   App.tools = tools;
   App.actions = actions;
+  App.locateOnWall = locateOnWall;
 })();

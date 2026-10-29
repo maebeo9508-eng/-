@@ -27,16 +27,85 @@
     return { id: newId(type), type, layer, room: null, memo: '', createdAt: new Date().toISOString() };
   }
 
-  /* 요소 종류별 기하 처리. 종류가 늘면 여기에 추가 */
+  /** 문·창문이 벽 위에 놓인 모양. 벽보다 넓으면 벽 길이만큼, 벽 끝을 넘지 않게 위치를 맞춤
+      t: 벽 시작점에서 개구부 가운데까지의 비율(0~1) */
+  function openingGeom(el) {
+    const w = App.doc.get(el.wallId);
+    if (!w) return null;
+    const L = G.dist(w.start, w.end);
+    if (L < 1) return null;
+    const d = G.unit({ x: w.end.x - w.start.x, y: w.end.y - w.start.y });
+    const n = G.perp(d);
+    const half = Math.min(el.width, L) / 2;
+    const c = G.clamp(el.t * L, half, L - half);
+    const at = (s) => ({ x: w.start.x + d.x * s, y: w.start.y + d.y * s });
+    return { wall: w, L, d, n, c, half, th: w.thickness, center: at(c), a: at(c - half), b: at(c + half) };
+  }
+  function openingCorners(g, reach = g.th / 2) {
+    const off = (p, k) => ({ x: p.x + g.n.x * k, y: p.y + g.n.y * k });
+    return [off(g.a, reach), off(g.b, reach), off(g.b, -reach), off(g.a, -reach)];
+  }
+  function boxOf(pts) {
+    return {
+      minX: Math.min(...pts.map((p) => p.x)), minY: Math.min(...pts.map((p) => p.y)),
+      maxX: Math.max(...pts.map((p) => p.x)), maxY: Math.max(...pts.map((p) => p.y)),
+    };
+  }
+
+  /* 문과 창문의 공통 기하. pick 0: 누르기 판정에서 벽보다 먼저 */
+  const opening = (label) => ({
+    label,
+    pick: 0,
+    bounds(el) {
+      const g = openingGeom(el);
+      // 여닫이문은 문짝이 벽 밖으로 열리므로 문 폭만큼 넉넉히
+      return g ? boxOf(openingCorners(g, el.type === 'door' ? Math.max(g.th / 2, el.width) : g.th / 2)) : null;
+    },
+    distance(el, p) {
+      const g = openingGeom(el);
+      if (!g) return Infinity;
+      const vx = p.x - g.center.x, vy = p.y - g.center.y;
+      const u = Math.abs(vx * g.d.x + vy * g.d.y) - g.half;
+      const v = Math.abs(vx * g.n.x + vy * g.n.y) - g.th / 2;
+      return Math.hypot(Math.max(u, 0), Math.max(v, 0));
+    },
+    inRect(el, r, crossing) {
+      const g = openingGeom(el);
+      if (!g) return false;
+      const c = openingCorners(g);
+      return crossing ? G.segmentIntersectsRect(g.a, g.b, r) : c.every((p) => G.pointInRect(p, r));
+    },
+    snapPoints() {
+      return [];
+    },
+    movedBy() {
+      return {}; // 벽에 붙어 있어 벽을 따라 움직임
+    },
+    /** 벽 면적에서 빼는 개구부 면적(mm²). 벽보다 넓으면 벽 길이까지만 */
+    area(el) {
+      const g = openingGeom(el);
+      return g ? g.half * 2 * el.height : 0;
+    },
+  });
+
+  /* 요소 종류별 기하 처리. 종류가 늘면 여기에 추가
+     pick: 누르기 판정 순서 (0 문·창문·기둥 → 1 벽 → 2 방), catalog: 도면에 그리지 않는 목록 항목 */
   const TYPES = {
     wall: {
       label: '벽',
+      pick: 1,
+      /** typeId: 벽 종류(다루끼·석고 구성). 두께는 벽 종류에서 정해짐 (catalog.js가 맞춤)
+          flip: 마감 쪽(석고·틀이 붙는 쪽)을 반대로 */
       create(start, end, opts = {}) {
+        const typeId = opts.typeId ?? (App.current && App.current.wallTypeId) ?? null;
+        const type = typeId && App.doc.get(typeId);
         return {
           ...base('wall', 'arch'),
           start: { x: start.x, y: start.y },
           end: { x: end.x, y: end.y },
-          thickness: opts.thickness ?? App.settings.wallThickness,
+          typeId,
+          flip: false,
+          thickness: type ? App.catalog.thickness(type) : (opts.thickness ?? 100),
           height: opts.height ?? App.settings.wallHeight,
         };
       },
@@ -80,7 +149,7 @@
        issue: null | 'open'(벽이 끊겨 경계를 못 찾음) | 'overlap'(다른 방과 같은 경계) */
     room: {
       label: '방',
-      area: true, // 누르기 판정에서 벽보다 뒤로
+      pick: 2,
       create(points, wallIds, name) {
         return {
           ...base('room', 'arch'),
@@ -124,6 +193,82 @@
           points: r.points.map((p) => ({ x: p.x + dx, y: p.y + dy })),
           seed: { x: r.seed.x + dx, y: r.seed.y + dy },
         };
+      },
+    },
+
+    /* 문: 종류(kind) 여닫이·미닫이·자동문·방화문. side: 열리는 쪽(벽의 왼쪽 +1 / 오른쪽 -1), hinge: 경첩이 있는 끝 */
+    door: {
+      ...opening('문'),
+      KINDS: ['여닫이', '미닫이', '자동문', '방화문'],
+      create(wallId, t, preset, side = 1, hinge = 'start') {
+        return { ...base('door', 'arch'), wallId, t, width: preset.width, height: preset.height, kind: preset.style, side, hinge };
+      },
+    },
+
+    /* 창문: 종류 미서기·여닫이·고정창·프로젝트창, sill: 바닥에서 창 아래까지 높이 */
+    window: {
+      ...opening('창문'),
+      KINDS: ['미서기', '여닫이', '고정창', '프로젝트창'],
+      create(wallId, t, preset) {
+        return { ...base('window', 'arch'), wallId, t, width: preset.width, height: preset.height, sill: preset.sill, kind: preset.style };
+      },
+    },
+
+    /* 기둥: 사각(rect, 폭×깊이) 또는 원형(circle, 지름=폭). x, y는 가운데 */
+    column: {
+      label: '기둥',
+      pick: 0,
+      create(p, preset) {
+        return {
+          ...base('column', 'arch'),
+          x: p.x, y: p.y, shape: preset.shape, width: preset.width,
+          depth: preset.shape === 'circle' ? preset.width : preset.depth,
+        };
+      },
+      half(c) {
+        return { hx: c.width / 2, hy: (c.shape === 'circle' ? c.width : c.depth) / 2 };
+      },
+      bounds(c) {
+        const { hx, hy } = TYPES.column.half(c);
+        return { minX: c.x - hx, minY: c.y - hy, maxX: c.x + hx, maxY: c.y + hy };
+      },
+      distance(c, p) {
+        const { hx, hy } = TYPES.column.half(c);
+        if (c.shape === 'circle') return Math.max(0, Math.hypot(p.x - c.x, p.y - c.y) - hx);
+        return Math.hypot(Math.max(Math.abs(p.x - c.x) - hx, 0), Math.max(Math.abs(p.y - c.y) - hy, 0));
+      },
+      inRect(c, r, crossing) {
+        const b = TYPES.column.bounds(c);
+        return crossing ? G.rectsOverlap(b, r) : G.pointInRect({ x: b.minX, y: b.minY }, r) && G.pointInRect({ x: b.maxX, y: b.maxY }, r);
+      },
+      snapPoints(c) {
+        const pts = [{ x: c.x, y: c.y, kind: 'mid' }];
+        if (c.shape !== 'circle') {
+          const b = TYPES.column.bounds(c);
+          pts.push({ x: b.minX, y: b.minY, kind: 'end' }, { x: b.maxX, y: b.minY, kind: 'end' },
+            { x: b.maxX, y: b.maxY, kind: 'end' }, { x: b.minX, y: b.maxY, kind: 'end' });
+        }
+        return pts;
+      },
+      movedBy(c, dx, dy) {
+        return { x: c.x + dx, y: c.y + dy };
+      },
+    },
+
+    /* 목록 항목 (도면에 그리지 않음). 프로젝트와 함께 저장되고 고치면 실행 취소 가능 */
+    wallType: {
+      label: '벽 종류',
+      catalog: true,
+      create(params) {
+        return { ...base('wallType', 'arch'), ...params };
+      },
+    },
+    /* 문·창문·기둥 프리셋. kind: 'door' | 'window' | 'column' */
+    preset: {
+      label: '프리셋',
+      catalog: true,
+      create(kind, params) {
+        return { ...base('preset', 'arch'), kind, ...params };
       },
     },
   };
@@ -223,6 +368,15 @@
         throw err;
       }
     }
+    /** 처음 상태로 채움 (실행 취소 기록 없음). 새 도면·불러오기에 사용 */
+    reset(elements) {
+      this.tx = null;
+      this.elements = new Map(elements.map((el) => [el.id, clone(el)]));
+      this.undoStack = [];
+      this.redoStack = [];
+      this._changed();
+    }
+
     _put(id, value) {
       if (value) this.elements.set(id, clone(value));
       else this.elements.delete(id);
@@ -252,13 +406,13 @@
     /* ── 조회 ── */
 
     /** 도면 점 p 가까이(tol mm 안)에 있는 요소 id. 여러 개면 가장 가까운 것.
-        벽 같은 선 요소를 먼저 찾고, 없으면 방 같은 면 요소 */
+        문·창문·기둥 → 벽 → 방 순으로 찾음 */
     hitTest(p, tol, filter) {
-      for (const areaPass of [false, true]) {
+      for (const pick of [0, 1, 2]) {
         let best = null, bestD = Infinity;
         for (const el of this.elements.values()) {
           const t = TYPES[el.type];
-          if (!t || !!t.area !== areaPass || (filter && !filter(el))) continue;
+          if (!t || t.catalog || t.pick !== pick || (filter && !filter(el))) continue;
           const d = t.distance(el, p);
           if (d <= tol && d < bestD) {
             best = el.id;
@@ -274,7 +428,7 @@
       const ids = [];
       for (const el of this.elements.values()) {
         const t = TYPES[el.type];
-        if (t && t.inRect(el, rect, crossing)) ids.push(el.id);
+        if (t && !t.catalog && t.inRect(el, rect, crossing)) ids.push(el.id);
       }
       return ids;
     }
@@ -285,8 +439,9 @@
       const list = ids ? ids.map((id) => this.elements.get(id)).filter(Boolean) : this.elements.values();
       for (const el of list) {
         const t = TYPES[el.type];
-        if (!t) continue;
+        if (!t || t.catalog) continue;
         const b = t.bounds(el);
+        if (!b) continue;
         r = r
           ? { minX: Math.min(r.minX, b.minX), minY: Math.min(r.minY, b.minY), maxX: Math.max(r.maxX, b.maxX), maxY: Math.max(r.maxY, b.maxY) }
           : b;
@@ -295,5 +450,5 @@
     }
   }
 
-  App.model = { DATA_VERSION, LAYERS, TYPES, Doc, clone };
+  App.model = { DATA_VERSION, LAYERS, TYPES, Doc, clone, openingGeom, openingCorners };
 })();

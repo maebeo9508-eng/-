@@ -9,7 +9,51 @@
   const COORD_LIMIT = 10000000; // 좌표 범위 ±10km
   const NAME_MAX = 40;
 
-  /* 숫자 칸 정의. min이 0보다 크면 0 이하는 막음. apply가 있으면 그것으로 반영 */
+  const wallOf = (el) => App.doc.get(el.wallId);
+  const geomOf = (el) => App.model.openingGeom(el);
+
+  /** 같은 벽의 다른 문·창문과 겹치는지 (가운데 c, 폭 width 기준) */
+  function overlaps(el, c, width) {
+    return App.measure.openingsOf(el.wallId).some((o) => {
+      if (o.id === el.id) return false;
+      const g = geomOf(o);
+      return g && Math.abs(g.c - c) < g.half + width / 2 - 0.5;
+    });
+  }
+
+  /* 숫자 칸 정의. min이 0보다 크면 0 이하는 막음. check(요소, 새 값)는 막을 이유를 돌려줌. apply가 있으면 그것으로 반영 */
+  const OPENING = {
+    width: {
+      label: '폭', min: 100, max: 20000, get: (o) => o.width, set: (o, v) => ({ width: v }),
+      check: (o, v) => {
+        const g = geomOf(o);
+        if (!g) return null;
+        if (v > g.L) return `벽 길이(${App.units.formatLength(g.L)})보다 넓을 수 없습니다.`;
+        const c = G.clamp(o.t * g.L, v / 2, g.L - v / 2);
+        return overlaps(o, c, v) ? '넓히면 다른 문·창문과 겹칩니다.' : null;
+      },
+    },
+    height: {
+      label: '높이', min: 100, max: 20000, get: (o) => o.height, set: (o, v) => ({ height: v }),
+      check: (o, v) => {
+        const w = wallOf(o);
+        const top = v + (o.type === 'window' ? o.sill : 0);
+        return w && top > w.height ? `벽 높이(${App.units.formatLength(w.height)})를 넘습니다.` : null;
+      },
+    },
+    offset: {
+      label: '벽 시작에서', min: 0, max: 1000000,
+      get: (o) => { const g = geomOf(o); return g ? g.c - g.half : 0; },
+      set: (o, v) => { const g = geomOf(o); return { t: (v + g.half) / g.L }; },
+      check: (o, v) => {
+        const g = geomOf(o);
+        if (!g) return null;
+        if (v + g.half * 2 > g.L + 0.5) return `벽 끝을 넘습니다. ${App.units.formatLength(g.L - g.half * 2)} 이하로 입력하세요.`;
+        return overlaps(o, v + g.half, g.half * 2) ? '그 자리에는 다른 문·창문이 있습니다.' : null;
+      },
+    },
+  };
+
   const FIELDS = {
     wall: {
       length: {
@@ -22,7 +66,6 @@
         },
         check: (w) => (G.dist(w.start, w.end) < 0.001 ? '길이가 0인 벽은 방향이 없어 길이를 바꿀 수 없습니다.' : null),
       },
-      thickness: { label: '두께', min: 10, max: 2000, get: (w) => w.thickness, set: (w, v) => ({ thickness: v }) },
       height: { label: '높이', min: 100, max: 20000, get: (w) => w.height, set: (w, v) => ({ height: v }) },
       sx: { label: 'X', min: -COORD_LIMIT, max: COORD_LIMIT, get: (w) => w.start.x, set: (w, v) => ({ start: { x: v, y: w.start.y } }) },
       sy: { label: 'Y', min: -COORD_LIMIT, max: COORD_LIMIT, get: (w) => w.start.y, set: (w, v) => ({ start: { x: w.start.x, y: v } }) },
@@ -40,6 +83,26 @@
         }),
       },
     },
+    door: OPENING,
+    window: {
+      ...OPENING,
+      sill: {
+        label: '하단 높이', min: 0, max: 20000, get: (o) => o.sill, set: (o, v) => ({ sill: v }),
+        check: (o, v) => {
+          const w = wallOf(o);
+          return w && v + o.height > w.height ? `창 위가 벽 높이(${App.units.formatLength(w.height)})를 넘습니다.` : null;
+        },
+      },
+    },
+    column: {
+      width: {
+        label: '폭', min: 50, max: 5000, get: (c) => c.width,
+        set: (c, v) => (c.shape === 'circle' ? { width: v, depth: v } : { width: v }),
+      },
+      depth: { label: '깊이', min: 50, max: 5000, get: (c) => c.depth, set: (c, v) => ({ depth: v }) },
+      x: { label: 'X', min: -COORD_LIMIT, max: COORD_LIMIT, get: (c) => c.x, set: (c, v) => ({ x: v }) },
+      y: { label: 'Y', min: -COORD_LIMIT, max: COORD_LIMIT, get: (c) => c.y, set: (c, v) => ({ y: v }) },
+    },
   };
 
   let pane = null;
@@ -53,7 +116,7 @@
     if (f.min > 0 && mm <= 0) return { error: '0보다 큰 값을 입력하세요.' };
     if (mm < f.min) return { error: `${App.units.formatLength(f.min)} 이상으로 입력하세요.` };
     if (mm > f.max) return { error: `${App.units.formatLength(f.max)} 이하로 입력하세요.` };
-    const problem = f.check && els.map(f.check).find(Boolean);
+    const problem = f.check && els.map((e) => f.check(e, mm)).find(Boolean);
     if (problem) return { error: problem };
     return { value: mm };
   }
@@ -65,13 +128,13 @@
   };
   const commonText = (get) => (els.every((e) => get(e) === get(els[0])) ? get(els[0]) : null);
 
-  function numberField(key) {
+  function numberField(key, label) {
     const f = fields[key];
     const v = common(f.get);
     const value = v === null ? '' : App.units.inputLength(v);
     return `
       <div class="field" data-field="${key}">
-        <label class="field-label" for="f-${key}">${f.label}</label>
+        <label class="field-label" for="f-${key}">${label || f.label}</label>
         <div class="field-box">
           <input id="f-${key}" type="text" inputmode="decimal" enterkeyhint="done" autocomplete="off"
             value="${esc(value)}" ${v === null ? 'placeholder="여러 값"' : ''}>
@@ -81,27 +144,40 @@
       </div>`;
   }
 
-  function stat(label, value, id) {
-    return `<div class="stat"><span class="stat-label">${label}</span><span class="stat-value" ${id ? `id="${id}"` : ''}>${esc(value)}</span></div>`;
+  function selectField(id, label, options, current, extra = '') {
+    return `
+      <div class="field">
+        <label class="field-label" for="${id}">${label}</label>
+        <div class="field-row">
+          <select id="${id}" class="field-select">
+            ${current === null ? '<option value="" selected>여러 값</option>' : ''}
+            ${options.map(([v, text]) => `<option value="${esc(v)}" ${v === current ? 'selected' : ''}>${esc(text)}</option>`).join('')}
+          </select>
+          ${extra}
+        </div>
+      </div>`;
+  }
+
+  function stat(label, value, note) {
+    return `<div class="stat"><span class="stat-label">${label}</span><span class="stat-value">${esc(value)}${note ? `<small>${esc(note)}</small>` : ''}</span></div>`;
   }
 
   function commonFields(single) {
     const layer = commonText((e) => e.layer) || '';
     const memo = commonText((e) => e.memo);
     return `
-      <div class="field">
-        <label class="field-label" for="f-layer">레이어</label>
-        <select id="f-layer" class="field-select">
-          ${layer ? '' : '<option value="" selected>여러 값</option>'}
-          ${App.model.LAYERS.map((l) => `<option value="${l.id}" ${l.id === layer ? 'selected' : ''}>${l.label}</option>`).join('')}
-        </select>
-      </div>
+      ${selectField('f-layer', '레이어', App.model.LAYERS.map((l) => [l.id, l.label]), layer || null)}
       <div class="field">
         <label class="field-label" for="f-memo">메모</label>
         <textarea id="f-memo" class="field-text" rows="2" ${memo === null ? 'placeholder="여러 값"' : ''}>${esc(memo || '')}</textarea>
       </div>
       ${single ? `<div class="props-meta">만든 시각 ${esc(new Date(els[0].createdAt).toLocaleString('ko-KR'))}</div>` : ''}`;
   }
+
+  function head(title, sub) {
+    return `<div class="props-head"><span class="props-title">${esc(title)}</span><span class="props-sub">${esc(sub || '')}</span></div>`;
+  }
+  const deleteButton = (what) => `<button type="button" class="btn btn-danger" data-act="delete">${els.length === 1 ? `이 ${what} 삭제` : `${els.length}개 삭제`}</button>`;
 
   /** 이 벽을 둘러싼 방 이름들 */
   function roomsOfWall(id) {
@@ -110,27 +186,53 @@
     return names.join(', ') || '없음';
   }
 
+  /** 자재 물량 줄: 다루끼·스터드·런너는 길이와 본 수, 석고보드는 면적과 장 수 */
+  function materialRows(walls) {
+    const m = App.measure.materials(walls);
+    if (!m.frames.length && !m.boards.length) return '';
+    const lossNote = (loss) => (loss ? `, 로스 ${loss}%` : '');
+    return `
+      <div class="field-group-label">자재</div>
+      <div class="stats">
+        ${m.frames.map((f) => stat(f.name, `${App.measure.meters(f.length)} · ${f.pieces}본`, `${Number(f.piece / 1000)}m 기준${lossNote(f.loss)}`)).join('')}
+        ${m.boards.map((b) => stat(b.spec, `${App.units.formatArea(b.area)} · ${b.sheets}장`, lossNote(b.loss).replace(/^, /, ''))).join('')}
+      </div>`;
+  }
+
   function wallForm() {
     const single = els.length === 1;
-    const total = els.reduce((sum, w) => sum + G.dist(w.start, w.end), 0);
+    const C = App.catalog;
+    const types = C.wallTypes();
+    const typeId = commonText((w) => w.typeId);
+    const oneSided = els.some((w) => { const t = C.typeOf(w); return t && C.isOneSided(t); });
+    const qs = els.map((w) => App.measure.wall(w));
+    const area = qs.reduce((s, q) => s + q.area, 0);
+    const openings = qs.reduce((s, q) => s + q.openings, 0);
+    const total = qs.reduce((s, q) => s + q.length, 0);
+    const thickness = common((w) => w.thickness);
     return `
-      <div class="props-head">
-        <span class="props-title">벽</span>
-        <span class="props-sub" id="p-sub">${single ? '' : `${els.length}개 선택 · 총 길이 ${App.units.formatLength(total)}`}</span>
-      </div>
+      ${head('벽', single ? '' : `${els.length}개 선택 · 총 길이 ${App.units.formatLength(total)}`)}
+      ${selectField('f-wallType', '벽 종류', types.map((t) => [t.id, `${t.name} · ${App.units.formatLength(C.thickness(t))}`]), typeId,
+        '<button type="button" class="btn" data-act="edit-type">편집</button>')}
+      ${typeId && C.typeOf(els[0]) ? `<p class="props-meta">${esc(C.describe(C.typeOf(els[0])))}</p>` : ''}
+      ${oneSided ? '<button type="button" class="btn" data-act="flip">마감 면 뒤집기 (석고·틀이 붙는 쪽)</button>' : ''}
       <div class="field-grid">
         ${single ? numberField('length') : ''}
-        ${numberField('thickness')}
         ${numberField('height')}
       </div>
+      <div class="stats">
+        ${stat('두께', thickness === null ? '여러 값' : App.units.formatLength(thickness), '벽 종류에서 정해짐')}
+        ${stat(single ? '벽 면적 (한 면)' : '벽 면적 합계 (한 면)', App.units.formatArea(area), openings ? `문·창문 ${openings}개 뺌` : '')}
+        ${single ? stat('방', roomsOfWall(els[0].id)) : ''}
+      </div>
+      ${materialRows(els)}
       ${single ? `
         <div class="field-group-label">시작점</div>
         <div class="field-grid">${numberField('sx')}${numberField('sy')}</div>
         <div class="field-group-label">끝점</div>
-        <div class="field-grid">${numberField('ex')}${numberField('ey')}</div>
-        ${stat('방', roomsOfWall(els[0].id), 'p-rooms')}` : ''}
+        <div class="field-grid">${numberField('ex')}${numberField('ey')}</div>` : ''}
       ${commonFields(single)}
-      <button type="button" class="btn btn-danger" data-act="delete">${single ? '이 벽 삭제' : `${els.length}개 삭제`}</button>`;
+      ${deleteButton('벽')}`;
   }
 
   const ISSUE_TEXT = {
@@ -143,49 +245,114 @@
     const R = App.model.TYPES.room;
     const area = els.reduce((sum, r) => sum + R.floorArea(r), 0);
     const r = els[0];
+    const issue = els.find((e) => e.issue);
     return `
-      <div class="props-head">
-        <span class="props-title">방</span>
-        <span class="props-sub">${single ? '' : `${els.length}개 선택`}</span>
-      </div>
-      ${els.some((e) => e.issue) ? `<div class="notice notice-danger" id="p-issue">${esc(ISSUE_TEXT[(els.find((e) => e.issue)).issue])}</div>` : ''}
+      ${head('방', single ? '' : `${els.length}개 선택`)}
+      ${issue ? `<div class="notice notice-danger" id="p-issue">${esc(ISSUE_TEXT[issue.issue])}</div>` : ''}
       ${single ? `
         <div class="field">
           <label class="field-label" for="f-name">이름</label>
           <div class="field-box"><input id="f-name" type="text" maxlength="${NAME_MAX}" enterkeyhint="done" autocomplete="off" value="${esc(r.name)}"></div>
         </div>` : ''}
       <div class="stats">
-        ${stat(single ? '바닥 면적' : '바닥 면적 합계', App.units.formatArea(area), 'p-area')}
-        ${single ? stat('둘레', App.units.formatLength(G.perimeter(r.points)), 'p-perimeter') : ''}
+        ${stat(single ? '바닥 면적' : '바닥 면적 합계', App.units.formatArea(area))}
+        ${single ? stat('둘레', App.units.formatLength(G.perimeter(r.points))) : ''}
       </div>
       <div class="field-grid">
         ${numberField('ceilingHeight')}
         ${numberField('wallHeight')}
       </div>
       ${commonFields(single)}
-      <button type="button" class="btn btn-danger" data-act="delete">${single ? '이 방 삭제' : `${els.length}개 삭제`}</button>
+      ${deleteButton('방')}
       <p class="props-meta">방을 지워도 벽은 남습니다.</p>`;
+  }
+
+  function presetSelect(kind) {
+    const presets = App.catalog.presets(kind);
+    if (!presets.length) return '';
+    return `
+      <div class="field">
+        <label class="field-label" for="f-preset">프리셋 적용</label>
+        <select id="f-preset" class="field-select">
+          <option value="" selected>프리셋 고르기…</option>
+          ${presets.map((p) => `<option value="${p.id}">${esc(p.name)} · ${esc(App.catalog.describePreset(p))}</option>`).join('')}
+        </select>
+      </div>`;
+  }
+
+  function openingForm(type) {
+    const single = els.length === 1;
+    const T = App.model.TYPES[type];
+    const kind = commonText((e) => e.kind);
+    const swings = els.every((e) => e.type === 'door' && (e.kind === '여닫이' || e.kind === '방화문'));
+    const flips = els.every((e) => e.type === 'door' && e.kind !== '자동문');
+    const area = els.reduce((s, e) => s + T.area(e), 0);
+    const g = single && geomOf(els[0]);
+    const wallType = g && App.catalog.typeOf(g.wall);
+    return `
+      ${head(T.label, single ? (kind || '') : `${els.length}개 선택`)}
+      ${presetSelect(type)}
+      ${selectField('f-kind', '종류', T.KINDS.map((k) => [k, k]), kind)}
+      <div class="field-grid">
+        ${numberField('width')}
+        ${numberField('height')}
+        ${type === 'window' ? numberField('sill') : ''}
+        ${single ? numberField('offset') : ''}
+      </div>
+      ${swings || flips ? `<div class="btn-row">
+        ${flips ? '<button type="button" class="btn" data-act="swing">열리는 쪽 뒤집기</button>' : ''}
+        ${swings ? '<button type="button" class="btn" data-act="hinge">경첩 위치 바꾸기</button>' : ''}
+      </div>` : ''}
+      <div class="stats">
+        ${stat(single ? '면적' : '면적 합계', App.units.formatArea(area), '벽 면적에서 뺌')}
+        ${type === 'window' && single ? stat('창 위 높이', App.units.formatLength(els[0].sill + els[0].height)) : ''}
+        ${g ? stat('붙은 벽', wallType ? wallType.name : '벽', App.units.formatLength(g.L)) : ''}
+      </div>
+      ${commonFields(single)}
+      ${deleteButton(T.label)}`;
+  }
+
+  function columnForm() {
+    const single = els.length === 1;
+    const shape = commonText((c) => c.shape);
+    const circle = shape === 'circle';
+    return `
+      ${head('기둥', single ? App.catalog.SHAPE_NAMES[els[0].shape] : `${els.length}개 선택`)}
+      ${presetSelect('column')}
+      ${selectField('f-shape', '모양', Object.entries(App.catalog.SHAPE_NAMES), shape)}
+      <div class="field-grid">
+        ${numberField('width', circle ? '지름' : '폭')}
+        ${circle ? '' : numberField('depth')}
+      </div>
+      ${single ? `<div class="field-group-label">가운데 위치</div><div class="field-grid">${numberField('x')}${numberField('y')}</div>` : ''}
+      ${commonFields(single)}
+      ${deleteButton('기둥')}`;
   }
 
   function mixedForm() {
     const counts = {};
     els.forEach((e) => { counts[e.type] = (counts[e.type] || 0) + 1; });
     const parts = Object.entries(counts).map(([t, n]) => `${App.model.TYPES[t].label} ${n}`).join(', ');
+    const walls = els.filter((e) => e.type === 'wall');
     return `
-      <div class="props-head"><span class="props-title">${els.length}개 선택</span><span class="props-sub">${parts}</span></div>
+      ${head(`${els.length}개 선택`, parts)}
+      ${walls.length ? materialRows(walls) : ''}
       ${commonFields(false)}
       <button type="button" class="btn btn-danger" data-act="delete">${els.length}개 삭제</button>`;
   }
 
   function emptyState() {
     const tips = {
-      wall: '벽 도구로 그린 뒤 ‘선택’ 도구로 벽을 누르면 길이, 두께, 높이를 여기서 고칠 수 있습니다.',
+      wall: '위쪽에서 벽 종류(다루끼·경량 스터드·덧방 등)를 고른 뒤 그리세요. 그린 벽을 ‘선택’ 도구로 누르면 자재 물량이 여기에 나옵니다.',
       room: '벽으로 닫힌 곳 안쪽을 누르면 방으로 등록되고 바닥 면적이 계산됩니다.',
+      door: '위쪽에서 문 프리셋을 고른 뒤 벽 위를 누르세요. 누른 쪽으로 문이 열립니다.',
+      window: '위쪽에서 창문 프리셋을 고른 뒤 벽 위를 누르세요.',
+      column: '위쪽에서 기둥 프리셋을 고른 뒤 놓을 곳을 누르세요.',
     };
     return `
       <div class="empty">
         <div class="empty-title">선택한 항목 없음</div>
-        <p>${tips[App.tools.id] || '도면에서 벽이나 방을 누르면 크기, 이름, 메모, 레이어를 여기서 고칠 수 있습니다.'}</p>
+        <p>${tips[App.tools.id] || '도면에서 벽, 문, 창문, 기둥, 방을 누르면 크기와 자재 물량을 여기서 보고 고칠 수 있습니다.'}</p>
       </div>`;
   }
 
@@ -193,54 +360,36 @@
     const types = new Set(els.map((e) => e.type));
     const type = types.size === 1 ? [...types][0] : null;
     fields = (type && FIELDS[type]) || {};
+    const scroll = pane.scrollTop;
     if (!els.length) pane.innerHTML = emptyState();
     else if (type === 'wall') pane.innerHTML = wallForm();
     else if (type === 'room') pane.innerHTML = roomForm();
+    else if (type === 'door' || type === 'window') pane.innerHTML = openingForm(type);
+    else if (type === 'column') pane.innerHTML = columnForm();
     else pane.innerHTML = mixedForm();
+    pane.scrollTop = scroll;
   }
 
-  /** 같은 선택이면 입력 중인 칸은 건드리지 않고 값만 새로 고침 */
-  function updateValues() {
+  /** 입력 중인 칸이 있으면 그 칸만 두고 숫자 칸 값만 새로 고침 */
+  function updateNumbers() {
     pane.querySelectorAll('.field[data-field]').forEach((box) => {
       const input = box.querySelector('input');
       if (document.activeElement === input) return;
       const v = common(fields[box.dataset.field].get);
       input.value = v === null ? '' : App.units.inputLength(v);
     });
-    const set = (id, text) => {
-      const el = document.getElementById(id);
-      if (el) el.textContent = text;
-    };
-    const types = new Set(els.map((e) => e.type));
-    const type = types.size === 1 ? els[0].type : null; // 여러 종류를 함께 고른 경우는 공통 칸만
-    if (type === 'wall') {
-      if (els.length > 1) {
-        const total = els.reduce((sum, w) => sum + G.dist(w.start, w.end), 0);
-        set('p-sub', `${els.length}개 선택 · 총 길이 ${App.units.formatLength(total)}`);
-      } else {
-        set('p-rooms', roomsOfWall(els[0].id));
-      }
-    }
-    if (type === 'room') {
-      const R = App.model.TYPES.room;
-      set('p-area', App.units.formatArea(els.reduce((sum, r) => sum + R.floorArea(r), 0)));
-      if (els.length === 1) set('p-perimeter', App.units.formatLength(G.perimeter(els[0].points)));
-      const name = document.getElementById('f-name');
-      if (name && document.activeElement !== name) name.value = els[0].name;
-      // 경고가 생기거나 없어지면 다시 그림
-      const hasIssue = els.some((e) => e.issue);
-      if (hasIssue !== !!document.getElementById('p-issue')) build();
-    }
   }
 
   function refresh() {
     els = App.selection.list().map((id) => App.doc.get(id)).filter(Boolean);
     const key = els.map((e) => e.id).join(',') + (els.length ? '' : `|${App.tools.id}`);
-    if (key !== shownKey) {
+    // 글자를 치는 중인 칸이 있으면 패널을 다시 그리지 않음 (선택 상자는 바로 다시 그려도 됨)
+    const editing = pane.contains(document.activeElement) && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName);
+    if (key !== shownKey || !editing) {
       shownKey = key;
       build();
     } else if (els.length) {
-      updateValues();
+      updateNumbers();
     }
     const badge = document.getElementById('propsBadge');
     badge.textContent = els.length;
@@ -265,6 +414,24 @@
     input.value = v === null ? '' : App.units.inputLength(v);
   }
 
+  /** 프리셋 값을 고른 문·창문·기둥에 적용 (크기가 벽에 맞지 않으면 막음) */
+  function applyPreset(p) {
+    if (p.kind !== 'column') {
+      const f = fields;
+      const problem = els.map((e) => f.width.check(e, p.width) || f.height.check(e, p.height)).find(Boolean)
+        || (p.kind === 'window' && els.map((e) => f.sill.check({ ...e, height: p.height }, p.sill)).find(Boolean));
+      if (problem) {
+        App.ui.toast(`‘${p.name}’을 적용할 수 없습니다. ${problem}`);
+        return;
+      }
+      apply('프리셋 적용', () => (p.kind === 'window'
+        ? { width: p.width, height: p.height, sill: p.sill, kind: p.style }
+        : { width: p.width, height: p.height, kind: p.style }));
+    } else {
+      apply('프리셋 적용', () => ({ shape: p.shape, width: p.width, depth: p.shape === 'circle' ? p.width : p.depth }));
+    }
+  }
+
   function init() {
     pane = document.getElementById('pane-props');
 
@@ -278,15 +445,34 @@
     // 확정(엔터·칸 벗어남): 올바르면 반영, 아니면 원래 값으로 되돌리고 안내 유지
     pane.addEventListener('change', (e) => {
       const t = e.target;
-      if (t.id === 'f-layer') {
+      const id = t.id;
+      if (id === 'f-layer') {
         if (t.value) apply('레이어 변경', () => ({ layer: t.value }));
         return;
       }
-      if (t.id === 'f-memo') {
+      if (id === 'f-memo') {
         apply('메모 수정', () => ({ memo: t.value }));
         return;
       }
-      if (t.id === 'f-name') {
+      if (id === 'f-wallType') {
+        if (t.value) apply('벽 종류 변경', () => ({ typeId: t.value }));
+        return;
+      }
+      if (id === 'f-kind') {
+        if (t.value) apply('종류 변경', () => ({ kind: t.value }));
+        return;
+      }
+      if (id === 'f-shape') {
+        if (t.value) apply('모양 변경', (c) => ({ shape: t.value, depth: t.value === 'circle' ? c.width : c.depth }));
+        return;
+      }
+      if (id === 'f-preset') {
+        const p = t.value && App.doc.get(t.value);
+        t.value = '';
+        if (p) applyPreset(p);
+        return;
+      }
+      if (id === 'f-name') {
         const name = t.value.trim().slice(0, NAME_MAX);
         if (!name) {
           t.value = els[0].name;
@@ -328,7 +514,15 @@
     });
 
     pane.addEventListener('click', (e) => {
-      if (e.target.closest('[data-act="delete"]')) App.actions.deleteSelection();
+      const act = e.target.closest('[data-act]');
+      if (!act) return;
+      switch (act.dataset.act) {
+        case 'delete': App.actions.deleteSelection(); break;
+        case 'flip': apply('마감 면 뒤집기', (w) => ({ flip: !w.flip })); break;
+        case 'swing': apply('열리는 쪽 뒤집기', (d) => ({ side: -(d.side || 1) })); break;
+        case 'hinge': apply('경첩 위치 바꾸기', (d) => ({ hinge: d.hinge === 'end' ? 'start' : 'end' })); break;
+        case 'edit-type': App.catalogUI.open('wallType', commonText((w) => w.typeId)); break;
+      }
     });
 
     App.selection.onChange(refresh);
