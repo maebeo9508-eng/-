@@ -333,6 +333,9 @@ button { font: inherit; color: inherit; }
 }
 .snap-btn + .snap-btn { border-left: 1px solid var(--line); }
 .stage-row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; max-width: 100%; }
+/* 위쪽 버튼 묶음의 빈 곳은 도면을 가리지 않게 (누르면 도면으로) */
+.stage-top, .stage-row { pointer-events: none; }
+.stage-top > *, .stage-row > * { pointer-events: auto; }
 .stage-pill {
   display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 12px;
   border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow);
@@ -489,10 +492,48 @@ button { font: inherit; color: inherit; }
 .sum-views .seg-btn { flex: 1; min-width: 0; padding: 0 6px; white-space: nowrap; }
 .sum-bar > .btn { flex: none; padding: 0 10px; white-space: nowrap; }
 
-.finish-btn {
+.draw-actions {
   position: absolute;
   top: 12px;
   right: 12px;
+  z-index: 3;
+  display: flex;
+  gap: 8px;
+}
+.draw-btn {
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--accent);
+  font-weight: 700;
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.len-box {
+  position: absolute;
+  top: 60px;
+  right: 12px;
+  z-index: 3;
+  display: grid;
+  gap: 8px;
+  width: 260px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.len-box > * { min-width: 0; }
+.len-row { display: flex; gap: 6px; }
+.len-row .field-box { flex: 1; min-width: 0; }
+.len-row input { width: 100%; min-width: 0; }
+.len-dirs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.len-dirs .btn { font-size: 18px; padding: 0; }
+.len-note { margin: 0; font-size: 12px; color: var(--fg-muted); line-height: 1.4; }
+.finish-btn {
   min-height: 40px;
   padding: 0 14px;
   border: 0;
@@ -943,7 +984,10 @@ button { font: inherit; color: inherit; }
   .toolbar::-webkit-scrollbar { display: none; }
   .tool { width: 58px; height: 54px; }
   .snap-btn { min-height: 44px; padding: 0 11px; }
-  .finish-btn { min-height: 44px; }
+  .finish-btn, .draw-btn { min-height: 44px; }
+  /* 휴대폰: 위쪽 버튼 묶음 아래로 (스냅 버튼과 겹치지 않게) */
+  .draw-actions { top: calc(var(--stage-top-h, 56px) + 12px); }
+  .len-box { top: calc(var(--stage-top-h, 56px) + 64px); left: 12px; right: 12px; width: auto; }
   .tool-opt { min-height: 44px; }
   .modal { padding: 0; align-items: stretch; }
   .modal-card { max-width: none; max-height: none; height: 100%; border-radius: 0; }

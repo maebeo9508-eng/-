@@ -59,6 +59,11 @@
       }
       if (e.repeat) return;
 
+      // 이어 그리는 중에 숫자를 누르면 길이 입력 칸이 열림
+      if (/^[0-9.]$/.test(e.key) && App.ui.openLength(e.key)) {
+        e.preventDefault();
+        return;
+      }
       if (e.key === 'Escape') {
         if (!App.tools.escape() && App.tools.id !== 'select') App.ui.setTool('select');
       } else if (e.key === 'Enter') {

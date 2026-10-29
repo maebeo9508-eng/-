@@ -150,6 +150,7 @@
         }
         else if (p.hit) ev.shift ? sel.toggleAll(withGroups([p.hit])) : sel.set(withGroups([p.hit]));
         else if (!ev.shift) sel.clear();
+        if (ev.touch) App.ui.emit('picked', !!p.hit); // 휴대폰: 누른 것의 속성이 보이게 서랍을 올림
       } else if (['move', 'stretch', 'slide', 'remount'].includes(p.mode)) {
         App.doc.commit();
       } else if (p.mode === 'box') {
@@ -435,6 +436,26 @@
       ch.ids.push(el.id);
       if (this.cfg.single) this.finish();
       else if (ch.ids.length >= 2 && G.samePoint(end, ch.points[0])) this.finish(); // 닫히면 끝
+    }
+    /** 길이를 숫자로: 마지막 점에서 dir(단위 벡터) 방향으로 len(mm)만큼 */
+    addLength(len, dir) {
+      if (!this.chain || !(len > 0)) return false;
+      const a = this.last();
+      this.addSegment({ x: a.x + dir.x * len, y: a.y + dir.y * len });
+      render();
+      return true;
+    }
+    /** 숫자로 넣을 때 쓸 방향: 커서 쪽, 없으면 바로 앞 선분 방향 */
+    currentDir() {
+      if (!this.chain) return null;
+      const a = this.last();
+      if (this.cursor && !G.samePoint(this.cursor, a)) return G.unit({ x: this.cursor.x - a.x, y: this.cursor.y - a.y });
+      const pts = this.chain.points;
+      if (pts.length >= 2) {
+        const b = pts[pts.length - 2];
+        return G.unit({ x: a.x - b.x, y: a.y - b.y });
+      }
+      return null;
     }
     finish() {
       if (!this.chain) return;

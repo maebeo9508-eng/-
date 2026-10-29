@@ -64,6 +64,8 @@
       bindToolOptions();
       initSheet();
       bindDialog();
+      bindBack();
+      bindPicked();
     },
     setTool,
     pickTool,
@@ -72,6 +74,7 @@
     hint,
     dialog,
     busy,
+    openLength,
   });
 
   /* ── 도구 바 ───────────────────────────── */
@@ -194,7 +197,152 @@
 
     $('#btnFinish').addEventListener('click', () => App.tools.finish());
     ui.on('toolstate', (tool) => {
-      $('#btnFinish').hidden = !(tool && tool.isChaining && tool.isChaining());
+      const chaining = !!(tool && tool.isChaining && tool.isChaining());
+      $('#btnFinish').hidden = !chaining;
+      $('#btnLength').hidden = !chaining;
+      if (!chaining) closeLength();
+    });
+    bindLength();
+  }
+
+  /* ── 길이를 숫자로 넣기 (벽·선·치수 이어 그리기 중) ──
+     휴대폰: 숫자를 넣고 화살표로 방향. PC: 숫자 키를 누르면 바로 열리고 Enter는 커서 쪽 */
+  const DIRS = { right: { x: 1, y: 0 }, left: { x: -1, y: 0 }, up: { x: 0, y: -1 }, down: { x: 0, y: 1 } };
+  const chainTool = () => {
+    const t = App.tools.current;
+    return t && t.isChaining && t.isChaining() ? t : null;
+  };
+  function openLength(prefill = '') {
+    if (!chainTool()) return false;
+    $('#lenUnit').textContent = App.units.lengthLabel();
+    const input = $('#lenInput');
+    $('#lenBox').hidden = false;
+    input.value = prefill;
+    input.focus();
+    input.setSelectionRange(prefill.length, prefill.length);
+    return true;
+  }
+  function closeLength() {
+    const box = $('#lenBox');
+    if (box.hidden) return false;
+    box.hidden = true;
+    if (document.activeElement === $('#lenInput')) $('#lenInput').blur();
+    return true;
+  }
+  function applyLength(dir) {
+    const t = chainTool();
+    if (!t) return closeLength();
+    const input = $('#lenInput');
+    const mm = App.units.parseLength(input.value);
+    if (!(mm > 0) || mm > 1000000) {
+      toast('길이를 숫자로 넣으세요. (0보다 크게)');
+      input.focus();
+      return false;
+    }
+    const d = dir || t.currentDir();
+    if (!d) {
+      toast('처음 선분은 방향 화살표를 눌러 정하세요.');
+      return false;
+    }
+    t.addLength(mm, d);
+    input.value = '';
+    if (chainTool()) input.focus();
+    else closeLength();
+    return true;
+  }
+  function bindLength() {
+    $('#btnLength').addEventListener('click', () => openLength());
+    $('#lenClose').addEventListener('click', closeLength);
+    const box = $('#lenBox');
+    // 화살표를 눌러도 입력 칸에서 포커스가 빠지지 않게 (휴대폰 자판이 내려갔다 올라오지 않음)
+    box.addEventListener('pointerdown', (e) => { if (e.target.closest('[data-dir]')) e.preventDefault(); });
+    box.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-dir]');
+      if (b) applyLength(DIRS[b.dataset.dir]);
+    });
+    $('#lenInput').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        applyLength(null);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        closeLength();
+      }
+    });
+  }
+
+  /* ── 안드로이드 뒤로 버튼: 앱을 바로 닫지 않고 열린 것부터 하나씩 닫음 ── */
+  function closeTop() {
+    if (!$('#busy').hidden) return true; // 읽는 중: 기다림
+    if (!$('#dialog').hidden && dialogDone) {
+      dialogDone('cancel');
+      return true;
+    }
+    if (!$('#settingsModal').hidden) {
+      App.settingsUI.close();
+      return true;
+    }
+    if (!$('#catalogModal').hidden) {
+      App.catalogUI.close();
+      return true;
+    }
+    if (closeLength()) return true;
+    const menu = document.querySelector('.menu:not([hidden])');
+    if (menu) {
+      menu.hidden = true;
+      return true;
+    }
+    if (App.tools.escape()) return true; // 그리던 것 끝내기, 선택 풀기
+    if (ui.mobile.matches && sheet.isOpen()) {
+      sheet.collapse();
+      return true;
+    }
+    if (ui.tool !== 'select') {
+      setTool('select');
+      return true;
+    }
+    return false;
+  }
+  function bindBack() {
+    if (!window.history || !history.pushState) return;
+    const guard = () => history.pushState({ hjdm: 'guard' }, '');
+    history.replaceState({ hjdm: 'base' }, '');
+    guard();
+    let armed = false;
+    window.addEventListener('popstate', () => {
+      if (closeTop()) {
+        armed = false;
+        guard();
+        return;
+      }
+      if (!armed) {
+        armed = true;
+        toast('한 번 더 뒤로 가면 앱을 닫습니다. 도면은 저장되어 있습니다.');
+        guard();
+        setTimeout(() => { armed = false; }, 2500);
+        return;
+      }
+      history.back(); // 정말 나감
+    });
+  }
+
+  /** 휴대폰에서 선택 도구로 누른 것: 서랍을 올려 속성을 보여 주고, 빈 곳을 누르면 다시 내림 */
+  function bindPicked() {
+    let auto = false;
+    ui.on('picked', (hit) => {
+      if (!ui.mobile.matches) return;
+      if (hit) {
+        const props = $('#tab-props');
+        if (props.getAttribute('aria-selected') !== 'true') props.click();
+        if (!sheet.isOpen()) {
+          sheet.set(Math.max(sheet.lastOpen || 0, sheet.max() * 0.42));
+          auto = true;
+        }
+      } else if (auto && sheet.isOpen()) {
+        sheet.collapse();
+        auto = false;
+      }
     });
   }
 
