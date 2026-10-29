@@ -113,4 +113,14 @@
   plan.resize();
   setTopInset();
   App.projects.init(); // 마지막에 열었던 도면과 화면 위치를 불러옴 (처음이면 새 도면, 화면 맞춤)
+
+  // 오프라인 동작: 앱 파일을 기기에 담아 둠 (웹 주소로 열었을 때. 파일로 직접 열거나 Capacitor 앱 안에서는 필요 없음)
+  const native = window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform();
+  if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol) && !native) {
+    const hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.register('sw.js').catch(() => { /* 안 되면 온라인에서만 */ });
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (hadController) App.ui.toast('앱이 새 버전으로 바뀌었습니다. 다시 열면 적용됩니다.');
+    });
+  }
 })();
