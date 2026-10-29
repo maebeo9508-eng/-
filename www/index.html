@@ -20,6 +20,7 @@
 <script src="js/ui.js" defer></script>
 <script src="js/props.js" defer></script>
 <script src="js/catalog-ui.js" defer></script>
+<script src="js/summary.js" defer></script>
 <script src="js/keys.js" defer></script>
 <script src="js/main.js" defer></script>
 </head>
@@ -70,6 +71,7 @@
         <button type="button" class="snap-btn" data-snap="ortho" aria-pressed="true" title="직교 고정 (Shift로 잠깐 전환)">직교</button>
         <button type="button" class="snap-btn" data-snap="stretchWalls" data-only="select" aria-pressed="true" title="벽을 옮기거나 끝을 끌 때 이어진 벽도 같이 늘리기 (끄면 고른 벽만 이동)">늘리기</button>
       </div>
+      <div class="palette" id="palette" role="toolbar" aria-label="기호 고르기" hidden></div>
       <div class="menu-wrap tool-opt-wrap">
         <button type="button" class="tool-opt" id="toolOpt" aria-haspopup="menu" aria-expanded="false" aria-controls="toolOptMenu" hidden>
           <span class="tool-opt-label" id="toolOptLabel"></span>
@@ -80,6 +82,8 @@
       </div>
       </div>
       <button type="button" class="finish-btn" id="btnFinish" hidden>그리기 끝내기</button>
+
+      <textarea class="text-editor" id="textEditor" rows="1" hidden aria-label="글자 입력" placeholder="글자 입력 후 Enter"></textarea>
 
       <div class="tool-hint" id="toolHint" role="status" aria-live="polite"></div>
 
@@ -129,6 +133,7 @@
         <button type="button" class="seg-btn" role="tab" data-kind="door" aria-selected="false">문</button>
         <button type="button" class="seg-btn" role="tab" data-kind="window" aria-selected="false">창문</button>
         <button type="button" class="seg-btn" role="tab" data-kind="column" aria-selected="false">기둥</button>
+        <button type="button" class="seg-btn" role="tab" data-kind="line" aria-selected="false">선</button>
       </div>
       <div class="modal-body" id="catalogBody"></div>
     </div>

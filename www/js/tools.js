@@ -10,6 +10,8 @@
   const HIT_PX = { mouse: 6, touch: 14 };     // 요소를 누른 것으로 보는 여유
   const DOUBLE_CLICK_MS = 350;
   const HANDLE_PX = { mouse: 10, touch: 22 }; // 벽 끝 손잡이를 잡는 범위
+  const HANDLED = new Set(['wall', 'line', 'dim']); // 양 끝 손잡이로 늘이는 요소
+  const STRETCHY = new Set(['wall', 'line']);      // '늘리기'로 이어진 끝이 따라오는 요소
   const LIVE_ROOM_SYNC_MAX_WALLS = 400;       // 이보다 벽이 많으면 끄는 동안 방 경계를 다시 계산하지 않음
 
   const render = () => App.plan.requestRender();
@@ -75,11 +77,11 @@
         render();
       }
     }
-    /** 벽 하나만 골랐을 때 그 벽의 양 끝 손잡이 */
+    /** 벽·선·치수 하나만 골랐을 때 그 양 끝 손잡이 */
     handleAt(ev) {
       if (App.selection.size !== 1) return null;
       const w = App.doc.get(App.selection.list()[0]);
-      if (!w || w.type !== 'wall') return null;
+      if (!w || !HANDLED.has(w.type)) return null;
       const r = (ev.touch ? HANDLE_PX.touch : HANDLE_PX.mouse) / App.plan.view.scale;
       for (const end of ['start', 'end']) if (G.dist(ev.world, w[end]) <= r) return { id: w.id, end };
       return null;
@@ -112,7 +114,11 @@
       if (!p) return;
       const sel = App.selection;
       if (!p.mode) {
+        const hitEl = p.hit && App.doc.get(p.hit);
         if (p.handle) { /* 손잡이를 누르기만 함: 선택 그대로 */ }
+        else if (hitEl && hitEl.type === 'text' && !ev.shift && sel.size === 1 && sel.has(p.hit)) {
+          App.textEditor.open({ x: hitEl.x, y: hitEl.y }, hitEl); // 고른 메모를 한 번 더 누르면 고치기
+        }
         else if (p.hit) ev.shift ? sel.toggle(p.hit) : sel.set([p.hit]);
         else if (!ev.shift) sel.clear();
       } else if (p.mode === 'move' || p.mode === 'stretch' || p.mode === 'slide') {
@@ -139,7 +145,7 @@
       p.ids = [...ids];
       p.orig = new Map(p.ids.map((id) => [id, App.model.clone(App.doc.get(id))]));
       // '늘리기': 옮기는 벽에 붙은 다른 벽의 끝도 같이 움직여 모서리가 떨어지지 않게
-      p.attached = App.settings.stretchWalls ? attachedEnds([...p.orig.values()].filter((e) => e.type === 'wall'), new Set(p.ids)) : [];
+      p.attached = App.settings.stretchWalls ? attachedEnds([...p.orig.values()].filter((e) => STRETCHY.has(e.type)), new Set(p.ids)) : [];
       p.exclude = new Set([...p.ids, ...p.attached.map((a) => a.id)]);
       p.points = [];
       p.orig.forEach((el) => {
@@ -172,12 +178,12 @@
       p.followers = [];
       if (App.settings.stretchWalls) {
         for (const el of App.doc.all()) {
-          if (el.type !== 'wall' || el.id === w.id) continue;
+          if (el.type !== w.type || !STRETCHY.has(el.type) || el.id === w.id) continue;
           ['start', 'end'].forEach((end) => G.samePoint(el[end], from, 1) && p.followers.push({ id: el.id, end }));
         }
       }
       p.exclude = new Set([w.id, ...p.followers.map((f) => f.id)]);
-      App.doc.begin('벽 늘이기');
+      App.doc.begin(`${App.model.TYPES[w.type].label} 늘이기`);
     }
     updateStretch(p, ev) {
       const target = App.snap.point(ev.world, {
@@ -248,14 +254,15 @@
     }
   }
 
-  /** 옮기는 벽 위(끝이나 중간)에 닿아 있는, 옮기지 않는 벽의 끝 */
-  function attachedEnds(movingWalls, movingIds) {
+  /** 옮기는 벽(선) 위(끝이나 중간)에 닿아 있는, 옮기지 않는 같은 종류의 끝 */
+  function attachedEnds(moving, movingIds) {
     const found = [];
     for (const el of App.doc.all()) {
-      if (el.type !== 'wall' || movingIds.has(el.id)) continue;
+      if (!STRETCHY.has(el.type) || movingIds.has(el.id)) continue;
+      const same = moving.filter((m) => m.type === el.type);
       ['start', 'end'].forEach((end) => {
         const pt = el[end];
-        if (movingWalls.some((m) => G.closestOnSegment(pt, m.start, m.end).dist < 1)) found.push({ id: el.id, end, x: pt.x, y: pt.y });
+        if (same.some((m) => G.closestOnSegment(pt, m.start, m.end).dist < 1)) found.push({ id: el.id, end, x: pt.x, y: pt.y });
       });
     }
     return found;
@@ -268,12 +275,16 @@
     if (App.doc.tx) App.rooms.syncRooms(App.doc.tx);
   }
 
-  /* ── 벽 도구 ──
-     끌기: 누른 곳에서 뗀 곳까지 벽 하나. 누르기(클릭·탭): 점을 차례로 찍어 이어 그리기.
-     끝내기: 같은 점을 다시 누르기, 더블클릭, 시작점에 닫기, Esc·Enter·오른쪽 클릭, '그리기 끝내기' 버튼 */
-  class WallTool {
+  /* ── 이어 그리기 도구 (벽·선·치수) ──
+     끌기: 누른 곳에서 뗀 곳까지 하나. 누르기(클릭·탭): 점을 차례로 찍어 이어 그리기.
+     끝내기: 같은 점을 다시 누르기, 더블클릭, 시작점에 닫기, Esc·Enter·오른쪽 클릭, '그리기 끝내기' 버튼
+     cfg: { label, create(a, b) → 요소, preview(plan, a, b), single: 하나 그리면 끝 } */
+  class ChainTool {
+    constructor(cfg) {
+      this.cfg = cfg;
+    }
     activate() {
-      this.chain = null; // { points: [시작점, ...], walls: [벽 id, ...] }
+      this.chain = null; // { points: [시작점, ...], ids: [만든 요소 id, ...] }
       this.press = null;
       this.cursor = null;
       this.lastClick = null;
@@ -339,18 +350,20 @@
       render();
     }
     startChain(point) {
-      this.chain = { points: [{ x: point.x, y: point.y }], walls: [] };
+      this.chain = { points: [{ x: point.x, y: point.y }], ids: [] };
       App.tools.changed();
     }
     addSegment(end) {
       const ch = this.chain;
       const a = this.last();
       if (G.samePoint(a, end)) return;
-      const wall = App.model.TYPES.wall.create(a, end);
-      App.doc.transact('벽 그리기', () => App.doc.add(wall));
+      const el = this.cfg.create(a, end);
+      if (!el) return;
+      App.doc.transact(`${this.cfg.label} 그리기`, () => App.doc.add(el));
       ch.points.push({ x: end.x, y: end.y });
-      ch.walls.push(wall.id);
-      if (ch.walls.length >= 2 && G.samePoint(end, ch.points[0])) this.finish(); // 닫히면 끝
+      ch.ids.push(el.id);
+      if (this.cfg.single) this.finish();
+      else if (ch.ids.length >= 2 && G.samePoint(end, ch.points[0])) this.finish(); // 닫히면 끝
     }
     finish() {
       if (!this.chain) return;
@@ -377,25 +390,23 @@
       }
       return false;
     }
-    /** 실행 취소로 마지막 벽이 없어지면 그 앞 점부터 이어 그림 */
+    /** 실행 취소로 마지막 것이 없어지면 그 앞 점부터 이어 그림 */
     onDocChange() {
       const ch = this.chain;
-      if (!ch || !ch.walls.length) return;
+      if (!ch || !ch.ids.length) return;
       let popped = false;
-      while (ch.walls.length && !App.doc.has(ch.walls[ch.walls.length - 1])) {
-        ch.walls.pop();
+      while (ch.ids.length && !App.doc.has(ch.ids[ch.ids.length - 1])) {
+        ch.ids.pop();
         ch.points.pop();
         popped = true;
       }
-      if (popped && !ch.walls.length) this.finish();
+      if (popped && !ch.ids.length) this.finish();
     }
     overlay(plan) {
       const D = App.draw;
-      const type = App.current.wallTypeId && App.doc.get(App.current.wallTypeId);
-      const thickness = type ? App.catalog.thickness(type) : 100;
       const p = this.press;
       if (p && p.dragging && p.end) {
-        D.previewWall(plan, p.start, p.end, thickness);
+        this.cfg.preview(plan, p.start, p.end);
         D.snapMarker(plan, p.end);
         D.lengthTag(plan, p.start, p.end, p.lastEv && p.lastEv.touch);
         return;
@@ -403,7 +414,7 @@
       if (this.chain) {
         const last = this.last();
         if (this.cursor && !p) {
-          D.previewWall(plan, last, this.cursor, thickness);
+          this.cfg.preview(plan, last, this.cursor);
           D.lengthTag(plan, last, this.cursor, false);
         }
         D.pointMarker(plan, last);
@@ -411,6 +422,35 @@
       if (this.cursor && !p) D.snapMarker(plan, this.cursor);
     }
   }
+
+  const currentWallThickness = () => {
+    const type = App.current.wallTypeId && App.doc.get(App.current.wallTypeId);
+    return type ? App.catalog.thickness(type) : 100;
+  };
+  const wallChain = () => new ChainTool({
+    label: '벽',
+    create: (a, b) => App.model.TYPES.wall.create(a, b),
+    preview: (plan, a, b) => App.draw.previewWall(plan, a, b, currentWallThickness()),
+  });
+  /** 선 그리기. presetId()가 돌려주는 선 종류로 */
+  const lineChain = (presetId) => new ChainTool({
+    label: '선',
+    create: (a, b) => {
+      const preset = App.doc.get(presetId());
+      if (!preset) {
+        App.ui.hint('선 종류가 없습니다. 위쪽 목록에서 ‘목록 편집’으로 추가하세요.', 4000);
+        return null;
+      }
+      return App.model.TYPES.line.create(a, b, preset);
+    },
+    preview: (plan, a, b) => App.draw.previewLine(plan, a, b, App.doc.get(presetId())),
+  });
+  const dimChain = () => new ChainTool({
+    label: '치수',
+    single: true,
+    create: (a, b) => App.model.TYPES.dim.create(a, b),
+    preview: (plan, a, b) => App.draw.previewDim(plan, a, b),
+  });
 
   /* ── 지우개: 누르거나 문지른 요소를 지움 (한 번에 실행 취소 한 단계) ── */
   class EraseTool {
@@ -668,12 +708,320 @@
     }
   }
 
+  /** 벽 가까이(화면 20px 안)면 벽면에 붙일 자리와 방향. 아니면 null */
+  function wallMount(ev, depth) {
+    const tol = (ev.touch ? 28 : 20) / App.plan.view.scale;
+    let best = null, bestD = Infinity;
+    for (const w of App.doc.all()) {
+      if (w.type !== 'wall') continue;
+      const r = G.closestOnSegment(ev.world, w.start, w.end);
+      const d = r.dist - w.thickness / 2;
+      if (d <= tol && d < bestD && r.t > 0 && r.t < 1) {
+        best = { w, r };
+        bestD = d;
+      }
+    }
+    if (!best) return null;
+    const { w, r } = best;
+    const dir = G.unit({ x: w.end.x - w.start.x, y: w.end.y - w.start.y });
+    const n = G.perp(dir);
+    const side = (ev.world.x - r.point.x) * n.x + (ev.world.y - r.point.y) * n.y >= 0 ? 1 : -1;
+    const L = G.dist(w.start, w.end);
+    let along = r.t * L;
+    if (App.settings.snapGrid) along = G.clamp(Math.round(along / App.settings.gridSize) * App.settings.gridSize, 0, L);
+    const off = side * (w.thickness / 2 + depth / 2);
+    let rot = (Math.atan2(dir.y, dir.x) * 180) / Math.PI;
+    if (side < 0) rot += 180; // 기호 앞면이 방 쪽을 보도록
+    rot = ((Math.round(rot) % 360) + 360) % 360;
+    return { x: w.start.x + dir.x * along + n.x * off, y: w.start.y + dir.y * along + n.y * off, rotation: rot };
+  }
+
+  /* ── 전기·설비 도구: 팔레트에서 고른 기호를 놓음. 전선관·배관·덕트를 고르면 선 그리기 ── */
+  class ItemTool {
+    constructor(category) {
+      this.category = category;
+      const def = this.def();
+      this.lineTool = def && def.line ? lineChain(() => App.current.linePresetId) : null;
+    }
+    def() {
+      const kind = App.current[`${this.category}Kind`];
+      return App.catalog.ITEM_KINDS[this.category].find((d) => (d.kind || d.line) === kind) || null;
+    }
+    activate() {
+      this.press = null;
+      this.ghost = null;
+      if (this.lineTool) this.lineTool.activate();
+    }
+    deactivate() {
+      if (this.lineTool) this.lineTool.deactivate();
+    }
+    /** 놓일 자리: 벽에 붙는 종류는 벽 가까이면 벽면에, 아니면 격자·끝점 스냅 */
+    placeAt(ev) {
+      const def = this.def();
+      if (!def || def.line) return null;
+      const mount = def.wall ? wallMount(ev, def.size * def.aspect) : null;
+      if (mount) return { ...mount, def };
+      const p = App.snap.point(ev.world, { touch: ev.touch });
+      return { x: p.x, y: p.y, rotation: 0, def, snap: p };
+    }
+    hover(ev) {
+      if (this.lineTool) return this.lineTool.hover(ev);
+      this.ghost = ev ? this.placeAt(ev) : null;
+      render();
+    }
+    down(ev) {
+      if (this.lineTool) return this.lineTool.down(ev);
+      this.press = ev;
+      this.ghost = null;
+    }
+    move(ev) {
+      if (this.lineTool) return this.lineTool.move(ev);
+      if (!this.press) this.hover(ev);
+    }
+    up(ev) {
+      if (this.lineTool) return this.lineTool.up(ev);
+      const pr = this.press;
+      this.press = null;
+      if (!pr || dragged(ev, pr)) return;
+      const at = this.placeAt(ev);
+      if (!at) return;
+      const it = App.model.TYPES.item.create(at, this.category, at.def, at.rotation);
+      App.doc.transact(`${at.def.kind} 놓기`, () => App.doc.add(it));
+      App.ui.toast(`${at.def.kind} 놓음`);
+      if (!ev.touch) this.hover(ev);
+    }
+    cancel() {
+      if (this.lineTool) return this.lineTool.cancel();
+      this.press = null;
+    }
+    isChaining() { return !!this.lineTool && this.lineTool.isChaining(); }
+    finish() { if (this.lineTool) this.lineTool.finish(); }
+    context(ev) { if (this.lineTool) this.lineTool.context(ev); }
+    escape() { return this.lineTool ? this.lineTool.escape() : false; }
+    onDocChange() { if (this.lineTool) this.lineTool.onDocChange(); }
+    overlay(plan) {
+      if (this.lineTool) return this.lineTool.overlay(plan);
+      const g = this.ghost;
+      if (!g || this.press) return;
+      App.draw.previewItem(plan, { kind: g.def.kind, category: this.category, x: g.x, y: g.y, rotation: g.rotation, size: g.def.size });
+      if (g.snap) App.draw.snapMarker(plan, g.snap);
+    }
+  }
+
+  /* ── 영역 도구: 끌면 사각형, 점을 차례로 누르면 다각형 (처음 점을 다시 누르거나 '끝내기') ── */
+  class ZoneTool {
+    activate() {
+      this.points = null;
+      this.press = null;
+      this.cursor = null;
+      this.lastClick = null;
+    }
+    deactivate() {
+      this.finish();
+    }
+    isChaining() {
+      return !!this.points;
+    }
+    color() {
+      return App.current.zoneColor;
+    }
+    snapAt(ev, from) {
+      return App.snap.point(ev.world, {
+        from,
+        ortho: !!from && App.settings.ortho !== !!ev.shift,
+        touch: ev.touch,
+        extra: this.points ? [{ ...this.points[0], kind: 'end' }] : [],
+      });
+    }
+    hover(ev) {
+      this.lastHover = ev;
+      this.cursor = ev ? this.snapAt(ev, this.points ? this.points[this.points.length - 1] : null) : null;
+      render();
+    }
+    down(ev) {
+      this.press = { ev, start: this.snapAt(ev, null), dragging: false };
+    }
+    move(ev) {
+      const p = this.press;
+      if (!p) return this.hover(ev);
+      if (!p.dragging && !this.points && dragged(ev, p.ev)) p.dragging = true;
+      if (p.dragging) {
+        p.end = this.snapAt(ev, null);
+        render();
+      }
+    }
+    up(ev) {
+      const p = this.press;
+      this.press = null;
+      if (!p) return;
+      if (p.dragging) {
+        const a = p.start, b = this.snapAt(ev, null);
+        if (Math.abs(b.x - a.x) > 1 && Math.abs(b.y - a.y) > 1) {
+          this.create([a, { x: b.x, y: a.y }, b, { x: a.x, y: b.y }]);
+        }
+        return;
+      }
+      const now = performance.now();
+      const isDouble = this.lastClick && now - this.lastClick.t < DOUBLE_CLICK_MS && screenDist(ev, this.lastClick) < 8;
+      this.lastClick = { t: now, x: ev.x, y: ev.y };
+      if (!this.points) {
+        this.points = [p.start];
+        App.tools.changed();
+      } else {
+        const pt = this.snapAt(ev, this.points[this.points.length - 1]);
+        const last = this.points[this.points.length - 1];
+        if (isDouble || G.samePoint(pt, last) || (this.points.length >= 3 && G.samePoint(pt, this.points[0]))) this.finish();
+        else this.points.push(pt);
+      }
+      if (!ev.touch) this.hover(ev);
+      render();
+    }
+    create(points) {
+      let n = 0;
+      for (const el of App.doc.all()) {
+        const m = el.type === 'zone' && /^구역 (\d+)$/.exec(el.name);
+        if (m) n = Math.max(n, Number(m[1]));
+      }
+      const z = App.model.TYPES.zone.create(points, `구역 ${n + 1}`, this.color());
+      App.doc.transact('영역 만들기', () => App.doc.add(z));
+      App.selection.set([z.id]);
+      App.ui.toast(`${z.name}: ${App.units.formatArea(App.model.TYPES.zone.area(z))}`);
+    }
+    /** 점이 3개 이상이면 영역을 만들고 끝냄 */
+    finish() {
+      const pts = this.points;
+      if (!pts) return;
+      this.points = null;
+      if (pts.length >= 3) this.create(pts);
+      else App.ui.hint('영역은 점이 3개 이상이어야 합니다.');
+      App.tools.changed();
+      render();
+    }
+    context() {
+      this.finish();
+    }
+    cancel() {
+      this.press = null;
+      render();
+    }
+    escape() {
+      if (this.press) {
+        this.cancel();
+        return true;
+      }
+      if (this.points) {
+        this.points = null; // Esc는 만들지 않고 취소
+        App.tools.changed();
+        render();
+        return true;
+      }
+      return false;
+    }
+    overlay(plan) {
+      const D = App.draw;
+      const p = this.press;
+      if (p && p.dragging && p.end) {
+        const a = p.start, b = p.end;
+        D.previewZone(plan, [a, { x: b.x, y: a.y }, b, { x: a.x, y: b.y }], this.color());
+        D.snapMarker(plan, b);
+        return;
+      }
+      if (this.points) {
+        const pts = this.cursor && !p ? [...this.points, this.cursor] : this.points;
+        D.previewZone(plan, pts, this.color());
+        if (pts.length === 2) D.previewLine(plan, pts[0], pts[1], null);
+        this.points.forEach((q) => D.pointMarker(plan, q));
+      }
+      if (this.cursor && !p) D.snapMarker(plan, this.cursor);
+    }
+  }
+
+  /* ── 글자 입력 칸: 도면 위 누른 자리에 바로 띄움. Enter로 확정(Shift+Enter 줄바꿈), Esc 취소 ── */
+  const textEditor = {
+    el: null,
+    open(world, existing) {
+      const el = (this.el = this.el || document.getElementById('textEditor'));
+      this.world = world;
+      this.existing = existing || null;
+      const size = existing ? existing.size : Number(App.current.textSize);
+      const s = App.plan.view.toScreen(world.x, world.y);
+      el.style.left = `${s.x}px`;
+      el.style.top = `${s.y}px`;
+      el.style.fontSize = `${Math.max(size * App.plan.view.scale, 14)}px`;
+      el.value = existing ? existing.content : '';
+      el.hidden = false;
+      el.rows = Math.max(1, el.value.split('\n').length);
+      el.focus();
+      el.select();
+    },
+    close(commit) {
+      const el = this.el;
+      if (!el || el.hidden) return;
+      el.hidden = true;
+      const content = el.value.replace(/\s+$/, '');
+      const ex = this.existing;
+      if (!commit) return;
+      if (ex) {
+        if (!App.doc.has(ex.id)) return;
+        if (!content) App.doc.transact('메모 지우기', () => App.doc.remove(ex.id));
+        else if (content !== ex.content) App.doc.transact('메모 고치기', () => App.doc.update(ex.id, { content }));
+      } else if (content) {
+        const t = App.model.TYPES.text.create(this.world, content, Number(App.current.textSize));
+        App.doc.transact('메모 쓰기', () => App.doc.add(t));
+      }
+    },
+    init() {
+      const el = (this.el = document.getElementById('textEditor'));
+      el.addEventListener('keydown', (e) => {
+        e.stopPropagation();
+        if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+          e.preventDefault();
+          this.close(true);
+        } else if (e.key === 'Escape') {
+          this.close(false);
+        }
+      });
+      el.addEventListener('input', () => { el.rows = Math.max(1, el.value.split('\n').length); });
+      el.addEventListener('blur', () => this.close(true));
+    },
+  };
+
+  /* ── 텍스트 도구: 누른 자리에 글자 입력 ── */
+  class TextTool {
+    activate() {
+      this.press = null;
+    }
+    deactivate() {
+      textEditor.close(true);
+    }
+    down(ev) {
+      this.press = ev;
+    }
+    up(ev) {
+      const pr = this.press;
+      this.press = null;
+      if (!pr || dragged(ev, pr)) return;
+      const hit = App.doc.hitTest(ev.world, (ev.touch ? HIT_PX.touch : HIT_PX.mouse) / App.plan.view.scale, (el) => el.type === 'text');
+      if (hit) textEditor.open({ x: App.doc.get(hit).x, y: App.doc.get(hit).y }, App.doc.get(hit));
+      else textEditor.open(ev.world);
+    }
+    cancel() {
+      this.press = null;
+    }
+  }
+
   /** 아직 만들지 않은 도구: 캔버스를 눌러도 아무 일도 하지 않음 */
   class IdleTool {}
 
   const REGISTRY = {
     select: () => new SelectTool(),
-    wall: () => new WallTool(),
+    wall: wallChain,
+    line: () => lineChain(() => App.current.linePresetId),
+    dim: dimChain,
+    elec: () => new ItemTool('elec'),
+    mech: () => new ItemTool('mech'),
+    zone: () => new ZoneTool(),
+    text: () => new TextTool(),
     room: () => new RoomTool(),
     door: () => new OpeningTool('door'),
     window: () => new OpeningTool('window'),
@@ -735,6 +1083,13 @@
       App.selection.prune();
       if (entry) App.ui.toast(`다시 실행: ${entry.label}`);
     },
+    /** 고른 아이템을 90도씩 돌림 (Q) */
+    rotateSelection() {
+      const items = App.selection.list().map((id) => App.doc.get(id)).filter((e) => e && e.type === 'item');
+      if (!items.length) return false;
+      App.doc.transact('90도 돌리기', () => items.forEach((it) => App.doc.update(it.id, { rotation: (it.rotation + 90) % 360 })));
+      return true;
+    },
     /** 선택한 항목 삭제. 지운 개수를 돌려줌 */
     deleteSelection() {
       const ids = App.selection.list().filter((id) => App.doc.has(id));
@@ -750,4 +1105,5 @@
   App.tools = tools;
   App.actions = actions;
   App.locateOnWall = locateOnWall;
+  App.textEditor = textEditor;
 })();

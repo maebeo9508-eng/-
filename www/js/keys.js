@@ -31,6 +31,8 @@
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
         e.preventDefault();
         App.actions.deleteSelection();
+      } else if (e.code === 'KeyQ') {
+        App.actions.rotateSelection(); // 고른 아이템 90도 돌리기
       } else if (/^Key[A-Z]$/.test(e.code)) {
         const letter = e.code.slice(3);
         const tool = App.ui.TOOLS.find((t) => t.key === letter);

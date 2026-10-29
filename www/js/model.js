@@ -52,6 +52,74 @@
     };
   }
 
+  /** 화면에서 최소 px 크기를 지키기 위한 도면 길이(mm). 멀리서 봐도 기호·글자가 너무 작아지지 않게 */
+  const minWorld = (px) => (App.plan ? px / App.plan.view.scale : 0);
+
+  /* 선분 요소(선·치수)의 공통 기하 */
+  const segmentShape = (halfWidth) => ({
+    bounds(e) {
+      const h = halfWidth(e);
+      return {
+        minX: Math.min(e.start.x, e.end.x) - h, minY: Math.min(e.start.y, e.end.y) - h,
+        maxX: Math.max(e.start.x, e.end.x) + h, maxY: Math.max(e.start.y, e.end.y) + h,
+      };
+    },
+    distance(e, p) {
+      return G.closestOnSegment(p, e.start, e.end).dist - halfWidth(e);
+    },
+    inRect(e, r, crossing) {
+      return crossing ? G.segmentIntersectsRect(e.start, e.end, r) : G.pointInRect(e.start, r) && G.pointInRect(e.end, r);
+    },
+    movedBy(e, dx, dy) {
+      return { start: { x: e.start.x + dx, y: e.start.y + dy }, end: { x: e.end.x + dx, y: e.end.y + dy } };
+    },
+  });
+
+  /* 다각형 요소(방·영역)의 공통 기하 */
+  const polygonShape = {
+    bounds(r) {
+      const b = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+      r.points.forEach((p) => {
+        b.minX = Math.min(b.minX, p.x); b.minY = Math.min(b.minY, p.y);
+        b.maxX = Math.max(b.maxX, p.x); b.maxY = Math.max(b.maxY, p.y);
+      });
+      return b;
+    },
+    // 안이면 거의 0. 겹치면 작은 것이 먼저 잡히도록 넓이에 비례한 아주 작은 값
+    distance(r, p) {
+      return G.pointInPolygon(p, r.points) ? Math.abs(G.signedArea(r.points)) * 1e-15 : Infinity;
+    },
+    inRect(r, rect, crossing) {
+      if (!crossing) return r.points.every((p) => G.pointInRect(p, rect));
+      const n = r.points.length;
+      for (let i = 0; i < n; i++) {
+        if (G.segmentIntersectsRect(r.points[i], r.points[(i + 1) % n], rect)) return true;
+      }
+      return G.pointInPolygon({ x: (rect.minX + rect.maxX) / 2, y: (rect.minY + rect.maxY) / 2 }, r.points);
+    },
+  };
+
+  /** 글자 상자(mm). (x, y)는 왼쪽 위. 한글은 글자 크기만큼, 영문·숫자는 0.6배 폭으로 어림 */
+  function textBox(t) {
+    const size = Math.max(t.size, minWorld(11));
+    const lines = String(t.content || ' ').split('\n');
+    const width = Math.max(...lines.map((l) => [...l].reduce((s, ch) => s + (/[\u1100-\uffff]/.test(ch) ? 1 : 0.6), 0))) * size;
+    return { minX: t.x, minY: t.y, maxX: t.x + Math.max(width, size), maxY: t.y + lines.length * size * 1.3 };
+  }
+
+  /** 치수선 위치: 잰 두 점에서 offset만큼 옆으로 띄운 선 */
+  function dimGeom(d) {
+    const dir = G.unit({ x: d.end.x - d.start.x, y: d.end.y - d.start.y });
+    const n = G.perp(dir);
+    const o = d.offset || 0;
+    return {
+      dir, n,
+      a: { x: d.start.x + n.x * o, y: d.start.y + n.y * o },
+      b: { x: d.end.x + n.x * o, y: d.end.y + n.y * o },
+      length: G.dist(d.start, d.end),
+    };
+  }
+
   /* 문과 창문의 공통 기하. pick 0: 누르기 판정에서 벽보다 먼저 */
   const opening = (label) => ({
     label,
@@ -150,6 +218,7 @@
     room: {
       label: '방',
       pick: 2,
+      ...polygonShape,
       create(points, wallIds, name) {
         return {
           ...base('room', 'arch'),
@@ -164,26 +233,6 @@
       },
       floorArea(r) {
         return Math.abs(G.signedArea(r.points)); // mm²
-      },
-      bounds(r) {
-        const b = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
-        r.points.forEach((p) => {
-          b.minX = Math.min(b.minX, p.x); b.minY = Math.min(b.minY, p.y);
-          b.maxX = Math.max(b.maxX, p.x); b.maxY = Math.max(b.maxY, p.y);
-        });
-        return b;
-      },
-      // 안이면 거의 0. 방이 겹치면 작은 방이 먼저 잡히도록 넓이에 비례한 아주 작은 값
-      distance(r, p) {
-        return G.pointInPolygon(p, r.points) ? Math.abs(G.signedArea(r.points)) * 1e-15 : Infinity;
-      },
-      inRect(r, rect, crossing) {
-        if (!crossing) return r.points.every((p) => G.pointInRect(p, rect));
-        const n = r.points.length;
-        for (let i = 0; i < n; i++) {
-          if (G.segmentIntersectsRect(r.points[i], r.points[(i + 1) % n], rect)) return true;
-        }
-        return G.pointInPolygon({ x: (rect.minX + rect.maxX) / 2, y: (rect.minY + rect.maxY) / 2 }, r.points);
       },
       snapPoints() {
         return [];
@@ -255,6 +304,137 @@
       },
     },
 
+    /* 전기·설비 아이템: category 'elec' | 'mech', kind(콘센트 등), 가운데 (x, y), rotation(도), size(기호 폭 mm) */
+    item: {
+      label: '아이템',
+      pick: 0,
+      create(p, category, def, rotation = 0) {
+        return { ...base('item', category), category, kind: def.kind, x: p.x, y: p.y, rotation, size: def.size };
+      },
+      /** 화면에 그려지는 폭·깊이(mm). 멀리서 봐도 16px보다 작아지지 않음 */
+      dims(it) {
+        const def = App.catalog.itemDef(it.kind);
+        const w = Math.max(it.size, minWorld(16));
+        return { w, h: w * (def ? def.aspect : 1) };
+      },
+      bounds(it) {
+        const { w, h } = TYPES.item.dims(it);
+        const r = Math.max(w, h) / 2;
+        return { minX: it.x - r, minY: it.y - r, maxX: it.x + r, maxY: it.y + r };
+      },
+      distance(it, p) {
+        const { w, h } = TYPES.item.dims(it);
+        const a = (-it.rotation * Math.PI) / 180;
+        const dx = p.x - it.x, dy = p.y - it.y;
+        const lx = dx * Math.cos(a) - dy * Math.sin(a), ly = dx * Math.sin(a) + dy * Math.cos(a);
+        return Math.hypot(Math.max(Math.abs(lx) - w / 2, 0), Math.max(Math.abs(ly) - h / 2, 0));
+      },
+      inRect(it, r, crossing) {
+        const b = TYPES.item.bounds(it);
+        return crossing ? G.rectsOverlap(b, r) : G.pointInRect({ x: it.x, y: it.y }, r) && G.pointInRect({ x: b.minX, y: b.minY }, r) && G.pointInRect({ x: b.maxX, y: b.maxY }, r);
+      },
+      snapPoints(it) {
+        return [{ x: it.x, y: it.y, kind: 'end' }]; // 배관·전선관을 기구 가운데에 붙일 수 있게
+      },
+      movedBy(it, dx, dy) {
+        return { x: it.x + dx, y: it.y + dy };
+      },
+    },
+
+    /* 선: 전선관·배관·덕트 (길이 집계용). presetId: 선 종류, rise: 수직으로 오르내리는 길이(mm, 평면 길이에 더함) */
+    line: {
+      label: '선',
+      pick: 0,
+      create(a, b, preset) {
+        return {
+          ...base('line', App.catalog.lineLayer(preset.category)),
+          presetId: preset.id, category: preset.category,
+          start: { x: a.x, y: a.y }, end: { x: b.x, y: b.y }, rise: 0,
+        };
+      },
+      ...segmentShape((l) => {
+        const p = App.doc.get(l.presetId);
+        return p && p.category === '덕트' ? p.size / 2 : 0;
+      }),
+      snapPoints(l) {
+        return [
+          { x: l.start.x, y: l.start.y, kind: 'end' },
+          { x: l.end.x, y: l.end.y, kind: 'end' },
+          { x: (l.start.x + l.end.x) / 2, y: (l.start.y + l.end.y) / 2, kind: 'mid' },
+        ];
+      },
+    },
+
+    /* 영역: 공정 구역·작업 범위 표시용 다각형 */
+    zone: {
+      label: '영역',
+      pick: 2,
+      ...polygonShape,
+      create(points, name, color) {
+        return { ...base('zone', 'zone'), name, color, points: points.map((p) => ({ x: p.x, y: p.y })) };
+      },
+      area(z) {
+        return Math.abs(G.signedArea(z.points));
+      },
+      snapPoints(z) {
+        return z.points.map((p) => ({ x: p.x, y: p.y, kind: 'end' }));
+      },
+      movedBy(z, dx, dy) {
+        return { points: z.points.map((p) => ({ x: p.x + dx, y: p.y + dy })) };
+      },
+    },
+
+    /* 글자(메모): (x, y)는 왼쪽 위, size는 글자 높이(mm). 멀리서도 11px보다 작아지지 않음 */
+    text: {
+      label: '텍스트',
+      pick: 0,
+      create(p, content, size) {
+        return { ...base('text', 'memo'), x: p.x, y: p.y, content, size };
+      },
+      box: textBox,
+      bounds: textBox,
+      distance(t, p) {
+        const b = textBox(t);
+        return Math.hypot(Math.max(b.minX - p.x, p.x - b.maxX, 0), Math.max(b.minY - p.y, p.y - b.maxY, 0));
+      },
+      inRect(t, r, crossing) {
+        const b = textBox(t);
+        return crossing ? G.rectsOverlap(b, r) : G.pointInRect({ x: b.minX, y: b.minY }, r) && G.pointInRect({ x: b.maxX, y: b.maxY }, r);
+      },
+      snapPoints() {
+        return [];
+      },
+      movedBy(t, dx, dy) {
+        return { x: t.x + dx, y: t.y + dy };
+      },
+    },
+
+    /* 치수: 두 점 사이 거리. manual이 있으면 그 값을 표시(수동), offset은 치수선을 옆으로 띄우는 거리 */
+    dim: {
+      label: '치수',
+      pick: 0,
+      create(a, b) {
+        return { ...base('dim', 'dim'), start: { x: a.x, y: a.y }, end: { x: b.x, y: b.y }, offset: 0, manual: null };
+      },
+      geom: dimGeom,
+      ...segmentShape(() => 0),
+      bounds(d) {
+        const g = dimGeom(d);
+        const pts = [d.start, d.end, g.a, g.b];
+        return {
+          minX: Math.min(...pts.map((p) => p.x)), minY: Math.min(...pts.map((p) => p.y)),
+          maxX: Math.max(...pts.map((p) => p.x)), maxY: Math.max(...pts.map((p) => p.y)),
+        };
+      },
+      distance(d, p) {
+        const g = dimGeom(d);
+        return G.closestOnSegment(p, g.a, g.b).dist;
+      },
+      snapPoints() {
+        return [];
+      },
+    },
+
     /* 목록 항목 (도면에 그리지 않음). 프로젝트와 함께 저장되고 고치면 실행 취소 가능 */
     wallType: {
       label: '벽 종류',
@@ -263,7 +443,7 @@
         return { ...base('wallType', 'arch'), ...params };
       },
     },
-    /* 문·창문·기둥 프리셋. kind: 'door' | 'window' | 'column' */
+    /* 문·창문·기둥·선 프리셋. kind: 'door' | 'window' | 'column' | 'line' */
     preset: {
       label: '프리셋',
       catalog: true,

@@ -85,6 +85,24 @@
       usage: () => '',
       blank: () => ({ name: '새 기둥', shape: 'rect', width: 400, depth: 400 }),
     },
+    line: {
+      tab: '선',
+      addLabel: '선 종류',
+      fields: [
+        { key: 'name', label: '이름', kind: 'text', note: '전선관은 점선, 배관은 실선, 덕트는 지름·폭만큼 굵게 그립니다. 집계는 이름별로 나뉩니다.' },
+        { key: 'category', label: '분류', kind: 'select', options: () => App.catalog.LINE_CATEGORIES.map((c) => [c, c]) },
+        { key: 'color', label: '색', kind: 'select', options: () => App.catalog.COLORS },
+        { key: 'size', label: '지름·폭', kind: 'mm', min: 1, max: 3000 },
+      ],
+      list: () => App.catalog.presets('line'),
+      describe: (p) => App.catalog.describePreset(p),
+      usage: (p) => {
+        let n = 0;
+        for (const el of App.doc.all()) if (el.type === 'line' && el.presetId === p.id) n++;
+        return n ? `선 ${n}개` : '';
+      },
+      blank: () => ({ name: '새 선 종류', category: '배관', color: '#1c7ed6', size: 20 }),
+    },
   };
 
   // 바꾸면 보이는 칸이 달라지는 값: 이 값이 바뀔 때만 항목을 다시 그림
@@ -151,7 +169,7 @@
         html += `<div class="field-group-label">${f.group}</div>${f.note ? `<p class="props-meta">${f.note}</p>` : ''}<div class="field-grid">`;
       } else if (group === null) {
         group = '';
-        html += '<div class="field-grid">';
+        html += `${f.note ? `<p class="props-meta">${f.note}</p>` : ''}<div class="field-grid">`;
       }
       if (!f.show || f.show(item)) html += fieldHtml(item, f);
     });
@@ -240,6 +258,10 @@
       const added = body.querySelector(`.cat-item[data-id="${el.id}"]`);
       if (added) added.scrollIntoView({ block: 'nearest' });
     } else if (act === 'del') {
+      if (kind === 'line') {
+        const used = SPECS.line.usage(item);
+        if (used) return App.ui.toast(`이 선 종류로 그린 ${used}가 있어 지울 수 없습니다. 선을 다른 종류로 바꾼 뒤 지우세요.`);
+      }
       if (kind === 'wallType') {
         const n = App.catalog.usage(id);
         if (n) return App.ui.toast(`이 벽 종류로 그린 벽이 ${n}개 있어 지울 수 없습니다. 벽을 다른 종류로 바꾼 뒤 지우세요.`);

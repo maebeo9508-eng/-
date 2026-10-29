@@ -36,6 +36,12 @@
     door: { pc: '벽 위를 클릭하면 문이 붙습니다 · 마우스가 있는 쪽으로 열림', touch: '벽 위를 누르면 문이 붙습니다 · 누른 쪽으로 열림' },
     window: { pc: '벽 위를 클릭하면 창문이 붙습니다', touch: '벽 위를 누르면 창문이 붙습니다' },
     column: { pc: '기둥을 놓을 곳을 클릭하세요', touch: '기둥을 놓을 곳을 누르세요' },
+    elec: { pc: '위쪽 팔레트에서 기호를 고르고 클릭 · 콘센트·스위치는 벽 가까이면 벽면에 붙음', touch: '위쪽에서 기호를 고르고 누르세요 · 벽 가까이면 벽면에 붙음' },
+    mech: { pc: '위쪽 팔레트에서 기호를 고르고 클릭 · 배관·덕트를 고르면 선 그리기', touch: '위쪽에서 기호를 고르고 누르세요 · 배관·덕트는 선 그리기' },
+    line: { pc: '끌거나 클릭으로 점을 이어 그립니다 · 기구 가운데·끝점에 붙음 · Esc: 끝내기', touch: '끌거나 점을 차례로 눌러 그립니다' },
+    zone: { pc: '끌면 사각형, 클릭으로 점을 찍으면 다각형 · 처음 점을 다시 누르면 닫힘', touch: '끌면 사각형, 점을 차례로 누르면 다각형' },
+    text: { pc: '글자를 넣을 곳을 클릭 · Enter로 확정, Shift+Enter 줄바꿈', touch: '글자를 넣을 곳을 누르고 입력하세요' },
+    dim: { pc: '잴 두 점을 차례로 클릭하거나 끌기', touch: '잴 두 점을 차례로 누르거나 끄세요' },
     erase: { pc: '지울 항목을 클릭하거나 문지르세요', touch: '지울 항목을 누르거나 문지르세요' },
   };
 
@@ -181,21 +187,60 @@
     });
   }
 
-  /* ── 도구 옵션: 지금 쓸 벽 종류·문·창문·기둥 프리셋 고르기 ── */
-  const TOOL_OPTIONS = {
-    wall: {
-      label: '벽 종류', key: 'wallTypeId', edit: 'wallType',
-      list: () => App.catalog.wallTypes(),
-      text: (t) => `${t.name} · ${App.units.formatLength(App.catalog.thickness(t))}`,
-      sub: (t) => App.catalog.describe(t),
-    },
-    door: { label: '문', key: 'doorPresetId', edit: 'door', list: () => App.catalog.presets('door'), text: (p) => p.name, sub: (p) => App.catalog.describePreset(p) },
-    window: { label: '창문', key: 'windowPresetId', edit: 'window', list: () => App.catalog.presets('window'), text: (p) => p.name, sub: (p) => App.catalog.describePreset(p) },
-    column: { label: '기둥', key: 'columnPresetId', edit: 'column', list: () => App.catalog.presets('column'), text: (p) => p.name, sub: (p) => App.catalog.describePreset(p) },
+  /* ── 도구 옵션: 지금 쓸 벽 종류·프리셋·색 등을 고르는 칩, 전기·설비는 기호 팔레트 ── */
+  const presetOption = (label, key, kind) => ({
+    label, key, edit: kind,
+    list: () => App.catalog.presets(kind),
+    text: (p) => p.name,
+    sub: (p) => App.catalog.describePreset(p),
+  });
+  /** 지금 고른 전기·설비 팔레트 항목이 선(전선관·배관·덕트)이면 그 분류 */
+  const paletteLine = (cat) => {
+    const def = App.catalog.ITEM_KINDS[cat].find((d) => (d.kind || d.line) === App.current[`${cat}Kind`]);
+    return def && def.line ? def.line : null;
   };
+  function toolOption(tool) {
+    switch (tool) {
+      case 'wall':
+        return {
+          label: '벽 종류', key: 'wallTypeId', edit: 'wallType',
+          list: () => App.catalog.wallTypes(),
+          text: (t) => `${t.name} · ${App.units.formatLength(App.catalog.thickness(t))}`,
+          sub: (t) => App.catalog.describe(t),
+        };
+      case 'door': return presetOption('문', 'doorPresetId', 'door');
+      case 'window': return presetOption('창문', 'windowPresetId', 'window');
+      case 'column': return presetOption('기둥', 'columnPresetId', 'column');
+      case 'line': return { ...presetOption('선 종류', 'linePresetId', 'line'), swatch: (p) => p.color };
+      case 'elec':
+      case 'mech': {
+        const cat = paletteLine(tool);
+        if (!cat) return null;
+        const o = presetOption('선 종류', 'linePresetId', 'line');
+        return { ...o, swatch: (p) => p.color, list: () => App.catalog.presets('line').filter((p) => p.category === cat) };
+      }
+      case 'zone':
+        return {
+          label: '영역 색', key: 'zoneColor',
+          list: () => App.catalog.COLORS.map(([id, name]) => ({ id, name })),
+          text: (c) => c.name, sub: () => '', swatch: (c) => c.id,
+        };
+      case 'text':
+        return {
+          label: '글자 크기', key: 'textSize',
+          list: () => ['100', '150', '200', '300', '500'].map((id) => ({ id, name: `${id} mm` })),
+          text: (c) => c.name, sub: () => '',
+        };
+      default: return null;
+    }
+  }
+
+  const escHtml = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const swatchHtml = (color) => (color ? `<span class="swatch" style="background:${escHtml(color)}"></span>` : '');
 
   function updateToolOption() {
-    const o = TOOL_OPTIONS[ui.tool];
+    renderPalette();
+    const o = toolOption(ui.tool);
     const btn = $('#toolOpt');
     btn.hidden = !o;
     if (!o) {
@@ -203,22 +248,37 @@
       return;
     }
     App.catalog.ensureCurrent();
-    const cur = App.doc.get(App.current[o.key]);
+    const cur = o.list().find((it) => it.id === App.current[o.key]) || o.list()[0];
+    if (cur && cur.id !== App.current[o.key]) App.current[o.key] = cur.id; // 팔레트 분류가 바뀌면 그 분류의 첫 선 종류로
     $('#toolOptLabel').textContent = o.label;
-    $('#toolOptValue').textContent = cur ? o.text(cur) : '목록이 비었습니다';
+    $('#toolOptValue').innerHTML = cur ? `${swatchHtml(o.swatch && o.swatch(cur))}${escHtml(o.text(cur))}` : '목록이 비었습니다';
     if (!$('#toolOptMenu').hidden) renderToolMenu();
   }
 
   function renderToolMenu() {
-    const o = TOOL_OPTIONS[ui.tool];
-    const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const o = toolOption(ui.tool);
+    if (!o) return;
     $('#toolOptMenu').innerHTML = `
       ${o.list().map((item) => `
-        <button type="button" class="menu-item opt-item" role="menuitemradio" aria-checked="${item.id === App.current[o.key]}" data-id="${item.id}">
-          <span class="opt-text"><b>${esc(item.name)}</b><small>${esc(o.sub(item))}</small></span>
+        <button type="button" class="menu-item opt-item" role="menuitemradio" aria-checked="${item.id === App.current[o.key]}" data-id="${escHtml(item.id)}">
+          <span class="opt-text"><b>${swatchHtml(o.swatch && o.swatch(item))}${escHtml(item.name)}</b>${o.sub(item) ? `<small>${escHtml(o.sub(item))}</small>` : ''}</span>
         </button>`).join('')}
-      <div class="menu-sep" role="separator"></div>
-      <button type="button" class="menu-item" role="menuitem" data-act="edit">목록 편집…</button>`;
+      ${o.edit ? '<div class="menu-sep" role="separator"></div><button type="button" class="menu-item" role="menuitem" data-act="edit">목록 편집…</button>' : ''}`;
+  }
+
+  /** 전기·설비 기호 팔레트 */
+  function renderPalette() {
+    const pal = $('#palette');
+    const cat = ui.tool === 'elec' || ui.tool === 'mech' ? ui.tool : null;
+    pal.hidden = !cat;
+    if (!cat) return;
+    const current = App.current[`${cat}Kind`];
+    pal.innerHTML = App.catalog.ITEM_KINDS[cat].map((d) => {
+      const name = d.kind || d.line;
+      const icon = d.kind ? App.draw.itemIcon(d.kind) : App.draw.lineIcon(d.line);
+      return `<button type="button" class="pal-btn" data-kind="${escHtml(name)}" aria-pressed="${name === current}" title="${escHtml(name)}${d.line ? ' (선 그리기)' : ''}">
+        <span class="ico" style="--ico:url('${icon}')"></span><span>${escHtml(name)}</span></button>`;
+    }).join('');
   }
 
   function closeToolMenu() {
@@ -235,8 +295,16 @@
       menu.hidden = false;
       btn.setAttribute('aria-expanded', 'true');
     });
+    $('#palette').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-kind]');
+      if (!b) return;
+      App.current[`${ui.tool}Kind`] = b.dataset.kind;
+      setTool(ui.tool); // 기호 놓기 ↔ 선 그리기 바꿈
+      const line = paletteLine(ui.tool);
+      hint(line ? `${line}: 끌거나 점을 차례로 눌러 그립니다` : `${b.dataset.kind}: 놓을 곳을 누르세요`);
+    });
     menu.addEventListener('click', (e) => {
-      const o = TOOL_OPTIONS[ui.tool];
+      const o = toolOption(ui.tool);
       const item = e.target.closest('[data-id]');
       if (item) {
         App.current[o.key] = item.dataset.id;
@@ -277,6 +345,7 @@
           t.setAttribute('aria-selected', String(on));
           document.getElementById(t.getAttribute('aria-controls')).hidden = !on;
         });
+        ui.emit('tab', tab.id);
         if (ui.mobile.matches) {
           if (!sheet.isOpen()) sheet.open();
           else if (wasSelected) sheet.collapse(); // 열린 상태에서 같은 탭을 다시 누르면 접기

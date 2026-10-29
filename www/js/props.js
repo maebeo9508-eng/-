@@ -94,6 +94,37 @@
         },
       },
     },
+    item: {
+      size: { label: '기호 크기', min: 50, max: 5000, get: (it) => it.size, set: (it, v) => ({ size: v }) },
+      x: { label: 'X', min: -COORD_LIMIT, max: COORD_LIMIT, get: (it) => it.x, set: (it, v) => ({ x: v }) },
+      y: { label: 'Y', min: -COORD_LIMIT, max: COORD_LIMIT, get: (it) => it.y, set: (it, v) => ({ y: v }) },
+    },
+    line: {
+      length: {
+        label: '평면 길이', min: 1, max: 1000000,
+        get: (l) => G.dist(l.start, l.end),
+        set: (l, v) => {
+          const d = G.unit({ x: l.end.x - l.start.x, y: l.end.y - l.start.y });
+          return { end: { x: l.start.x + d.x * v, y: l.start.y + d.y * v } };
+        },
+        check: (l) => (G.dist(l.start, l.end) < 0.001 ? '길이가 0인 선은 방향이 없어 길이를 바꿀 수 없습니다.' : null),
+      },
+      rise: { label: '수직 길이 (오르내림)', min: 0, max: 100000, get: (l) => l.rise || 0, set: (l, v) => ({ rise: v }) },
+      sx: { label: 'X', min: -COORD_LIMIT, max: COORD_LIMIT, get: (l) => l.start.x, set: (l, v) => ({ start: { x: v, y: l.start.y } }) },
+      sy: { label: 'Y', min: -COORD_LIMIT, max: COORD_LIMIT, get: (l) => l.start.y, set: (l, v) => ({ start: { x: l.start.x, y: v } }) },
+      ex: { label: 'X', min: -COORD_LIMIT, max: COORD_LIMIT, get: (l) => l.end.x, set: (l, v) => ({ end: { x: v, y: l.end.y } }) },
+      ey: { label: 'Y', min: -COORD_LIMIT, max: COORD_LIMIT, get: (l) => l.end.y, set: (l, v) => ({ end: { x: l.end.x, y: v } }) },
+    },
+    text: {
+      size: { label: '글자 크기', min: 10, max: 5000, get: (t) => t.size, set: (t, v) => ({ size: v }) },
+    },
+    dim: {
+      manual: {
+        label: '표시 값 (비우면 자동)', min: 0, max: 1000000, allowEmpty: true,
+        get: (d) => d.manual, set: (d, v) => ({ manual: v }),
+      },
+      offset: { label: '치수선 띄우기', min: -100000, max: 100000, get: (d) => d.offset || 0, set: (d, v) => ({ offset: v }) },
+    },
     column: {
       width: {
         label: '폭', min: 50, max: 5000, get: (c) => c.width,
@@ -111,6 +142,7 @@
   let fields = {}; // 지금 보이는 종류의 숫자 칸 정의
 
   function validate(text, f) {
+    if (f.allowEmpty && String(text).trim() === '') return { value: null };
     const mm = App.units.parseLength(text);
     if (String(text).trim() === '' || Number.isNaN(mm)) return { error: '숫자를 입력하세요.' };
     if (f.min > 0 && mm <= 0) return { error: '0보다 큰 값을 입력하세요.' };
@@ -132,12 +164,13 @@
     const f = fields[key];
     const v = common(f.get);
     const value = v === null ? '' : App.units.inputLength(v);
+    const placeholder = f.allowEmpty ? '자동' : '여러 값';
     return `
       <div class="field" data-field="${key}">
         <label class="field-label" for="f-${key}">${label || f.label}</label>
         <div class="field-box">
           <input id="f-${key}" type="text" inputmode="decimal" enterkeyhint="done" autocomplete="off"
-            value="${esc(value)}" ${v === null ? 'placeholder="여러 값"' : ''}>
+            value="${esc(value)}" ${v === null ? `placeholder="${placeholder}"` : ''}>
           <span class="field-unit">${App.units.lengthLabel()}</span>
         </div>
         <div class="field-error" role="alert" hidden></div>
@@ -329,6 +362,117 @@
       ${deleteButton('기둥')}`;
   }
 
+  const roomName = (id) => {
+    const r = id && App.doc.get(id);
+    return r ? r.name || '이름 없음' : '없음';
+  };
+
+  function itemForm() {
+    const single = els.length === 1;
+    const cat = commonText((e) => e.category);
+    const kinds = cat ? App.catalog.ITEM_KINDS[cat].filter((d) => d.kind).map((d) => [d.kind, d.kind]) : [];
+    const rotation = commonText((e) => String(e.rotation));
+    const counts = {};
+    els.forEach((e) => { counts[e.kind] = (counts[e.kind] || 0) + 1; });
+    return `
+      ${head(cat === 'elec' ? '전기' : cat === 'mech' ? '설비' : '아이템', single ? els[0].kind : `${els.length}개 선택`)}
+      ${kinds.length ? selectField('f-itemKind', '종류', kinds, commonText((e) => e.kind)) : ''}
+      <div class="field-grid">${numberField('size')}</div>
+      ${selectField('f-rotation', '회전', [['0', '0°'], ['90', '90°'], ['180', '180°'], ['270', '270°']], rotation,
+        '<button type="button" class="btn" data-act="rotate">90° 돌리기</button>')}
+      ${single ? `<div class="field-group-label">가운데 위치</div><div class="field-grid">${numberField('x')}${numberField('y')}</div>` : ''}
+      <div class="stats">
+        ${single ? stat('방', roomName(els[0].room)) : Object.entries(counts).map(([k, n]) => stat(k, `${n}개`)).join('')}
+      </div>
+      ${commonFields(single)}
+      ${deleteButton('기호')}`;
+  }
+
+  function lineForm() {
+    const single = els.length === 1;
+    const presets = App.catalog.presets('line');
+    const presetId = commonText((l) => l.presetId);
+    const groups = new Map();
+    els.forEach((l) => {
+      const p = App.doc.get(l.presetId);
+      const key = p ? p.name : l.category;
+      const g = groups.get(key) || { plan: 0, rise: 0 };
+      g.plan += G.dist(l.start, l.end);
+      g.rise += l.rise || 0;
+      groups.set(key, g);
+    });
+    const M = App.measure;
+    const rows = [...groups.entries()].map(([name, g]) =>
+      stat(name, M.meters(g.plan + g.rise), `평면 ${M.meters(g.plan)} + 수직 ${M.meters(g.rise)}`)).join('');
+    return `
+      ${head('선', single ? (App.doc.get(els[0].presetId) || {}).name || els[0].category : `${els.length}개 선택`)}
+      ${selectField('f-linePreset', '선 종류', presets.map((p) => [p.id, `${p.name} · ${App.catalog.describePreset(p)}`]), presetId,
+        '<button type="button" class="btn" data-act="edit-line">편집</button>')}
+      <div class="field-grid">
+        ${single ? numberField('length') : ''}
+        ${numberField('rise')}
+      </div>
+      <p class="props-meta">수직 길이는 벽·천장을 따라 오르내리는 길이입니다. 평면 길이에 더해 집계합니다.</p>
+      <div class="stats">${rows}</div>
+      ${single ? `
+        <div class="field-group-label">시작점</div>
+        <div class="field-grid">${numberField('sx')}${numberField('sy')}</div>
+        <div class="field-group-label">끝점</div>
+        <div class="field-grid">${numberField('ex')}${numberField('ey')}</div>` : ''}
+      ${commonFields(single)}
+      ${deleteButton('선')}`;
+  }
+
+  function zoneForm() {
+    const single = els.length === 1;
+    const Z = App.model.TYPES.zone;
+    const area = els.reduce((s, z) => s + Z.area(z), 0);
+    return `
+      ${head('영역', single ? '' : `${els.length}개 선택`)}
+      ${single ? `
+        <div class="field">
+          <label class="field-label" for="f-zoneName">이름</label>
+          <div class="field-box"><input id="f-zoneName" type="text" maxlength="${NAME_MAX}" enterkeyhint="done" autocomplete="off" value="${esc(els[0].name)}"></div>
+        </div>` : ''}
+      ${selectField('f-zoneColor', '색', App.catalog.COLORS.map(([hex, name]) => [hex, name]), commonText((z) => z.color))}
+      <div class="stats">
+        ${stat(single ? '면적' : '면적 합계', App.units.formatArea(area))}
+        ${single ? stat('둘레', App.units.formatLength(G.perimeter(els[0].points))) : ''}
+      </div>
+      ${commonFields(single)}
+      ${deleteButton('영역')}`;
+  }
+
+  function textForm() {
+    const single = els.length === 1;
+    return `
+      ${head('텍스트', single ? '' : `${els.length}개 선택`)}
+      ${single ? `
+        <div class="field">
+          <label class="field-label" for="f-content">내용</label>
+          <textarea id="f-content" class="field-text" rows="3">${esc(els[0].content)}</textarea>
+        </div>` : ''}
+      <div class="field-grid">${numberField('size')}</div>
+      <p class="props-meta">도면에서 고른 글자를 한 번 더 누르면 그 자리에서 고칠 수 있습니다.</p>
+      ${selectField('f-layer', '레이어', App.model.LAYERS.map((l) => [l.id, l.label]), commonText((e) => e.layer))}
+      ${deleteButton('텍스트')}`;
+  }
+
+  function dimForm() {
+    const single = els.length === 1;
+    const D = App.model.TYPES.dim;
+    return `
+      ${head('치수', single ? '' : `${els.length}개 선택`)}
+      ${single ? `<div class="stats">${stat('잰 길이', App.units.formatLength(D.geom(els[0]).length), els[0].manual != null ? '표시는 수동 값' : '')}</div>` : ''}
+      <div class="field-grid">
+        ${numberField('manual')}
+        ${numberField('offset')}
+      </div>
+      <p class="props-meta">치수선 띄우기는 잰 선에서 치수선을 옆으로 옮기는 거리입니다 (반대쪽은 음수).</p>
+      ${selectField('f-layer', '레이어', App.model.LAYERS.map((l) => [l.id, l.label]), commonText((e) => e.layer))}
+      ${deleteButton('치수')}`;
+  }
+
   function mixedForm() {
     const counts = {};
     els.forEach((e) => { counts[e.type] = (counts[e.type] || 0) + 1; });
@@ -343,6 +487,12 @@
 
   function emptyState() {
     const tips = {
+      elec: '위쪽 팔레트에서 기호를 고른 뒤 누르세요. 콘센트·스위치·분전반은 벽 가까이 누르면 벽면에 붙습니다.',
+      mech: '위쪽 팔레트에서 기호를 고른 뒤 누르세요. 배관·덕트를 고르면 선을 그립니다.',
+      line: '위쪽에서 선 종류를 고른 뒤 끌거나 점을 차례로 눌러 그리세요. 기구 가운데와 끝점에 붙습니다.',
+      zone: '끌면 사각형, 점을 차례로 누르면 다각형 영역이 됩니다. 처음 점을 다시 누르면 닫힙니다.',
+      text: '글자를 넣을 곳을 누르고 입력하세요. Enter로 확정합니다.',
+      dim: '잴 두 점을 차례로 누르거나 끌어 치수를 넣으세요.',
       wall: '위쪽에서 벽 종류(다루끼·경량 스터드·덧방 등)를 고른 뒤 그리세요. 그린 벽을 ‘선택’ 도구로 누르면 자재 물량이 여기에 나옵니다.',
       room: '벽으로 닫힌 곳 안쪽을 누르면 방으로 등록되고 바닥 면적이 계산됩니다.',
       door: '위쪽에서 문 프리셋을 고른 뒤 벽 위를 누르세요. 누른 쪽으로 문이 열립니다.',
@@ -366,6 +516,11 @@
     else if (type === 'room') pane.innerHTML = roomForm();
     else if (type === 'door' || type === 'window') pane.innerHTML = openingForm(type);
     else if (type === 'column') pane.innerHTML = columnForm();
+    else if (type === 'item') pane.innerHTML = itemForm();
+    else if (type === 'line') pane.innerHTML = lineForm();
+    else if (type === 'zone') pane.innerHTML = zoneForm();
+    else if (type === 'text') pane.innerHTML = textForm();
+    else if (type === 'dim') pane.innerHTML = dimForm();
     else pane.innerHTML = mixedForm();
     pane.scrollTop = scroll;
   }
@@ -466,6 +621,34 @@
         if (t.value) apply('모양 변경', (c) => ({ shape: t.value, depth: t.value === 'circle' ? c.width : c.depth }));
         return;
       }
+      if (id === 'f-itemKind') {
+        const def = App.catalog.itemDef(t.value);
+        if (def) apply('종류 변경', () => ({ kind: def.kind, size: def.size }));
+        return;
+      }
+      if (id === 'f-rotation') {
+        if (t.value) apply('회전', () => ({ rotation: Number(t.value) }));
+        return;
+      }
+      if (id === 'f-linePreset') {
+        const p = t.value && App.doc.get(t.value);
+        if (p) apply('선 종류 변경', () => ({ presetId: p.id, category: p.category, layer: App.catalog.lineLayer(p.category) }));
+        return;
+      }
+      if (id === 'f-zoneColor') {
+        if (t.value) apply('영역 색 변경', () => ({ color: t.value }));
+        return;
+      }
+      if (id === 'f-zoneName' || id === 'f-content') {
+        const value = id === 'f-zoneName' ? t.value.trim().slice(0, NAME_MAX) : t.value.replace(/\s+$/, '');
+        if (!value) {
+          t.value = id === 'f-zoneName' ? els[0].name : els[0].content;
+          App.ui.toast(id === 'f-zoneName' ? '영역 이름을 비워 둘 수 없습니다.' : '내용을 비울 수 없습니다. 지우려면 삭제를 누르세요.');
+          return;
+        }
+        apply(id === 'f-zoneName' ? '영역 이름 변경' : '메모 고치기', () => (id === 'f-zoneName' ? { name: value } : { content: value }));
+        return;
+      }
       if (id === 'f-preset') {
         const p = t.value && App.doc.get(t.value);
         t.value = '';
@@ -522,6 +705,8 @@
         case 'swing': apply('열리는 쪽 뒤집기', (d) => ({ side: -(d.side || 1) })); break;
         case 'hinge': apply('경첩 위치 바꾸기', (d) => ({ hinge: d.hinge === 'end' ? 'start' : 'end' })); break;
         case 'edit-type': App.catalogUI.open('wallType', commonText((w) => w.typeId)); break;
+        case 'edit-line': App.catalogUI.open('line', commonText((l) => l.presetId)); break;
+        case 'rotate': App.actions.rotateSelection(); break;
       }
     });
 

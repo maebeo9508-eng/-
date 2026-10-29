@@ -117,6 +117,10 @@
         layerHatch: v('--layer-hatch'),
         layerLine: v('--layer-line'),
         glass: v('--glass'),
+        elec: v('--elec'),
+        mech: v('--mech'),
+        dim: v('--dim'),
+        note: v('--note'),
         fg: v('--fg'),
       };
       this.requestRender();

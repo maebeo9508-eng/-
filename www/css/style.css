@@ -36,6 +36,10 @@
   --layer-hatch: #8e979f;
   --layer-line: #2b3640;
   --glass: #2a7fd4;
+  --elec: #d6336c;              /* 전기 기호 */
+  --mech: #1971c2;              /* 설비 기호 */
+  --dim: #495057;               /* 치수 */
+  --note: #343a40;              /* 메모 글자 */
 
   --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
 
@@ -79,6 +83,10 @@
   --layer-hatch: #8794a0;
   --layer-line: #dbe2e8;
   --glass: #6fb1ff;
+  --elec: #ff7aa8;
+  --mech: #6cb4ff;
+  --dim: #ced4da;
+  --note: #f1f3f5;
   color-scheme: dark;
 }
 
@@ -357,6 +365,78 @@ button { font: inherit; color: inherit; }
 .opt-text { display: grid; gap: 2px; min-width: 0; }
 .opt-text b { font-weight: 700; }
 .opt-text small { font-size: 12px; color: var(--fg-muted); white-space: normal; }
+
+/* 전기·설비 기호 팔레트 */
+.palette {
+  display: flex;
+  gap: 4px;
+  max-width: 100%;
+  padding: 4px;
+  overflow-x: auto;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  scrollbar-width: none;
+}
+.palette::-webkit-scrollbar { display: none; }
+.pal-btn {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 56px;
+  min-height: 48px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  font-size: 11px;
+  line-height: 1.1;
+  white-space: nowrap;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.pal-btn:hover { background: var(--surface-2); }
+.pal-btn[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); }
+.swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-right: 6px;
+  border-radius: 3px;
+  vertical-align: -1px;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15);
+}
+
+/* 도면 위 글자 입력 칸 */
+.text-editor {
+  position: absolute;
+  z-index: 4;
+  min-width: 160px;
+  max-width: calc(100% - 24px);
+  padding: 2px 6px;
+  border: 2px solid var(--accent);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--fg);
+  font-family: var(--font-ui);
+  font-weight: 600;
+  line-height: 1.3;
+  resize: none;
+  box-shadow: var(--shadow);
+}
+
+/* 집계표 */
+.sum-sec { display: grid; gap: 6px; }
+.sum-title { margin: 0; font-size: 14px; }
+.sum-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.sum-table th, .sum-table td { padding: 7px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+.sum-table th { font-weight: 400; color: var(--fg-muted); text-align: left; }
+.sum-table td { font-weight: 700; text-align: right; }
+.sum-table td small { display: block; font-size: 11px; font-weight: 400; color: var(--fg-muted); }
 
 .finish-btn {
   position: absolute;

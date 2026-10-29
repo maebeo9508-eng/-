@@ -16,6 +16,7 @@
     ortho: true,          // 직교 고정. Shift를 누르는 동안 반대로
     stretchWalls: true,   // 벽을 옮길 때 이어진 벽도 같이 늘림 (끄면 고른 것만 이동)
     wallHeight: 2400,
+    dimTextSize: 150,     // 치수 글자 크기(mm). 화면에서는 11px보다 작아지지 않음
   };
   // 그린 것이 없을 때 '화면 맞춤' 범위(mm): 10m × 8m
   App.DEFAULT_VIEW_RECT = { minX: 0, minY: 0, maxX: 10000, maxY: 8000 };
@@ -26,6 +27,7 @@
   // 기록 직전에 딸린 데이터를 같은 실행 취소 단계 안에서 맞춤: 벽 두께·없어진 벽의 문·창문, 그다음 방 경계
   App.doc.beforeCommit((tx) => App.catalog.syncHook(tx));
   App.doc.beforeCommit((tx) => App.rooms.syncRooms(tx));
+  App.doc.beforeCommit((tx) => App.catalog.roomHook(tx)); // 아이템·기둥이 속한 방
   App.doc.reset(App.catalog.defaultElements()); // 새 도면: 기본 벽 종류·프리셋 (8단계에서 저장된 도면 불러오기)
   App.current = {}; // 도구가 쓸 지금 고른 벽 종류·프리셋
   App.catalog.ensureCurrent();
@@ -74,6 +76,8 @@
   App.ui.init();
   App.props.init();
   App.catalogUI.init();
+  App.summary.init();
+  App.textEditor.init();
   App.keys.init();
   App.ui.updateHistory();
 

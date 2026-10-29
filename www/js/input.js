@@ -33,6 +33,8 @@
       el.addEventListener('wheel', (e) => this.wheel(e), { passive: false });
       // 빠르게 그은 뒤 바로 누른 도구 버튼이 무시되지 않게 브라우저 자체 제스처(관성 스크롤)를 막음
       el.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
+      // 탭 뒤에 따라오는 호환용 마우스 이벤트를 막음: 이게 있으면 방금 띄운 글자 입력 칸에서 포커스가 빠져 닫힘
+      el.addEventListener('touchend', (e) => e.preventDefault(), { passive: false });
       el.addEventListener('contextmenu', (e) => e.preventDefault());
       window.addEventListener('keydown', (e) => this.key(e, true));
       window.addEventListener('keyup', (e) => this.key(e, false));
@@ -65,6 +67,9 @@
 
     down(e) {
       const p = this.local(e);
+      // 도면을 누르면 입력 중이던 칸은 확정 (호환용 마우스 이벤트를 막아서 직접 처리)
+      const active = document.activeElement;
+      if (active && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName)) active.blur();
       this.pointers.set(e.pointerId, p);
       try { this.el.setPointerCapture(e.pointerId); } catch (_) { /* 이미 끝난 포인터 */ }
 
