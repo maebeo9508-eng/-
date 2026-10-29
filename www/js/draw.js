@@ -96,7 +96,7 @@
     const vis = visibleRect(plan);
     const outlines = wallOutlines();
     const sel = App.selection;
-    const marks = App.tools ? App.tools.highlight() : null; // { ids, color }
+    const marks = App.tools && !App.exporting ? App.tools.highlight() : null; // { ids, color }. 내보낼 때는 없음
     const scale = plan.view.scale;
 
     const walls = [], rooms = [], openings = [], columns = [], zones = [], lines = [], items = [], texts = [], dims = [], underlays = [];

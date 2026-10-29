@@ -332,6 +332,8 @@
 
   App.summary = {
     init, compute, render, exportCsv, csvRows,
+    /** 보기(room·all·kind)의 표 블록 (PDF에 그릴 때) */
+    blocks: (v) => BUILD[v](compute()),
     get view() { return view; },
     setView(v) { view = v; render(); },
   };

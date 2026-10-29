@@ -157,6 +157,8 @@
       fn();
     });
     item('#menuCsv', () => App.summary.exportCsv());
+    item('#menuPng', () => App.exporter.exportPng());
+    item('#menuPdf', () => App.exporter.pdfDialog());
     $('#btnUndo').addEventListener('click', () => App.actions.undo());
     $('#btnRedo').addEventListener('click', () => App.actions.redo());
     $('#btnSettings').addEventListener('click', () => App.settingsUI.open());
