@@ -12,6 +12,37 @@
     return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   }
 
+  /* ── 안드로이드 앱(Capacitor) 안에서는 브라우저 다운로드가 안 되므로
+     Filesystem 플러그인으로 앱 임시 폴더에 쓰고 Share 플러그인으로 공유 창을 띄움 (저장·카톡·드라이브 등) ── */
+  function nativePlugins() {
+    const C = window.Capacitor;
+    if (!C || !C.isNativePlatform || !C.isNativePlatform()) return null;
+    const P = C.Plugins || {};
+    return P.Filesystem ? P : null;
+  }
+  const blobToBase64 = (blob) => new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result).split(',')[1]);
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(blob);
+  });
+  function nativeSave(filename, blob) {
+    const P = nativePlugins();
+    if (!P) return false;
+    (async () => {
+      try {
+        const data = await blobToBase64(blob);
+        const res = await P.Filesystem.writeFile({ path: filename, data, directory: 'CACHE' });
+        if (P.Share) await P.Share.share({ title: filename, url: res.uri, dialogTitle: '파일 저장·보내기' });
+        else App.ui.toast(`앱 안에 저장했습니다: ${filename}`);
+      } catch (e) {
+        const msg = String((e && e.message) || e);
+        if (!/cancel/i.test(msg)) App.ui.toast(`파일을 저장하지 못했습니다. ${msg}`);
+      }
+    })();
+    return true;
+  }
+
   const exporter = {
     /** 표 → CSV 글자. 엑셀이 한글을 UTF-8로 읽도록 맨 앞에 BOM */
     csvText(rows) {
@@ -26,6 +57,7 @@
 
     download(filename, data, mime) {
       const blob = data instanceof Blob ? data : new Blob([data], { type: mime });
+      if (nativeSave(filename, blob)) return; // 안드로이드 앱(Capacitor): 저장 뒤 공유 창
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;

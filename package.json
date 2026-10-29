@@ -1,0 +1,22 @@
+{
+  "name": "hyeonjang-domyeon",
+  "version": "1.0.0",
+  "private": true,
+  "description": "현장도면 · 물량 집계 (www/ 폴더의 웹앱을 Capacitor로 안드로이드 앱으로 감쌈)",
+  "license": "GPL-3.0-or-later",
+  "scripts": {
+    "serve": "python3 -m http.server 8080 --directory www",
+    "cap:sync": "cap sync android",
+    "cap:open": "cap open android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/core": "^8.6.0",
+    "@capacitor/filesystem": "^8.1.5",
+    "@capacitor/share": "^8.0.3"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^8.6.0"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "appId": "kr.hyeonjang.domyeon",
+  "appName": "현장도면",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": false,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": false
+  }
+}
