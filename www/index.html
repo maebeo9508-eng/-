@@ -14,6 +14,8 @@
 <script src="js/canvas.js" defer></script>
 <script src="js/draw.js" defer></script>
 <script src="js/snap.js" defer></script>
+<script src="js/dxf.js" defer></script>
+<script src="js/underlay.js" defer></script>
 <script src="js/rooms.js" defer></script>
 <script src="js/input.js" defer></script>
 <script src="js/tools.js" defer></script>
@@ -40,6 +42,9 @@
         <button type="button" class="menu-item" role="menuitem" disabled>새 프로젝트<span class="menu-tag">8단계</span></button>
         <button type="button" class="menu-item" role="menuitem" disabled>불러오기 (JSON)<span class="menu-tag">8단계</span></button>
         <button type="button" class="menu-item" role="menuitem" disabled>백업 저장 (JSON)<span class="menu-tag">8단계</span></button>
+        <div class="menu-sep" role="separator"></div>
+        <div class="menu-label">가져오기</div>
+        <button type="button" class="menu-item" role="menuitem" id="menuImport">도면 불러오기 (DXF·DWG)</button>
         <div class="menu-sep" role="separator"></div>
         <div class="menu-label">내보내기</div>
         <button type="button" class="menu-item" role="menuitem" id="menuCsv">집계표 CSV (엑셀)</button>
@@ -140,7 +145,17 @@
     </div>
   </div>
 
-  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <div class="modal modal-dialog" id="dialog" hidden>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="dialogTitle">
+      <header class="modal-head"><h2 class="modal-title" id="dialogTitle"></h2></header>
+      <div class="modal-body" id="dialogBody"></div>
+      <footer class="dialog-foot" id="dialogFoot"></footer>
+    </div>
+  </div>
+
+  <input type="file" id="importFile" accept=".dxf,.dwg" hidden>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
 </div>
 </body>
 </html>

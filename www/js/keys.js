@@ -9,6 +9,7 @@
   function init() {
     document.addEventListener('keydown', (e) => {
       if (isTyping(e.target)) return;
+      if (!document.getElementById('dialog').hidden) return; // 확인 창이 떠 있으면 그 창의 키만
       const ctrl = e.ctrlKey || e.metaKey;
 
       if (ctrl && !e.altKey) {

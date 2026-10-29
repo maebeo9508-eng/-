@@ -77,6 +77,7 @@
   App.props.init();
   App.catalogUI.init();
   App.summary.init();
+  App.underlay.init();
   App.textEditor.init();
   App.keys.init();
   App.ui.updateHistory();

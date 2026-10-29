@@ -37,6 +37,7 @@
           if (opts.exclude && opts.exclude.has(el.id)) continue;
           const t = App.model.TYPES[el.type];
           if (t && t.snapPoints) t.snapPoints(el).forEach(consider);
+          if (t && t.snapNear && s.snapEnd) t.snapNear(el, raw, r).forEach(consider); // 가져온 도면: 가까운 꼭짓점만 찾아 봄
         }
         (opts.extra || []).forEach(consider);
         if (best) return { x: best.x, y: best.y, kind: best.kind };
@@ -66,6 +67,17 @@
         for (const el of App.doc.all()) {
           if (exclude.has(el.id)) continue;
           const t = App.model.TYPES[el.type];
+          if (t && t.snapNear) {
+            movingPoints.slice(0, 200).forEach((p) => {
+              t.snapNear(el, { x: p.x + dx, y: p.y + dy }, r).forEach((target) => {
+                const d = Math.hypot(target.x - (p.x + dx), target.y - (p.y + dy));
+                if (d <= r && d < bestD) {
+                  best = { dx: target.x - p.x, dy: target.y - p.y, at: target };
+                  bestD = d;
+                }
+              });
+            });
+          }
           if (!t || !t.snapPoints) continue;
           for (const target of t.snapPoints(el)) {
             if (target.kind !== 'end') continue;

@@ -609,7 +609,7 @@
     /** 도면 점 p 가까이(tol mm 안)에 있는 요소 id. 여러 개면 가장 가까운 것.
         문·창문·기둥 → 벽 → 방 순으로 찾음 */
     hitTest(p, tol, filter) {
-      for (const pick of [0, 1, 2]) {
+      for (const pick of [0, 1, 2, 3]) { // 3: 가져온 도면 (잠금을 풀었을 때만)
         let best = null, bestD = Infinity;
         for (const el of this.elements.values()) {
           const t = TYPES[el.type];

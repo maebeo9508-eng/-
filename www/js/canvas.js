@@ -121,6 +121,7 @@
         mech: v('--mech'),
         dim: v('--dim'),
         note: v('--note'),
+        underlay: v('--underlay'),
         fg: v('--fg'),
       };
       this.requestRender();
@@ -156,9 +157,8 @@
       return App.doc ? App.doc.bounds() : null;
     }
 
-    /** 도면 전체가 한 화면에 들어오게. 그린 것이 없으면 기본 범위 */
-    fitToContent() {
-      const rect = this.contentBounds() || App.DEFAULT_VIEW_RECT;
+    /** 도면 전체(또는 준 범위)가 한 화면에 들어오게. 그린 것이 없으면 기본 범위 */
+    fitToContent(rect = this.contentBounds() || App.DEFAULT_VIEW_RECT) {
       const i = this.insets;
       const pad = Math.min(48, Math.min(this.width, this.height) * 0.08);
       this.view.fitRect(rect, {

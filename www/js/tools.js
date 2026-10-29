@@ -1092,6 +1092,10 @@
     implemented(id) {
       return id in REGISTRY;
     },
+    /** 다른 파일에서 도구 추가 (가져온 도면의 축척 맞추기 등) */
+    register(id, factory) {
+      REGISTRY[id] = factory;
+    },
     /** 도구 상태가 바뀜 (이어 그리기 시작·끝 등) */
     changed() {
       App.ui.emit('toolstate', this.current);

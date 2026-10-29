@@ -138,6 +138,10 @@
       },
       offset: { label: '치수선 띄우기', min: -100000, max: 100000, get: (d) => d.offset || 0, set: (d, v) => ({ offset: v }) },
     },
+    underlay: {
+      x: { label: 'X', min: -COORD_LIMIT, max: COORD_LIMIT, get: (u) => u.x, set: (u, v) => ({ x: v }) },
+      y: { label: 'Y', min: -COORD_LIMIT, max: COORD_LIMIT, get: (u) => u.y, set: (u, v) => ({ y: v }) },
+    },
     column: {
       width: {
         label: '폭', min: 50, max: 5000, get: (c) => c.width,
@@ -569,6 +573,46 @@
       ${deleteButton('치수')}`;
   }
 
+  /** 가져온 도면 (DXF 밑그림) */
+  function underlayForm() {
+    const single = els.length === 1;
+    const u = els[0];
+    const d = App.underlay.data(u);
+    const U = App.units;
+    const check = (id, label, on, note) => `
+      <label class="check-row" for="${id}">
+        <input type="checkbox" id="${id}" ${on ? 'checked' : ''}>
+        <span><b>${label}</b>${note ? `<small>${note}</small>` : ''}</span>
+      </label>`;
+    const opacity = Math.round(commonText((e) => e.opacity) * 100) || 60;
+    return `
+      ${head('가져온 도면', single ? u.name : `${els.length}개 선택`)}
+      ${check('f-visible', '보이기', els.every((e) => e.visible))}
+      ${check('f-locked', '잠금', els.every((e) => e.locked), '잠겨 있으면 도면에서 눌러도 골라지지 않아 그 위에 바로 그릴 수 있습니다. 옮기려면 잠금을 푸세요.')}
+      <div class="field">
+        <label class="field-label" for="f-opacity">진하기 <output id="o-opacity">${opacity}%</output></label>
+        <input type="range" id="f-opacity" class="field-range" min="10" max="100" step="5" value="${opacity}">
+      </div>
+      ${single && d ? `
+        <div class="stats">
+          ${stat('크기', `${U.formatLength(d.width * u.scale)} × ${U.formatLength(d.height * u.scale)}`)}
+          ${stat('내용', `선 ${d.lines.toLocaleString('ko-KR')}개 · 글자 ${d.textCount.toLocaleString('ko-KR')}개`)}
+        </div>
+        <div class="field">
+          <label class="field-label" for="f-scale">배율</label>
+          <div class="field-box"><input id="f-scale" type="text" inputmode="decimal" enterkeyhint="done" autocomplete="off" value="${Number(u.scale.toFixed(6))}"><span class="field-unit">배</span></div>
+          <div class="field-error" role="alert" hidden></div>
+        </div>
+        <button type="button" class="btn" data-act="calibrate">두 점으로 길이 맞추기</button>
+        <p class="props-meta">밑그림 크기가 실제와 다르면 길이를 아는 두 점(벽 끝과 끝 등)을 눌러 실제 길이를 넣으세요.</p>
+        <div class="field-group-label">왼쪽 위 위치</div>
+        <div class="field-grid">${numberField('x')}${numberField('y')}</div>
+        ${selectField('f-urot', '회전', [['0', '0°'], ['90', '90°'], ['180', '180°'], ['270', '270°']], String(u.rotation || 0))}
+        <button type="button" class="btn" data-act="fit-underlay">이 도면에 화면 맞추기</button>` : ''}
+      <button type="button" class="btn btn-danger" data-act="delete">${single ? '이 도면 지우기' : `${els.length}개 지우기`}</button>
+      <p class="props-meta">밑그림은 집계에 들어가지 않습니다. 벽·문·기호를 그 위에 따라 그리면 집계됩니다.</p>`;
+  }
+
   function mixedForm() {
     const counts = {};
     els.forEach((e) => { counts[e.type] = (counts[e.type] || 0) + 1; });
@@ -595,11 +639,16 @@
       window: '위쪽에서 창문 프리셋을 고른 뒤 벽 위를 누르세요.',
       column: '위쪽에서 기둥 프리셋을 고른 뒤 놓을 곳을 누르세요.',
     };
+    const underlays = App.underlay.list();
     return `
       <div class="empty">
         <div class="empty-title">선택한 항목 없음</div>
         <p>${tips[App.tools.id] || '도면에서 벽, 문, 창문, 기둥, 방을 누르면 크기와 자재 물량을 여기서 보고 고칠 수 있습니다.'}</p>
-      </div>`;
+      </div>
+      ${underlays.length ? `
+        <div class="field-group-label">가져온 도면</div>
+        ${underlays.map((u) => `<button type="button" class="btn btn-list" data-act="select-underlay" data-id="${esc(u.id)}">
+          <span>${esc(u.name)}</span><small>${u.visible ? (u.locked ? '잠김' : '잠금 풀림') : '숨김'} · 설정</small></button>`).join('')}` : ''}`;
   }
 
   function build() {
@@ -617,6 +666,7 @@
     else if (type === 'zone') pane.innerHTML = zoneForm();
     else if (type === 'text') pane.innerHTML = textForm();
     else if (type === 'dim') pane.innerHTML = dimForm();
+    else if (type === 'underlay') pane.innerHTML = underlayForm();
     else pane.innerHTML = mixedForm();
     pane.scrollTop = scroll;
   }
@@ -688,6 +738,7 @@
 
     // 입력하는 동안 바로 안내
     pane.addEventListener('input', (e) => {
+      if (e.target.id === 'f-opacity') document.getElementById('o-opacity').textContent = `${e.target.value}%`;
       const intBox = e.target.closest('.field[data-int]');
       const def = intBox && commonDef();
       if (def) showError(intBox, validateInt(e.target.value, def.numbers[intBox.dataset.int]).error);
@@ -706,6 +757,31 @@
       }
       if (id === 'f-memo') {
         apply('메모 수정', () => ({ memo: t.value }));
+        return;
+      }
+      if (id === 'f-visible' || id === 'f-locked') {
+        const key = id === 'f-visible' ? 'visible' : 'locked';
+        apply(key === 'visible' ? (t.checked ? '밑그림 보이기' : '밑그림 숨기기') : (t.checked ? '밑그림 잠금' : '밑그림 잠금 풀기'), () => ({ [key]: t.checked }));
+        return;
+      }
+      if (id === 'f-opacity') {
+        apply('밑그림 진하기', () => ({ opacity: Number(t.value) / 100 }));
+        return;
+      }
+      if (id === 'f-urot') {
+        apply('밑그림 회전', () => ({ rotation: Number(t.value) }));
+        return;
+      }
+      if (id === 'f-scale') {
+        const box = t.closest('.field');
+        const v = Number(String(t.value).replace(/[,\s]/g, ''));
+        if (!(v > 0) || v > 100000) {
+          showError(box, '0보다 큰 숫자를 넣으세요. 값은 바뀌지 않았습니다.');
+          t.value = Number(els[0].scale.toFixed(6));
+          return;
+        }
+        showError(box, '');
+        apply('밑그림 배율', () => ({ scale: v }));
         return;
       }
       if (id === 'f-wallType') {
@@ -844,6 +920,13 @@
         case 'rotate': App.actions.rotateSelection(); break;
         case 'detach': apply('벽에서 떼기', (it) => (it.wallId ? { wallId: null, t: null, side: null } : {})); break;
         case 'group': App.actions.groupSelection(); break;
+        case 'calibrate': App.underlay.calibrate(els[0].id); break;
+        case 'select-underlay': App.selection.set([act.dataset.id]); break;
+        case 'fit-underlay': {
+          const b = App.doc.bounds(els.map((e) => e.id));
+          if (b) App.plan.fitToContent(b);
+          break;
+        }
         case 'ungroup': App.actions.ungroupSelection(); break;
       }
     });

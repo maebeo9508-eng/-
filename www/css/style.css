@@ -40,6 +40,7 @@
   --mech: #1971c2;              /* 설비 기호 */
   --dim: #495057;               /* 치수 */
   --note: #343a40;              /* 메모 글자 */
+  --underlay: #7a8794;          /* 가져온 도면(밑그림) */
 
   --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
 
@@ -87,6 +88,7 @@
   --mech: #6cb4ff;
   --dim: #ced4da;
   --note: #f1f3f5;
+  --underlay: #93a1ae;
   color-scheme: dark;
 }
 
@@ -607,6 +609,7 @@ button { font: inherit; color: inherit; }
   overflow-y: auto;
   overscroll-behavior: contain;
 }
+.pane > * { flex-shrink: 0; } /* 내용이 길어도 칸이 눌려 겹치지 않게 (넘치면 스크롤) */
 .empty { display: grid; gap: 6px; padding: 12px 4px; color: var(--fg-muted); }
 .empty-title { font-size: 15px; font-weight: 700; color: var(--fg); }
 .empty p { margin: 0; line-height: 1.55; }
@@ -696,6 +699,32 @@ button { font: inherit; color: inherit; }
 }
 .btn:hover { background: var(--surface-2); }
 .btn-danger { background: transparent; border: 1px solid var(--danger); color: var(--danger); }
+.btn-list { display: flex; align-items: center; justify-content: space-between; gap: 8px; text-align: left; }
+.btn-list span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.btn-list small { flex: none; font-weight: 400; color: var(--fg-muted); }
+.check-row { display: flex; align-items: flex-start; gap: 10px; min-height: var(--hit); padding: 8px 0; cursor: pointer; }
+.check-row input { flex: none; width: 22px; height: 22px; margin: 1px 0 0; accent-color: var(--accent); }
+.check-row small { display: block; margin-top: 2px; font-size: 12px; color: var(--fg-muted); line-height: 1.4; }
+.field-range { width: 100%; min-height: var(--hit); accent-color: var(--accent); }
+.field-label output { float: right; font-weight: 600; color: var(--fg); }
+.btn-primary { background: var(--accent); border: 1px solid var(--accent); color: var(--accent-fg); }
+.btn-primary:hover { background: var(--accent); filter: brightness(1.08); }
+.modal-dialog { z-index: 70; }
+.modal-dialog .modal-card { max-width: 440px; }
+.modal-dialog .modal-body { gap: 12px; font-size: 14px; line-height: 1.5; }
+.modal-dialog .modal-body p { margin: 0; }
+.modal-dialog .modal-body ol { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+.dialog-foot {
+  display: flex;
+  flex: none;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 16px max(12px, env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--line);
+}
+.dialog-foot .btn { min-width: 88px; }
+.dialog-note { padding: 10px 12px; border-radius: 8px; background: var(--surface-2); font-size: 13px; color: var(--fg-muted); }
+.dialog-note.is-warn { background: var(--accent-soft); color: var(--fg); }
 .btn-row { display: flex; flex-wrap: wrap; gap: 8px; }
 .group-row { display: flex; align-items: center; gap: 8px; }
 .group-row .btn { flex: 1 1 auto; }
@@ -842,6 +871,9 @@ button { font: inherit; color: inherit; }
   .tool-opt { min-height: 44px; }
   .modal { padding: 0; align-items: stretch; }
   .modal-card { max-width: none; max-height: none; height: 100%; border-radius: 0; }
+  /* 확인 창은 휴대폰에서도 화면 가운데 작은 카드로 */
+  .modal-dialog { padding: 16px; align-items: center; }
+  .modal-dialog .modal-card { height: auto; max-height: 90%; border-radius: 14px; }
   .tool-sep { width: 1px; height: 32px; margin: 0 4px; }
 
   /* 서랍: 도구 바 바로 위에 붙고, 손잡이·탭을 끌어 높이 조절 */

@@ -63,12 +63,14 @@
       bindCanvasControls();
       bindToolOptions();
       initSheet();
+      bindDialog();
     },
     setTool,
     pickTool,
     updateHistory,
     toast,
     hint,
+    dialog,
   });
 
   /* ── 도구 바 ───────────────────────────── */
@@ -449,12 +451,63 @@
 
   /* ── 안내 문구 ────────────────────────── */
   let toastTimer = 0;
-  function toast(msg) {
+  /** 짧은 알림. 긴 글은 읽을 시간만큼 더 보여 줌 */
+  function toast(msg, ms = Math.min(6000, 1800 + String(msg).length * 45)) {
     const el = $('#toast');
     el.textContent = msg;
     el.classList.add('is-show');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => el.classList.remove('is-show'), 2200);
+    toastTimer = setTimeout(() => el.classList.remove('is-show'), ms);
+  }
+
+  /* ── 확인 창 ──
+     dialog({ title, html, actions: [{ id, label, primary, danger }], onOpen(body) }) → Promise<{ id, body }>
+     Esc나 바깥을 누르면 id는 'cancel'. 입력 칸에서 Enter는 주 버튼 */
+  let dialogDone = null;
+  function dialog({ title, html, actions = [{ id: 'ok', label: '확인', primary: true }], onOpen }) {
+    if (dialogDone) dialogDone('cancel');
+    document.querySelectorAll('.menu:not([hidden])').forEach((m) => { m.hidden = true; }); // 열린 메뉴는 닫음
+    $('#btnFile').setAttribute('aria-expanded', 'false');
+    const modal = $('#dialog');
+    $('#dialogTitle').textContent = title;
+    const body = $('#dialogBody');
+    body.innerHTML = html;
+    $('#dialogFoot').innerHTML = actions.map((a) =>
+      `<button type="button" class="btn${a.primary ? ' btn-primary' : ''}${a.danger ? ' btn-danger' : ''}" data-id="${escHtml(a.id)}">${escHtml(a.label)}</button>`).join('');
+    modal.hidden = false;
+    if (onOpen) onOpen(body);
+    const first = body.querySelector('input, select, textarea') || $('#dialogFoot .btn-primary') || $('#dialogFoot button');
+    if (first) first.focus();
+    return new Promise((resolve) => {
+      dialogDone = (id) => {
+        dialogDone = null;
+        modal.hidden = true;
+        resolve({ id, body });
+      };
+    });
+  }
+
+  function bindDialog() {
+    const modal = $('#dialog');
+    $('#dialogFoot').addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-id]');
+      if (b && dialogDone) dialogDone(b.dataset.id);
+    });
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal && dialogDone) dialogDone('cancel');
+    });
+    document.addEventListener('keydown', (e) => {
+      if (modal.hidden || !dialogDone) return;
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        e.preventDefault();
+        dialogDone('cancel');
+      } else if (e.key === 'Enter' && e.target.tagName === 'INPUT') {
+        const primary = $('#dialogFoot .btn-primary');
+        e.preventDefault();
+        if (primary) dialogDone(primary.dataset.id);
+      }
+    }, true);
   }
 
   let hintTimer = 0;

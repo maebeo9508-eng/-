@@ -99,7 +99,7 @@
     const marks = App.tools ? App.tools.highlight() : null; // { ids, color }
     const scale = plan.view.scale;
 
-    const walls = [], rooms = [], openings = [], columns = [], zones = [], lines = [], items = [], texts = [], dims = [];
+    const walls = [], rooms = [], openings = [], columns = [], zones = [], lines = [], items = [], texts = [], dims = [], underlays = [];
     for (const el of App.doc.all()) {
       const t = App.model.TYPES[el.type];
       if (!t || t.catalog) continue;
@@ -114,9 +114,11 @@
       else if (el.type === 'item') items.push(el);
       else if (el.type === 'text') texts.push(el);
       else if (el.type === 'dim') dims.push(el);
+      else if (el.type === 'underlay') underlays.push(el);
     }
 
     worldTransform(plan);
+    if (underlays.length) App.underlay.draw(plan, underlays, vis); // 가져온 도면은 맨 아래
     drawRooms(plan, rooms, marks);
     drawZones(plan, zones, marks);
 
