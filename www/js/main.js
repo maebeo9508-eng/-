@@ -100,12 +100,15 @@
 
   // 화면 맞춤 때 위쪽 버튼 묶음에 도면이 가리지 않게
   const stageTop = document.getElementById('stageTop');
-  const fit = () => {
+  const setTopInset = () => {
     plan.insets.top = stageTop.offsetTop + stageTop.offsetHeight;
-    plan.fitToContent();
   };
-  document.getElementById('btnFit').addEventListener('click', fit);
+  document.getElementById('btnFit').addEventListener('click', () => {
+    setTopInset();
+    plan.fitToContent();
+  });
 
   plan.resize();
-  fit();
+  setTopInset();
+  App.projects.init(); // 마지막에 열었던 도면과 화면 위치를 불러옴 (처음이면 새 도면, 화면 맞춤)
 })();

@@ -167,8 +167,8 @@
       actions: [{ id: 'cancel', label: '취소' }, { id: 'reset', label: '모두 지우기', danger: true }],
     });
     if (r.id !== 'reset') return;
-    if (App.projects && App.projects.clearAll) await App.projects.clearAll();
-    App.storage.clearAll();
+    if (App.projects) App.projects.stopSaving(); // 지우는 사이에 자동 저장이 다시 쓰지 않게
+    await App.storage.clearAll();
     location.reload();
   }
 

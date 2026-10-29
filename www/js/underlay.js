@@ -44,7 +44,22 @@
       }
     });
     texts.forEach((t) => { t.x -= minX; t.y -= minY; });
-    const width = Math.max(1, maxX - minX), height = Math.max(1, maxY - minY);
+    return index({
+      id: `uld-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+      name,
+      width: Math.max(1, maxX - minX),
+      height: Math.max(1, maxY - minY),
+      polys,
+      texts,
+      lines: parsed.stats.lines,
+      textCount: parsed.stats.texts,
+    });
+  }
+
+  /** 저장된 기본 데이터 { id, name, width, height, polys, texts, lines, textCount }에
+      그리기 칸(chunks)과 스냅 꼭짓점 칸(grid)을 붙임 (저장하지 않고 열 때마다 만듦) */
+  function index(base) {
+    const { width, height, polys } = base;
 
     // 그리기 칸: 꺾은선마다 가운데가 든 칸에 넣고 칸 범위는 넣은 선을 모두 감싸게
     const cw = width / CHUNKS, ch = height / CHUNKS;
@@ -78,11 +93,62 @@
     };
     polys.forEach((p) => { for (let k = 0; k < p.length; k += 2) put(p[k], p[k + 1]); });
 
-    return {
-      id: `uld-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
-      name, width, height, polys, texts, chunks: [...cells.values()], grid, cell,
-      lines: parsed.stats.lines, textCount: parsed.stats.texts,
-    };
+    return { ...base, chunks: [...cells.values()], grid, cell };
+  }
+
+  /* ── 저장: 기본 데이터만 IndexedDB에 (8단계 자동 저장·백업) ── */
+  const baseOf = (d) => ({ id: d.id, name: d.name, width: d.width, height: d.height, polys: d.polys, texts: d.texts, lines: d.lines, textCount: d.textCount });
+
+  /** 이 기기에 저장. 실패하면 false (다음에 열 때 밑그림이 빠짐) */
+  async function persist(d) {
+    try {
+      await App.storage.blobs.put(`underlay:${d.id}`, baseOf(d));
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /** 도면에 있는 밑그림 데이터 중 아직 안 읽은 것을 기기에서 읽음. 못 찾은 개수를 돌려줌 */
+  async function loadAll() {
+    const need = [...new Set(App.underlay.list().map((u) => u.dataId))].filter((id) => !store.has(id));
+    let missing = 0;
+    for (const id of need) {
+      let base = null;
+      try {
+        base = await App.storage.blobs.get(`underlay:${id}`);
+      } catch (_) { /* 저장소를 못 씀 */ }
+      if (base && base.polys) store.set(id, index(base));
+      else missing++;
+    }
+    if (need.length) {
+      App.plan.requestRender();
+      App.props.refresh();
+    }
+    return missing;
+  }
+
+  /** 백업 파일용: 숫자 배열(0.1mm까지)로 */
+  function exportData(id) {
+    const d = store.get(id);
+    if (!d) return null;
+    const r = (v) => Math.round(v * 10) / 10;
+    return { ...baseOf(d), polys: d.polys.map((p) => Array.from(p, r)) };
+  }
+  /** 백업 파일에서 읽은 데이터를 보관하고 기기에 저장 */
+  async function importData(obj) {
+    if (!obj || !obj.id || !Array.isArray(obj.polys)) return false;
+    const d = index({ ...obj, polys: obj.polys.map((p) => Float32Array.from(p)), texts: obj.texts || [] });
+    store.set(d.id, d);
+    return persist(d);
+  }
+  /** 어느 도면에서도 쓰지 않는 밑그림 데이터를 기기에서 지움 (앱을 열 때) */
+  async function cleanup(usedIds) {
+    try {
+      const keys = await App.storage.blobs.keys();
+      await Promise.all(keys.filter((k) => String(k).startsWith('underlay:') && !usedIds.has(String(k).slice(9)))
+        .map((k) => App.storage.blobs.remove(k)));
+    } catch (_) { /* 저장소를 못 씀 */ }
   }
 
   /* ── 놓인 위치: 도면 좌표 = (x, y) + 회전(배율 × 밑그림 좌표) ── */
@@ -387,6 +453,9 @@
     if (withHidden && withHidden.checked) parsed = reparse({ includeHidden: true });
     const d = build(parsed, unitMM, file.name);
     store.set(d.id, d);
+    persist(d).then((ok) => {
+      if (!ok) App.ui.toast('밑그림을 이 기기에 저장하지 못했습니다. 앱을 다시 열면 도면 파일을 다시 불러와야 합니다.');
+    });
     const el = App.model.TYPES.underlay.create(d);
     App.doc.transact('도면 불러오기', () => App.doc.add(el));
     App.selection.set([el.id]);
@@ -529,7 +598,7 @@
   }
 
   App.underlay = {
-    init, draw, importFile, pickFile, calibrate, build, store,
+    init, draw, importFile, pickFile, calibrate, build, store, loadAll, exportData, importData, cleanup,
     data: (u) => store.get(u.dataId) || null,
     list: () => [...App.doc.all()].filter((e) => e.type === 'underlay'),
   };

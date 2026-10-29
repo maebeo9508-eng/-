@@ -310,6 +310,7 @@
       const b = e.target.closest('[data-kind]');
       if (!b) return;
       App.current[`${ui.tool}Kind`] = b.dataset.kind;
+      ui.emit('current');
       setTool(ui.tool); // 기호 놓기 ↔ 선 그리기 바꿈
       const line = paletteLine(ui.tool);
       hint(line ? `${line}: 끌거나 점을 차례로 눌러 그립니다` : `${b.dataset.kind}: 놓을 곳을 누르세요`);
@@ -319,6 +320,7 @@
       const item = e.target.closest('[data-id]');
       if (item) {
         App.current[o.key] = item.dataset.id;
+        ui.emit('current');
         closeToolMenu();
         updateToolOption();
         App.nav.refreshTool(false);
@@ -474,7 +476,10 @@
     $('#btnFile').setAttribute('aria-expanded', 'false');
     const modal = $('#dialog');
     $('#dialogTitle').textContent = title;
-    const body = $('#dialogBody');
+    // 창마다 새 본문 칸: 앞 창에서 붙인 이벤트가 남아 두 번 실행되지 않게
+    const old = $('#dialogBody');
+    const body = old.cloneNode(false);
+    old.replaceWith(body);
     body.innerHTML = html;
     $('#dialogFoot').innerHTML = actions.map((a) =>
       `<button type="button" class="btn${a.primary ? ' btn-primary' : ''}${a.danger ? ' btn-danger' : ''}" data-id="${escHtml(a.id)}">${escHtml(a.label)}</button>`).join('');
@@ -513,6 +518,7 @@
     });
     document.addEventListener('keydown', (e) => {
       if (modal.hidden || !dialogDone) return;
+      if (e.target.closest && e.target.closest('[data-keys="local"]')) return; // 창 안에서 따로 처리하는 칸 (도면 이름 고치기 등)
       if (e.key === 'Escape') {
         e.stopPropagation();
         e.preventDefault();

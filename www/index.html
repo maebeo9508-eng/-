@@ -27,6 +27,7 @@
 <script src="js/export.js" defer></script>
 <script src="js/summary.js" defer></script>
 <script src="js/settings.js" defer></script>
+<script src="js/projects.js" defer></script>
 <script src="js/keys.js" defer></script>
 <script src="js/main.js" defer></script>
 </head>
@@ -42,9 +43,10 @@
       </button>
       <div class="menu" id="fileMenu" role="menu" hidden>
         <div class="menu-label">프로젝트</div>
-        <button type="button" class="menu-item" role="menuitem" disabled>새 프로젝트<span class="menu-tag">8단계</span></button>
-        <button type="button" class="menu-item" role="menuitem" disabled>불러오기 (JSON)<span class="menu-tag">8단계</span></button>
-        <button type="button" class="menu-item" role="menuitem" disabled>백업 저장 (JSON)<span class="menu-tag">8단계</span></button>
+        <button type="button" class="menu-item" role="menuitem" id="menuNew">새 도면…</button>
+        <button type="button" class="menu-item" role="menuitem" id="menuProjects">도면 목록…</button>
+        <button type="button" class="menu-item" role="menuitem" id="menuBackup">백업 저장 (파일)</button>
+        <button type="button" class="menu-item" role="menuitem" id="menuRestore">백업 불러오기 (파일)</button>
         <div class="menu-sep" role="separator"></div>
         <div class="menu-label">가져오기</div>
         <button type="button" class="menu-item" role="menuitem" id="menuImport">도면 불러오기 (DWG·DXF)</button>
@@ -59,6 +61,10 @@
     <span class="tb-divider pc-only" aria-hidden="true"></span>
     <button type="button" class="tb-btn" id="btnUndo" title="실행 취소 (Ctrl+Z)" aria-label="실행 취소" disabled><span class="ico" data-icon="undo"></span></button>
     <button type="button" class="tb-btn" id="btnRedo" title="다시 실행 (Ctrl+Y)" aria-label="다시 실행" disabled><span class="ico" data-icon="redo"></span></button>
+
+    <button type="button" class="tb-btn tb-project" id="btnProject" title="도면 목록">
+      <span class="prj-name-label" id="projectName"></span><span class="save-state" id="saveState" data-state="saved">저장됨</span>
+    </button>
 
     <span class="tb-spacer"></span>
 
@@ -171,6 +177,7 @@
   </div>
 
   <input type="file" id="importFile" accept=".dwg,.dxf" hidden>
+  <input type="file" id="projectFile" accept=".json,application/json" hidden>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 </div>
