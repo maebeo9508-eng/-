@@ -15,6 +15,7 @@
 <script src="js/draw.js" defer></script>
 <script src="js/snap.js" defer></script>
 <script src="js/dxf.js" defer></script>
+<script src="js/dwg.js" defer></script>
 <script src="js/underlay.js" defer></script>
 <script src="js/rooms.js" defer></script>
 <script src="js/input.js" defer></script>
@@ -44,7 +45,7 @@
         <button type="button" class="menu-item" role="menuitem" disabled>백업 저장 (JSON)<span class="menu-tag">8단계</span></button>
         <div class="menu-sep" role="separator"></div>
         <div class="menu-label">가져오기</div>
-        <button type="button" class="menu-item" role="menuitem" id="menuImport">도면 불러오기 (DXF·DWG)</button>
+        <button type="button" class="menu-item" role="menuitem" id="menuImport">도면 불러오기 (DWG·DXF)</button>
         <div class="menu-sep" role="separator"></div>
         <div class="menu-label">내보내기</div>
         <button type="button" class="menu-item" role="menuitem" id="menuCsv">집계표 CSV (엑셀)</button>
@@ -153,7 +154,11 @@
     </div>
   </div>
 
-  <input type="file" id="importFile" accept=".dxf,.dwg" hidden>
+  <div class="busy" id="busy" role="alert" aria-live="assertive" hidden>
+    <div class="busy-card"><span class="spinner" aria-hidden="true"></span><span id="busyText"></span></div>
+  </div>
+
+  <input type="file" id="importFile" accept=".dwg,.dxf" hidden>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 </div>

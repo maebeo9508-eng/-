@@ -119,15 +119,15 @@
     return vars;
   }
 
-  /** 꺼지거나 얼린 레이어 */
-  function hiddenLayers(sections) {
+  /** 꺼지거나 얼린 레이어. ignoreOff: '꺼짐'(색 번호 음수)은 믿지 않고 얼림만 봄 */
+  function hiddenLayers(sections, ignoreOff) {
     const hidden = new Set();
     (sections.TABLES || []).forEach((e) => {
       if (e.type !== 'LAYER') return;
       const g = getter(e);
       const name = g.s(2);
       if (!name) return;
-      if (g.n(62, 7) < 0 || (g.n(70, 0) & 1)) hidden.add(name);
+      if ((!ignoreOff && g.n(62, 7) < 0) || (g.n(70, 0) & 1)) hidden.add(name);
     });
     return hidden;
   }
@@ -214,6 +214,47 @@
       .replace(/%%[uUoO]/g, '');
   }
 
+  /** 꺾은선·글자를 모으는 그릇. hidden: 숨길 레이어 이름 */
+  function collector(hidden) {
+    const polylines = [];
+    const texts = [];
+    const stats = { lines: 0, texts: 0, skipped: {}, truncated: false, hiddenLayers: [...hidden], hiddenSkipped: 0 };
+    let points = 0;
+    return {
+      polylines, texts, stats,
+      skip(t) { stats.skipped[t] = (stats.skipped[t] || 0) + 1; },
+      addPoly(pts, m) {
+        if (pts.length < 4) return;
+        if (points > MAX_POINTS) { stats.truncated = true; return; }
+        const buf = [];
+        for (let k = 0; k < pts.length; k += 2) {
+          const p = apply(m, pts[k], pts[k + 1]);
+          if (Number.isFinite(p[0]) && Number.isFinite(p[1])) buf.push(p[0], p[1]); // 깨진 좌표는 뺌
+        }
+        if (buf.length < 4) return;
+        points += buf.length / 2;
+        polylines.push(Float64Array.from(buf));
+        stats.lines++;
+      },
+      addText(str, x, y, h, rot, ha, va, m) {
+        const t = plainText(str).trim();
+        if (!t || !(h > 0)) return;
+        const p = apply(m, x, y);
+        if (!Number.isFinite(p[0]) || !Number.isFinite(p[1]) || !Number.isFinite(h * scaleOf(m))) return;
+        texts.push({ x: p[0], y: p[1], h: h * scaleOf(m), rot: rot + angleOf(m), text: t, ha, va });
+        stats.texts++;
+      },
+    };
+  }
+
+  /** 블록 삽입 변환: 블록 기준점(bx, by) → 원점, 배율, 회전(라디안), 배열 간격(ox, oy), 삽입점(ix, iy) */
+  function insertMatrix(ix, iy, sx, sy, rot, bx, by, ox = 0, oy = 0) {
+    const cos = Math.cos(rot), sin = Math.sin(rot);
+    return [sx * cos, sx * sin, -sy * sin, sy * cos,
+      ix + ox * cos - oy * sin - (bx * sx * cos - by * sy * sin),
+      iy + ox * sin + oy * cos - (bx * sx * sin + by * sy * cos)];
+  }
+
   /**
    * DXF 글자 → { polylines: [Float64Array(x0,y0,x1,y1,...)], texts: [{ x, y, h, rot, text, ha, va }], units, insunits, stats }
    */
@@ -223,7 +264,7 @@
     if (!sections.ENTITIES) throw new Error('DXF 파일이 아니거나 내용(ENTITIES)이 없습니다.');
     const vars = headerVars(sections);
     const insunits = parseInt(vars.$INSUNITS || '0', 10) || 0;
-    const hidden = opts.includeHidden ? new Set() : hiddenLayers(sections);
+    const hidden = opts.includeHidden ? new Set() : hiddenLayers(sections, opts.ignoreOff);
 
     // 블록: 이름 → { base, ents }
     const blocks = new Map();
@@ -240,32 +281,7 @@
       }
     });
 
-    const polylines = [];
-    const texts = [];
-    const stats = { lines: 0, texts: 0, skipped: {}, truncated: false, hiddenLayers: [...hidden], hiddenSkipped: 0 };
-    let points = 0;
-    const skip = (t) => { stats.skipped[t] = (stats.skipped[t] || 0) + 1; };
-
-    const addPoly = (pts, m) => {
-      if (pts.length < 4) return;
-      if (points > MAX_POINTS) { stats.truncated = true; return; }
-      const out = new Float64Array(pts.length);
-      for (let k = 0; k < pts.length; k += 2) {
-        const p = apply(m, pts[k], pts[k + 1]);
-        out[k] = p[0];
-        out[k + 1] = p[1];
-      }
-      points += pts.length / 2;
-      polylines.push(out);
-      stats.lines++;
-    };
-    const addText = (str, x, y, h, rot, ha, va, m) => {
-      const t = plainText(str).trim();
-      if (!t || !(h > 0)) return;
-      const p = apply(m, x, y);
-      texts.push({ x: p[0], y: p[1], h: h * scaleOf(m), rot: rot + angleOf(m), text: t, ha, va });
-      stats.texts++;
-    };
+    const { polylines, texts, stats, skip, addPoly, addText } = collector(hidden);
 
     /** 개체 목록을 변환 m으로 그림. 폴리라인은 뒤따르는 VERTEX를 함께 읽음 */
     function walk(ents, m0, depth) {
@@ -347,6 +363,7 @@
             break;
           case 'TEXT':
           case 'ATTRIB': {
+            if (e.type === 'ATTRIB' && (g.n(70, 0) & 1)) break; // 숨긴 속성
             const ha = g.n(72, 0), va = g.n(e.type === 'TEXT' ? 73 : 74, 0);
             const aligned = (ha || va) && g.has(11);
             const between = (ha === 3 || ha === 5) && g.has(11); // 맞춤·채움: 두 점 사이 가운데
@@ -375,17 +392,11 @@
               walk(b.ents, m, depth + 1); // 치수 블록은 이미 도면 좌표
               break;
             }
-            const sx = g.n(41, 1), sy = g.n(42, 1), rot = (g.n(50, 0) * Math.PI) / 180;
             const cols = Math.max(1, g.n(70, 1)), rows = Math.max(1, g.n(71, 1));
-            const cs = g.n(44, 0), rs = g.n(45, 0);
-            const cos = Math.cos(rot), sin = Math.sin(rot);
             for (let r = 0; r < rows; r++) {
               for (let c = 0; c < cols; c++) {
-                // 블록 기준점 → 원점, 배율, 회전, 배열 간격, 삽입점
-                const ox = c * cs, oy = r * rs;
-                const local = [sx * cos, sx * sin, -sy * sin, sy * cos,
-                  g.n(10) + ox * cos - oy * sin - (b.base[0] * sx * cos - b.base[1] * sy * sin),
-                  g.n(20) + ox * sin + oy * cos - (b.base[0] * sx * sin + b.base[1] * sy * cos)];
+                const local = insertMatrix(g.n(10), g.n(20), g.n(41, 1), g.n(42, 1), (g.n(50, 0) * Math.PI) / 180,
+                  b.base[0], b.base[1], c * g.n(44, 0), r * g.n(45, 0));
                 walk(b.ents, mul(m, local), depth + 1);
               }
             }

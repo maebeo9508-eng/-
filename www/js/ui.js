@@ -71,6 +71,7 @@
     toast,
     hint,
     dialog,
+    busy,
   });
 
   /* ── 도구 바 ───────────────────────────── */
@@ -485,6 +486,17 @@
         resolve({ id, body });
       };
     });
+  }
+
+  /** 오래 걸리는 일(도면 읽기 등) 동안 화면을 덮는 안내. busy(false)로 닫음 */
+  function busy(msg) {
+    const el = $('#busy');
+    if (msg === false) {
+      el.hidden = true;
+      return;
+    }
+    $('#busyText').textContent = msg;
+    el.hidden = false;
   }
 
   function bindDialog() {

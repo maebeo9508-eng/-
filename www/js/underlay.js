@@ -209,13 +209,17 @@
       for (const t of d.texts) {
         if (t.h * px < MIN_TEXT_PX || !G.pointInRect(t, { minX: lv.minX - t.h * 20, minY: lv.minY - t.h * 5, maxX: lv.maxX + t.h * 5, maxY: lv.maxY + t.h * 5 })) continue;
         if (++drawn > MAX_TEXTS) break;
+        // 글꼴 크기는 화면 크기(px)로 정하고 좌표계를 그만큼 줄여 그림 (아주 큰 글꼴 값을 피함)
+        const size = t.h * px;
+        if (size > 600) continue;
         const lines = t.text.split('\n');
-        const lh = t.h * 1.4;
+        const lh = size * 1.4;
         const y0 = t.va === 'bottom' ? -(lines.length - 1) * lh : t.va === 'middle' ? (-(lines.length - 1) * lh) / 2 : 0;
         ctx.save();
         ctx.translate(t.x, t.y);
         if (t.rot) ctx.rotate(t.rot);
-        ctx.font = `${t.h}px ${family}`;
+        ctx.scale(1 / px, 1 / px);
+        ctx.font = `${size}px ${family}`;
         ctx.textAlign = t.ha;
         ctx.textBaseline = t.va;
         lines.forEach((line, i) => ctx.fillText(line, 0, y0 + i * lh));
@@ -235,6 +239,42 @@
   }
 
   /* ── 불러오기 ── */
+
+  /** 멀리 떨어진 엉뚱한 개체(캐드 파일에 흔한 떠돌이 선·글자)를 뺌. 도면 대부분이 모인 범위의 4배 밖이거나
+      그 범위보다 몇 배나 큰 개체. 뺀 개수는 stats.outliers */
+  function trimOutliers(parsed) {
+    const xs = [], ys = [];
+    const every = Math.max(1, Math.floor(parsed.polylines.reduce((n, p) => n + p.length / 2, 0) / 200000)); // 너무 많으면 골라서
+    let c = 0;
+    parsed.polylines.forEach((p) => {
+      for (let k = 0; k < p.length; k += 2) if (c++ % every === 0) { xs.push(p[k]); ys.push(p[k + 1]); }
+    });
+    parsed.texts.forEach((t) => { xs.push(t.x); ys.push(t.y); });
+    if (xs.length < 20) return parsed;
+    const q = (arr, f) => arr[Math.min(arr.length - 1, Math.floor(arr.length * f))];
+    xs.sort((a, b) => a - b);
+    ys.sort((a, b) => a - b);
+    const core = { minX: q(xs, 0.02), maxX: q(xs, 0.98), minY: q(ys, 0.02), maxY: q(ys, 0.98) };
+    const size = Math.max(core.maxX - core.minX, core.maxY - core.minY, 1);
+    const keep = { minX: core.minX - size * 4, maxX: core.maxX + size * 4, minY: core.minY - size * 4, maxY: core.maxY + size * 4 };
+    let outliers = 0;
+    const polylines = parsed.polylines.filter((p) => {
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (let k = 0; k < p.length; k += 2) {
+        x0 = Math.min(x0, p[k]); x1 = Math.max(x1, p[k]);
+        y0 = Math.min(y0, p[k + 1]); y1 = Math.max(y1, p[k + 1]);
+      }
+      const ok = x0 >= keep.minX && x1 <= keep.maxX && y0 >= keep.minY && y1 <= keep.maxY;
+      if (!ok) outliers++;
+      return ok;
+    });
+    const texts = parsed.texts.filter((t) => {
+      const ok = G.pointInRect(t, keep) && t.h < size;
+      if (!ok) outliers++;
+      return ok;
+    });
+    return { ...parsed, polylines, texts, stats: { ...parsed.stats, outliers, lines: polylines.length, texts: texts.length } };
+  }
   const UNIT_CHOICES = [[1, 'mm'], [10, 'cm'], [1000, 'm'], [25.4, 'inch'], [304.8, 'ft']];
 
   function measureSize(parsed, unitMM) {
@@ -251,18 +291,18 @@
     return { w: (maxX - minX) * unitMM, h: (maxY - minY) * unitMM };
   }
 
+  /** DWG 모듈을 못 불러온 경우(파일을 바로 연 브라우저 등): DXF로 바꾸는 방법 안내 */
   async function dwgHelp(name) {
     const r = await App.ui.dialog({
-      title: 'DWG는 DXF로 바꿔서 불러오세요',
+      title: 'DWG를 여는 모듈을 불러오지 못했습니다',
       html: `
-        <p><b>${esc(name)}</b>은 DWG 파일입니다. DWG는 오토캐드 전용 형식이라 앱 안에서 바로 읽지 못합니다.
-        같은 도면을 <b>DXF</b>로 저장하면 그대로 불러올 수 있습니다.</p>
+        <p><b>${esc(name)}</b>을 열려면 앱 안의 DWG 모듈이 필요한데, 지금 연 방식(파일을 브라우저로 직접 열기 등)에서는 불러올 수 없습니다.
+        설치한 앱이나 웹 주소로 열면 DWG가 바로 열립니다.</p>
+        <p>지금 바로 열어야 하면 DXF로 바꿔서 불러오세요.</p>
         <ol>
-          <li>캐드가 있으면: <b>다른 이름으로 저장</b> → 파일 형식에서 <b>DXF</b> 고르기</li>
-          <li>캐드가 없으면: 무료 프로그램 <b>ODA File Converter</b>(PC)로 DWG를 DXF로 변환</li>
-          <li>도면을 보낸 사람에게 DXF로 달라고 하기</li>
-        </ol>
-        <p class="dialog-note">DXF로 불러오면 선과 글자가 회색 밑그림으로 깔리고, 그 위에서 벽을 따라 그릴 수 있습니다.</p>`,
+          <li>캐드에서: <b>다른 이름으로 저장</b> → 파일 형식 <b>DXF</b></li>
+          <li>캐드가 없으면: 무료 <b>ODA File Converter</b>(PC)로 DWG → DXF</li>
+        </ol>`,
       actions: [{ id: 'cancel', label: '닫기' }, { id: 'pick', label: 'DXF 파일 고르기', primary: true }],
     });
     if (r.id === 'pick') pickFile();
@@ -270,23 +310,39 @@
 
   async function importFile(file) {
     const ext = (file.name.split('.').pop() || '').toLowerCase();
-    if (ext === 'dwg') return dwgHelp(file.name);
-    if (ext !== 'dxf') {
-      App.ui.toast('DXF 파일만 불러올 수 있습니다. (DWG는 DXF로 바꿔서)');
+    if (ext !== 'dxf' && ext !== 'dwg') {
+      App.ui.toast('DWG·DXF 도면 파일만 불러올 수 있습니다.');
       return false;
     }
-    App.ui.toast('도면을 읽는 중…');
-    await new Promise((r) => setTimeout(r, 30)); // 알림이 먼저 보이게
-    let parsed, text;
+    App.ui.busy(ext === 'dwg' ? 'DWG 도면을 읽는 중… 처음 한 번은 몇 초 걸릴 수 있습니다.' : '도면을 읽는 중…');
+    await new Promise((r) => setTimeout(r, 30)); // 안내가 먼저 보이게
+    // reparse(옵션): 꺼진 레이어 포함 여부를 바꿔 다시 만들 때 파일을 다시 읽지 않음
+    let parsed, reparse;
     try {
-      text = App.dxf.decode(await file.arrayBuffer());
-      parsed = App.dxf.parse(text);
+      let buffer = await file.arrayBuffer();
+      if (ext === 'dwg') {
+        const problem = App.dwg.check(buffer);
+        if (problem) throw new Error(problem);
+        buffer = await App.dwg.toDxf(buffer); // DWG → DXF (작업자에서)
+      }
+      const text = App.dxf.decode(buffer);
+      // DWG에서 바꾼 DXF는 켜진 레이어도 '꺼짐'으로 적혀 나오는 경우가 있어 얼린 레이어만 숨김
+      reparse = (opts) => trimOutliers(App.dxf.parse(text, { ...opts, ignoreOff: ext === 'dwg' }));
+      parsed = reparse();
     } catch (e) {
-      await App.ui.dialog({ title: '도면을 읽지 못했습니다', html: `<p>${esc(e.message || e)}</p>` });
+      App.ui.busy(false);
+      if (e.message === 'NO_WORKER') return dwgHelp(file.name);
+      await App.ui.dialog({
+        title: '도면을 읽지 못했습니다',
+        html: /^CODE_/.test(e.message)
+          ? '<p>DWG를 바꾸는 중에 문제가 생겼습니다. 파일이 손상되었거나 암호가 걸려 있을 수 있습니다.</p><p class="dialog-note">캐드에서 다른 버전 DWG나 DXF로 저장해 다시 열어 보세요.</p>'
+          : `<p>${esc(e.message || e)}</p>`,
+      });
       return false;
     }
+    App.ui.busy(false);
     if (!parsed.polylines.length && !parsed.texts.length) {
-      await App.ui.dialog({ title: '그릴 내용이 없습니다', html: '<p>이 DXF에는 선이나 글자가 없습니다. 도면이 배치(종이) 공간에만 있거나 3D 개체만 있을 수 있습니다.</p>' });
+      await App.ui.dialog({ title: '그릴 내용이 없습니다', html: '<p>이 도면에는 모형 공간에 선이나 글자가 없습니다. 도면이 배치(종이) 공간에만 있거나 3D 개체만 있을 수 있습니다.</p>' });
       return false;
     }
     const known = parsed.insunits !== 0 && UNIT_CHOICES.some(([f]) => f === parsed.units.mm);
@@ -316,6 +372,7 @@
             <span><b>꺼진 레이어도 불러오기</b><small>캐드에서 꺼 둔 레이어 ${parsed.stats.hiddenLayers.length}개(${esc(parsed.stats.hiddenLayers.slice(0, 4).join(', '))}${parsed.stats.hiddenLayers.length > 4 ? ' …' : ''})는 캐드처럼 숨깁니다.</small></span>
           </label>` : ''}
         ${skipped ? `<p class="props-meta">건너뛴 것: ${esc(skipped)} (빗금·3D 등은 밑그림에 넣지 않음)</p>` : ''}
+        ${parsed.stats.outliers ? `<p class="props-meta">도면에서 멀리 떨어진 엉뚱한 선·글자 ${parsed.stats.outliers}개는 뺐습니다. (화면 맞춤이 너무 작아지는 것을 막음)</p>` : ''}
         ${parsed.stats.truncated ? '<p class="dialog-note is-warn">도면이 너무 커서 일부만 불러왔습니다.</p>' : ''}`,
       actions: [{ id: 'cancel', label: '취소' }, { id: 'ok', label: '불러오기', primary: true }],
       onOpen(body) {
@@ -327,7 +384,7 @@
     });
     if (r.id !== 'ok') return false;
     const withHidden = r.body.querySelector('#d-hidden');
-    if (withHidden && withHidden.checked) parsed = App.dxf.parse(text, { includeHidden: true });
+    if (withHidden && withHidden.checked) parsed = reparse({ includeHidden: true });
     const d = build(parsed, unitMM, file.name);
     store.set(d.id, d);
     const el = App.model.TYPES.underlay.create(d);
@@ -457,6 +514,8 @@
   function init() {
     App.tools.register('calibrate', () => new CalibrateTool());
     const input = document.getElementById('importFile');
+    // 안드로이드 파일 고르기 창은 .dwg·.dxf 형식을 몰라 파일을 흐리게 막는 경우가 있어 거르지 않고 연 뒤 확장자로 확인
+    if (/Android/i.test(navigator.userAgent)) input.removeAttribute('accept');
     input.addEventListener('change', () => {
       const f = input.files[0];
       input.value = '';
