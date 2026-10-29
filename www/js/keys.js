@@ -18,6 +18,10 @@
         } else if (e.code === 'KeyY' || (e.code === 'KeyZ' && e.shiftKey)) {
           e.preventDefault();
           App.actions.redo();
+        } else if (e.code === 'KeyG') {
+          e.preventDefault();
+          if (e.shiftKey) App.actions.ungroupSelection();
+          else App.actions.groupSelection();
         }
         return;
       }

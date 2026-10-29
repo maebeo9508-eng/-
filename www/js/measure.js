@@ -83,8 +83,58 @@
     return openingIndex.map.get(wallId) || [];
   }
 
+  let itemIndex = { version: -1, map: new Map() };
+  const pointKey = (p) => `${Math.round(p.x)},${Math.round(p.y)}`;
+
+  /** 그 점에 가운데가 있는 기구 (선 끝이 기구에 붙었는지 볼 때) */
+  function itemAt(p) {
+    if (itemIndex.version !== App.doc.version) {
+      const map = new Map();
+      for (const el of App.doc.all()) if (el.type === 'item') map.set(pointKey(el), el);
+      itemIndex = { version: App.doc.version, map };
+    }
+    return itemIndex.map.get(pointKey(p)) || null;
+  }
+
+  /** 그 점이 들어 있는 방의 천장 높이. 방 밖이면 기본 벽 높이 */
+  function ceilingAt(p) {
+    let best = null, bestArea = Infinity;
+    for (const r of App.doc.all()) {
+      if (r.type !== 'room' || !App.geom.pointInPolygon(p, r.points)) continue;
+      const a = Math.abs(App.geom.signedArea(r.points));
+      if (a < bestArea) { best = r; bestArea = a; }
+    }
+    return best ? best.ceilingHeight : App.settings.wallHeight;
+  }
+
   const measure = {
     openingsOf,
+    itemAt,
+    ceilingAt,
+
+    /** 기구 설치 높이(mm). null(천장)이면 그 자리 방의 천장 높이 */
+    itemHeight(it) {
+      return it.height == null ? ceilingAt({ x: it.x, y: it.y }) : it.height;
+    },
+
+    /** 선 하나의 길이: 평면 + 자동 수직(선 끝이 붙은 기구까지 오르내림) + 추가 수직
+        자동 수직 = |배관 높이 − 기구 설치 높이|, 배관 높이가 비었으면 그 자리 천장 */
+    line(l) {
+      const plan = Math.hypot(l.end.x - l.start.x, l.end.y - l.start.y);
+      const ends = [];
+      let auto = 0;
+      [l.start, l.end].forEach((p) => {
+        const it = itemAt(p);
+        if (!it) return;
+        const run = l.runHeight == null ? ceilingAt(p) : l.runHeight;
+        const h = measure.itemHeight(it);
+        const drop = Math.abs(run - h);
+        auto += drop;
+        ends.push({ item: it, run, height: h, drop });
+      });
+      const extra = l.rise || 0;
+      return { plan, auto, extra, rise: auto + extra, total: plan + auto + extra, ends };
+    },
 
     /** 벽 하나의 기본 수치와 자재 (길이 mm, 면적 mm²) */
     wall(w) {

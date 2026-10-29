@@ -96,6 +96,10 @@
     },
     item: {
       size: { label: '기호 크기', min: 50, max: 5000, get: (it) => it.size, set: (it, v) => ({ size: v }) },
+      height: {
+        label: '설치 높이 (비우면 천장)', min: 0, max: 20000, allowEmpty: true, emptyText: '천장',
+        get: (it) => it.height, set: (it, v) => ({ height: v }),
+      },
       x: { label: 'X', min: -COORD_LIMIT, max: COORD_LIMIT, get: (it) => it.x, set: (it, v) => ({ x: v }) },
       y: { label: 'Y', min: -COORD_LIMIT, max: COORD_LIMIT, get: (it) => it.y, set: (it, v) => ({ y: v }) },
     },
@@ -109,7 +113,11 @@
         },
         check: (l) => (G.dist(l.start, l.end) < 0.001 ? '길이가 0인 선은 방향이 없어 길이를 바꿀 수 없습니다.' : null),
       },
-      rise: { label: '수직 길이 (오르내림)', min: 0, max: 100000, get: (l) => l.rise || 0, set: (l, v) => ({ rise: v }) },
+      runHeight: {
+        label: '배관 높이 (비우면 천장)', min: 0, max: 20000, allowEmpty: true, emptyText: '천장',
+        get: (l) => l.runHeight, set: (l, v) => ({ runHeight: v }),
+      },
+      rise: { label: '추가 수직 길이', min: 0, max: 100000, get: (l) => l.rise || 0, set: (l, v) => ({ rise: v }) },
       sx: { label: 'X', min: -COORD_LIMIT, max: COORD_LIMIT, get: (l) => l.start.x, set: (l, v) => ({ start: { x: v, y: l.start.y } }) },
       sy: { label: 'Y', min: -COORD_LIMIT, max: COORD_LIMIT, get: (l) => l.start.y, set: (l, v) => ({ start: { x: l.start.x, y: v } }) },
       ex: { label: 'X', min: -COORD_LIMIT, max: COORD_LIMIT, get: (l) => l.end.x, set: (l, v) => ({ end: { x: v, y: l.end.y } }) },
@@ -153,24 +161,30 @@
     return { value: mm };
   }
 
+  const sameNumber = (a, b) => a === b || (a != null && b != null && Math.abs(a - b) < 0.001);
   /** 여러 개 선택했을 때 값이 모두 같으면 그 값, 다르면 null */
   const common = (get) => {
     const first = get(els[0]);
-    return els.every((e) => Math.abs(get(e) - first) < 0.001) ? first : null;
+    return els.every((e) => sameNumber(get(e), first)) ? first : null;
   };
+  /** 숫자 칸에 보일 글자와 빈칸 안내: 값이 여러 개면 '여러 값', 비워 둔 값(천장·자동)이면 그 뜻 */
+  function shown(f) {
+    const first = f.get(els[0]);
+    if (!els.every((e) => sameNumber(f.get(e), first))) return { value: '', placeholder: '여러 값' };
+    if (first == null) return { value: '', placeholder: f.emptyText || '자동' };
+    return { value: App.units.inputLength(first), placeholder: '' };
+  }
   const commonText = (get) => (els.every((e) => get(e) === get(els[0])) ? get(els[0]) : null);
 
   function numberField(key, label) {
     const f = fields[key];
-    const v = common(f.get);
-    const value = v === null ? '' : App.units.inputLength(v);
-    const placeholder = f.allowEmpty ? '자동' : '여러 값';
+    const { value, placeholder } = shown(f);
     return `
       <div class="field" data-field="${key}">
         <label class="field-label" for="f-${key}">${label || f.label}</label>
         <div class="field-box">
           <input id="f-${key}" type="text" inputmode="decimal" enterkeyhint="done" autocomplete="off"
-            value="${esc(value)}" ${v === null ? `placeholder="${placeholder}"` : ''}>
+            value="${esc(value)}" ${placeholder ? `placeholder="${placeholder}"` : ''}>
           <span class="field-unit">${App.units.lengthLabel()}</span>
         </div>
         <div class="field-error" role="alert" hidden></div>
@@ -195,10 +209,24 @@
     return `<div class="stat"><span class="stat-label">${label}</span><span class="stat-value">${esc(value)}${note ? `<small>${esc(note)}</small>` : ''}</span></div>`;
   }
 
+  /** 묶음: 고른 것이 한 묶음이면 '묶음 풀기', 두 개 이상 골랐으면 '묶기' */
+  function groupRow() {
+    const g = commonText((e) => e.group || null);
+    if (g) {
+      let n = 0;
+      for (const el of App.doc.all()) if (el.group === g) n++;
+      return `<div class="group-row"><span class="group-tag">묶음 · ${n}개</span>
+        <button type="button" class="btn" data-act="ungroup" title="Ctrl+Shift+G">묶음 풀기</button></div>`;
+    }
+    if (els.length < 2) return '';
+    return `<div class="group-row"><button type="button" class="btn" data-act="group" title="Ctrl+G">묶기 (함께 선택·이동)</button></div>`;
+  }
+
   function commonFields(single) {
     const layer = commonText((e) => e.layer) || '';
     const memo = commonText((e) => e.memo);
     return `
+      ${groupRow()}
       ${selectField('f-layer', '레이어', App.model.LAYERS.map((l) => [l.id, l.label]), layer || null)}
       <div class="field">
         <label class="field-label" for="f-memo">메모</label>
@@ -367,23 +395,67 @@
     return r ? r.name || '이름 없음' : '없음';
   };
 
+  /** 정수 칸 (회로 수 등). 길이가 아니라 단위 변환 없음 */
+  function intField(key, o) {
+    const v = commonText((e) => e[key] ?? null);
+    return `
+      <div class="field" data-int="${key}">
+        <label class="field-label" for="f-num-${key}">${esc(o.label)}</label>
+        <div class="field-box">
+          <input id="f-num-${key}" type="text" inputmode="numeric" enterkeyhint="done" autocomplete="off"
+            value="${v == null ? '' : esc(v)}" ${v == null ? 'placeholder="여러 값"' : ''}>
+          <span class="field-unit">${esc(o.unit || '')}</span>
+        </div>
+        <div class="field-error" role="alert" hidden></div>
+      </div>`;
+  }
+
+  function validateInt(text, o) {
+    const s = String(text).replace(/[,\s]/g, '');
+    if (!/^\d+$/.test(s)) return { error: '정수를 입력하세요.' };
+    const v = Number(s);
+    if (v < o.min || v > o.max) return { error: `${o.min}~${o.max} 사이로 입력하세요.` };
+    return { value: v };
+  }
+
+  /** 지금 고른 기호들이 모두 같은 종류면 그 종류 정의 */
+  const commonDef = () => {
+    const kind = commonText((e) => e.kind);
+    return kind ? App.catalog.itemDef(kind) : null;
+  };
+
   function itemForm() {
     const single = els.length === 1;
     const cat = commonText((e) => e.category);
     const kinds = cat ? App.catalog.ITEM_KINDS[cat].filter((d) => d.kind).map((d) => [d.kind, d.kind]) : [];
     const rotation = commonText((e) => String(e.rotation));
+    const def = commonDef();
     const counts = {};
-    els.forEach((e) => { counts[e.kind] = (counts[e.kind] || 0) + 1; });
+    els.forEach((e) => { const k = App.catalog.itemLabel(e); counts[k] = (counts[k] || 0) + 1; });
+    const mounted = els.filter((e) => e.wallId && App.doc.has(e.wallId));
+    const ceilingOnes = els.filter((e) => e.height == null);
+    const ceiling = single && ceilingOnes.length ? App.measure.itemHeight(els[0]) : null;
+    const wallType = single && mounted.length && App.catalog.typeOf(App.doc.get(mounted[0].wallId));
     return `
-      ${head(cat === 'elec' ? '전기' : cat === 'mech' ? '설비' : '아이템', single ? els[0].kind : `${els.length}개 선택`)}
+      ${head(cat === 'elec' ? '전기' : cat === 'mech' ? '설비' : '아이템', single ? App.catalog.itemLabel(els[0]) : `${els.length}개 선택`)}
       ${kinds.length ? selectField('f-itemKind', '종류', kinds, commonText((e) => e.kind)) : ''}
-      <div class="field-grid">${numberField('size')}</div>
+      ${def && def.options ? Object.entries(def.options).map(([key, o]) =>
+        selectField(`f-opt-${key}`, esc(o.label), o.values.map((v) => [v, v]), commonText((e) => e[key] ?? null))).join('') : ''}
+      <div class="field-grid">
+        ${numberField('height')}
+        ${def && def.numbers ? Object.entries(def.numbers).map(([key, o]) => intField(key, o)).join('') : ''}
+        ${numberField('size')}
+      </div>
+      ${ceilingOnes.length ? `<p class="props-meta">설치 높이를 비우면 그 방의 천장 높이${single ? `(${esc(App.units.formatLength(ceiling))})` : ''}에 다는 것으로 봅니다. 높이는 배관·전선관 수직 길이 계산에 쓰입니다.</p>`
+        : '<p class="props-meta">설치 높이는 바닥에서 기구 가운데까지입니다. 배관·전선관 수직 길이 계산에 쓰입니다.</p>'}
       ${selectField('f-rotation', '회전', [['0', '0°'], ['90', '90°'], ['180', '180°'], ['270', '270°']], rotation,
         '<button type="button" class="btn" data-act="rotate">90° 돌리기</button>')}
-      ${single ? `<div class="field-group-label">가운데 위치</div><div class="field-grid">${numberField('x')}${numberField('y')}</div>` : ''}
+      ${single && !mounted.length ? `<div class="field-group-label">가운데 위치</div><div class="field-grid">${numberField('x')}${numberField('y')}</div>` : ''}
       <div class="stats">
         ${single ? stat('방', roomName(els[0].room)) : Object.entries(counts).map(([k, n]) => stat(k, `${n}개`)).join('')}
+        ${mounted.length ? stat('벽에 붙음', single ? (wallType ? wallType.name : '벽') : `${mounted.length}개`, '벽을 옮기면 따라갑니다') : ''}
       </div>
+      ${mounted.length ? '<button type="button" class="btn" data-act="detach">벽에서 떼기</button>' : ''}
       ${commonFields(single)}
       ${deleteButton('기호')}`;
   }
@@ -392,28 +464,35 @@
     const single = els.length === 1;
     const presets = App.catalog.presets('line');
     const presetId = commonText((l) => l.presetId);
+    const M = App.measure, U = App.units;
     const groups = new Map();
     els.forEach((l) => {
       const p = App.doc.get(l.presetId);
       const key = p ? p.name : l.category;
-      const g = groups.get(key) || { plan: 0, rise: 0 };
-      g.plan += G.dist(l.start, l.end);
-      g.rise += l.rise || 0;
+      const q = M.line(l);
+      const g = groups.get(key) || { plan: 0, auto: 0, extra: 0 };
+      g.plan += q.plan;
+      g.auto += q.auto;
+      g.extra += q.extra;
       groups.set(key, g);
     });
-    const M = App.measure;
-    const rows = [...groups.entries()].map(([name, g]) =>
-      stat(name, M.meters(g.plan + g.rise), `평면 ${M.meters(g.plan)} + 수직 ${M.meters(g.rise)}`)).join('');
+    const breakdown = (g) => [`평면 ${M.meters(g.plan)}`, g.auto ? `기구 수직 ${M.meters(g.auto)}` : '', g.extra ? `추가 ${M.meters(g.extra)}` : '']
+      .filter(Boolean).join(' + ');
+    const rows = [...groups.entries()].map(([name, g]) => stat(name, M.meters(g.plan + g.auto + g.extra), breakdown(g))).join('');
+    // 선 하나: 끝마다 어느 기구까지 얼마나 오르내리는지
+    const ends = single ? M.line(els[0]).ends.map((e) => stat(`${e.item.kind} 수직`, M.meters(e.drop),
+      `${e.run === 0 ? '바닥' : `배관 ${U.formatLength(e.run)}`} ↔ 기구 ${U.formatLength(e.height)}`)).join('') : '';
     return `
       ${head('선', single ? (App.doc.get(els[0].presetId) || {}).name || els[0].category : `${els.length}개 선택`)}
       ${selectField('f-linePreset', '선 종류', presets.map((p) => [p.id, `${p.name} · ${App.catalog.describePreset(p)}`]), presetId,
         '<button type="button" class="btn" data-act="edit-line">편집</button>')}
       <div class="field-grid">
         ${single ? numberField('length') : ''}
+        ${numberField('runHeight')}
         ${numberField('rise')}
       </div>
-      <p class="props-meta">수직 길이는 벽·천장을 따라 오르내리는 길이입니다. 평면 길이에 더해 집계합니다.</p>
-      <div class="stats">${rows}</div>
+      <p class="props-meta">선 끝을 콘센트·스위치 같은 기구 가운데에 붙이면 배관 높이와 기구 설치 높이 차이만큼 수직 길이를 자동으로 더합니다. 그 밖의 오르내림은 추가 수직 길이에 넣으세요.</p>
+      <div class="stats">${rows}${ends}</div>
       ${single ? `
         <div class="field-group-label">시작점</div>
         <div class="field-grid">${numberField('sx')}${numberField('sy')}</div>
@@ -454,6 +533,7 @@
         </div>` : ''}
       <div class="field-grid">${numberField('size')}</div>
       <p class="props-meta">도면에서 고른 글자를 한 번 더 누르면 그 자리에서 고칠 수 있습니다.</p>
+      ${groupRow()}
       ${selectField('f-layer', '레이어', App.model.LAYERS.map((l) => [l.id, l.label]), commonText((e) => e.layer))}
       ${deleteButton('텍스트')}`;
   }
@@ -469,6 +549,7 @@
         ${numberField('offset')}
       </div>
       <p class="props-meta">치수선 띄우기는 잰 선에서 치수선을 옆으로 옮기는 거리입니다 (반대쪽은 음수).</p>
+      ${groupRow()}
       ${selectField('f-layer', '레이어', App.model.LAYERS.map((l) => [l.id, l.label]), commonText((e) => e.layer))}
       ${deleteButton('치수')}`;
   }
@@ -530,8 +611,9 @@
     pane.querySelectorAll('.field[data-field]').forEach((box) => {
       const input = box.querySelector('input');
       if (document.activeElement === input) return;
-      const v = common(fields[box.dataset.field].get);
-      input.value = v === null ? '' : App.units.inputLength(v);
+      const { value, placeholder } = shown(fields[box.dataset.field]);
+      input.value = value;
+      input.placeholder = placeholder;
     });
   }
 
@@ -565,8 +647,7 @@
   }
 
   function revert(input, f) {
-    const v = common(f.get);
-    input.value = v === null ? '' : App.units.inputLength(v);
+    input.value = shown(f).value;
   }
 
   /** 프리셋 값을 고른 문·창문·기둥에 적용 (크기가 벽에 맞지 않으면 막음) */
@@ -592,6 +673,9 @@
 
     // 입력하는 동안 바로 안내
     pane.addEventListener('input', (e) => {
+      const intBox = e.target.closest('.field[data-int]');
+      const def = intBox && commonDef();
+      if (def) showError(intBox, validateInt(e.target.value, def.numbers[intBox.dataset.int]).error);
       const box = e.target.closest('.field[data-field]');
       if (!box) return;
       showError(box, validate(e.target.value, fields[box.dataset.field]).error);
@@ -622,8 +706,35 @@
         return;
       }
       if (id === 'f-itemKind') {
+        // 종류를 바꾸면 크기·설치 높이·구수 같은 속성도 새 종류의 기본값으로. 벽에 붙지 않는 종류면 벽에서 뗌
         const def = App.catalog.itemDef(t.value);
-        if (def) apply('종류 변경', () => ({ kind: def.kind, size: def.size }));
+        if (def) {
+          apply('종류 변경', () => ({
+            kind: def.kind, size: def.size, gang: null, variant: null, circuits: null, ...App.catalog.itemDefaults(def),
+            ...(def.wall ? {} : { wallId: null, t: null, side: null }),
+          }));
+        }
+        return;
+      }
+      if (id.startsWith('f-opt-')) {
+        if (t.value) apply(`${t.closest('.field').querySelector('label').textContent} 변경`, () => ({ [id.slice(6)]: t.value }));
+        return;
+      }
+      if (id.startsWith('f-num-')) {
+        const box = t.closest('.field');
+        const def = commonDef();
+        if (!def) return;
+        const key = id.slice(6), o = def.numbers[key];
+        if (t.value.trim() === '' && els.length > 1) return;
+        const r = validateInt(t.value, o);
+        if (r.error) {
+          showError(box, `${r.error} 값은 바뀌지 않았습니다.`);
+          const v = commonText((e) => e[key] ?? null);
+          t.value = v == null ? '' : v;
+          return;
+        }
+        showError(box, '');
+        apply(`${o.label} 변경`, () => ({ [key]: r.value }));
         return;
       }
       if (id === 'f-rotation') {
@@ -632,7 +743,11 @@
       }
       if (id === 'f-linePreset') {
         const p = t.value && App.doc.get(t.value);
-        if (p) apply('선 종류 변경', () => ({ presetId: p.id, category: p.category, layer: App.catalog.lineLayer(p.category) }));
+        if (p) {
+          apply('선 종류 변경', () => ({
+            presetId: p.id, category: p.category, layer: App.catalog.lineLayer(p.category), runHeight: p.runHeight ?? null,
+          }));
+        }
         return;
       }
       if (id === 'f-zoneColor') {
@@ -668,7 +783,7 @@
       const box = t.closest('.field[data-field]');
       if (!box) return;
       const f = fields[box.dataset.field];
-      if (t.value.trim() === '' && els.length > 1) return; // '여러 값' 칸을 비운 채 두면 그대로
+      if (t.value.trim() === '' && shown(f).placeholder === '여러 값') return; // '여러 값' 칸을 비운 채 두면 그대로
       const r = validate(t.value, f);
       if (r.error) {
         showError(box, `${r.error} 값은 바뀌지 않았습니다.`);
@@ -686,9 +801,14 @@
       if (e.key === 'Enter') e.target.blur();
       if (e.key === 'Escape') {
         const box = e.target.closest('.field[data-field]');
+        const intBox = e.target.closest('.field[data-int]');
         if (box) {
           showError(box, '');
           revert(e.target, fields[box.dataset.field]);
+        } else if (intBox) {
+          showError(intBox, '');
+          const v = commonText((el) => el[intBox.dataset.int] ?? null);
+          e.target.value = v == null ? '' : v;
         } else if (e.target.id === 'f-name') {
           e.target.value = els[0].name;
         }
@@ -707,6 +827,9 @@
         case 'edit-type': App.catalogUI.open('wallType', commonText((w) => w.typeId)); break;
         case 'edit-line': App.catalogUI.open('line', commonText((l) => l.presetId)); break;
         case 'rotate': App.actions.rotateSelection(); break;
+        case 'detach': apply('벽에서 떼기', (it) => (it.wallId ? { wallId: null, t: null, side: null } : {})); break;
+        case 'group': App.actions.groupSelection(); break;
+        case 'ungroup': App.actions.ungroupSelection(); break;
       }
     });
 

@@ -93,6 +93,8 @@
         { key: 'category', label: '분류', kind: 'select', options: () => App.catalog.LINE_CATEGORIES.map((c) => [c, c]) },
         { key: 'color', label: '색', kind: 'select', options: () => App.catalog.COLORS },
         { key: 'size', label: '지름·폭', kind: 'mm', min: 1, max: 3000 },
+        { key: 'runHeight', label: '높이 (비우면 천장)', kind: 'mm', min: 0, max: 20000, allowEmpty: true, emptyText: '천장', group: '배관 높이',
+          note: '선이 지나가는 높이입니다. 선 끝이 콘센트·스위치 같은 기구에 붙으면 이 높이와 기구 설치 높이의 차이만큼 수직 길이를 자동으로 더합니다. 바닥 배관은 0, 천장 속은 비워 두세요.' },
       ],
       list: () => App.catalog.presets('line'),
       describe: (p) => App.catalog.describePreset(p),
@@ -101,7 +103,7 @@
         for (const el of App.doc.all()) if (el.type === 'line' && el.presetId === p.id) n++;
         return n ? `선 ${n}개` : '';
       },
-      blank: () => ({ name: '새 선 종류', category: '배관', color: '#1c7ed6', size: 20 }),
+      blank: () => ({ name: '새 선 종류', category: '배관', color: '#1c7ed6', size: 20, runHeight: 0 }),
     },
   };
 
@@ -121,6 +123,7 @@
     }
     if (f.kind === 'select') return { value: text };
     const s = String(text).replace(/[,\s]/g, '');
+    if (f.allowEmpty && s === '') return { value: null };
     if (f.kind === 'int') {
       if (!/^\d+$/.test(s)) return { error: '0 이상의 정수를 입력하세요.' };
       const v = Number(s);
@@ -150,9 +153,9 @@
         `<option value="${esc(val)}" ${val === v ? 'selected' : ''}>${esc(text)}</option>`).join('')}</select>`;
     } else {
       const unit = f.kind === 'mm' ? App.units.lengthLabel() : f.kind === 'pct' ? '%' : f.kind === 'int' ? '겹' : '';
-      const value = f.kind === 'mm' ? App.units.inputLength(v) : v;
+      const value = v == null ? '' : f.kind === 'mm' ? App.units.inputLength(v) : v;
       control = `<div class="field-box"><input id="${id}" data-key="${f.key}" type="text" autocomplete="off" enterkeyhint="done"
-        ${f.kind === 'text' ? `maxlength="${NAME_MAX}"` : 'inputmode="decimal"'} value="${esc(value)}">${unit ? `<span class="field-unit">${unit}</span>` : ''}</div>`;
+        ${f.kind === 'text' ? `maxlength="${NAME_MAX}"` : 'inputmode="decimal"'} value="${esc(value)}" ${f.emptyText ? `placeholder="${f.emptyText}"` : ''}>${unit ? `<span class="field-unit">${unit}</span>` : ''}</div>`;
     }
     return `<div class="field${f.kind === 'text' ? ' field-wide' : ''}"><label class="field-label" for="${id}">${f.label}</label>${control}
       <div class="field-error" role="alert" hidden></div></div>`;
@@ -323,7 +326,7 @@
       if (r.error) {
         err.textContent = `${r.error} 값은 바뀌지 않았습니다.`;
         err.hidden = false;
-        e.target.value = f.kind === 'mm' ? App.units.inputLength(item[key]) : item[key];
+        e.target.value = item[key] == null ? '' : f.kind === 'mm' ? App.units.inputLength(item[key]) : item[key];
         return;
       }
       err.hidden = true;
@@ -333,7 +336,16 @@
       if (kind === 'column' && (key === 'shape' || key === 'width') && (key === 'shape' ? r.value : item.shape) === 'circle') {
         patch.depth = key === 'width' ? r.value : item.width;
       }
-      edit(`${SPECS[kind].addLabel} 수정`, () => App.doc.update(item.id, patch));
+      const oldRun = item.runHeight ?? null; // update가 item을 바로 고치므로 미리 기억
+      edit(`${SPECS[kind].addLabel} 수정`, () => {
+        App.doc.update(item.id, patch);
+        // 배관 높이: 이 종류로 그린 선 중 따로 고치지 않은(옛 값 그대로인) 선도 함께
+        if (kind === 'line' && key === 'runHeight') {
+          for (const el of App.doc.all()) {
+            if (el.type === 'line' && el.presetId === item.id && (el.runHeight ?? null) === oldRun) App.doc.update(el.id, { runHeight: r.value });
+          }
+        }
+      });
       if (STRUCTURAL.has(key)) rerenderCard(item.id);
       else updateSummary(card, App.doc.get(item.id));
     });

@@ -177,6 +177,37 @@
         ctx.strokeRect(s.x - handle, s.y - handle, handle * 2, handle * 2);
       });
     });
+    drawGroupBoxes(plan);
+  }
+
+  /** 고른 묶음 둘레에 점선 상자: 하나씩이 아니라 묶음으로 골라졌다는 표시 */
+  function drawGroupBoxes(plan) {
+    const groups = new Set();
+    App.selection.list().forEach((id) => {
+      const el = App.doc.get(id);
+      if (el && el.group) groups.add(el.group);
+    });
+    if (!groups.size) return;
+    const boxes = new Map();
+    for (const el of App.doc.all()) {
+      if (!el.group || !groups.has(el.group)) continue;
+      const b = App.model.TYPES[el.type].bounds(el);
+      if (!b) continue;
+      const cur = boxes.get(el.group);
+      boxes.set(el.group, cur ? {
+        minX: Math.min(cur.minX, b.minX), minY: Math.min(cur.minY, b.minY), maxX: Math.max(cur.maxX, b.maxX), maxY: Math.max(cur.maxY, b.maxY),
+      } : b);
+    }
+    const ctx = plan.ctx;
+    ctx.save();
+    ctx.setLineDash([6, 4]);
+    ctx.strokeStyle = plan.colors.accent;
+    ctx.lineWidth = 1.2;
+    boxes.forEach((b) => {
+      const a = plan.view.toScreen(b.minX, b.minY), z = plan.view.toScreen(b.maxX, b.maxY);
+      ctx.strokeRect(a.x - 6, a.y - 6, z.x - a.x + 12, z.y - a.y + 12);
+    });
+    ctx.restore();
   }
 
   /** 벽을 마감 쪽 → 반대쪽 순서로 층을 나눠 그림: [마감 쪽 석고][틀(세로재 단면)][기존 벽 빗금][반대쪽 석고]

@@ -670,6 +670,17 @@ button { font: inherit; color: inherit; }
 .btn:hover { background: var(--surface-2); }
 .btn-danger { background: transparent; border: 1px solid var(--danger); color: var(--danger); }
 .btn-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.group-row { display: flex; align-items: center; gap: 8px; }
+.group-row .btn { flex: 1 1 auto; }
+.group-tag {
+  padding: 4px 10px;
+  border: 1px dashed var(--accent);
+  border-radius: 999px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
 .btn-row .btn { flex: 1 1 auto; }
 .btn-add { border-style: dashed; color: var(--accent); }
 .field-row { display: flex; gap: 8px; }

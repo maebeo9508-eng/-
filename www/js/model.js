@@ -99,6 +99,19 @@
     },
   };
 
+  /** 벽면에 붙은 기호의 자리: 벽 시작에서 비율 t, side(+1/-1) 쪽 면, 깊이 depth인 기호의 가운데와 방향(도) */
+  function mountPoint(w, t, side, depth) {
+    const L = G.dist(w.start, w.end);
+    const dir = G.unit({ x: w.end.x - w.start.x, y: w.end.y - w.start.y });
+    const n = G.perp(dir);
+    const along = G.clamp(t, 0, 1) * L;
+    const off = side * (w.thickness / 2 + depth / 2);
+    let rot = (Math.atan2(dir.y, dir.x) * 180) / Math.PI;
+    if (side < 0) rot += 180; // 기호 앞면이 벽에서 바깥(방 쪽)을 보도록
+    rot = ((Math.round(rot) % 360) + 360) % 360;
+    return { x: w.start.x + dir.x * along + n.x * off, y: w.start.y + dir.y * along + n.y * off, rotation: rot };
+  }
+
   /** 글자 상자(mm). (x, y)는 왼쪽 위. 한글은 글자 크기만큼, 영문·숫자는 0.6배 폭으로 어림 */
   function textBox(t) {
     const size = Math.max(t.size, minWorld(11));
@@ -308,8 +321,13 @@
     item: {
       label: '아이템',
       pick: 0,
-      create(p, category, def, rotation = 0) {
-        return { ...base('item', category), category, kind: def.kind, x: p.x, y: p.y, rotation, size: def.size };
+      /** height: 설치 높이(null=천장), gang·variant·circuits: 종류별 속성, mount: 벽에 붙었으면 { wallId, t, side } */
+      create(p, category, def, rotation = 0, mount = null) {
+        return {
+          ...base('item', category), category, kind: def.kind, x: p.x, y: p.y, rotation, size: def.size,
+          ...App.catalog.itemDefaults(def),
+          wallId: mount ? mount.wallId : null, t: mount ? mount.t : null, side: mount ? mount.side : null,
+        };
       },
       /** 화면에 그려지는 폭·깊이(mm). 멀리서 봐도 16px보다 작아지지 않음 */
       dims(it) {
@@ -349,7 +367,9 @@
         return {
           ...base('line', App.catalog.lineLayer(preset.category)),
           presetId: preset.id, category: preset.category,
-          start: { x: a.x, y: a.y }, end: { x: b.x, y: b.y }, rise: 0,
+          start: { x: a.x, y: a.y }, end: { x: b.x, y: b.y },
+          runHeight: preset.runHeight ?? null, // 배관이 지나가는 높이(null=천장)
+          rise: 0,                             // 자동 계산 외에 더할 수직 길이
         };
       },
       ...segmentShape((l) => {
@@ -630,5 +650,5 @@
     }
   }
 
-  App.model = { DATA_VERSION, LAYERS, TYPES, Doc, clone, openingGeom, openingCorners };
+  App.model = { DATA_VERSION, LAYERS, TYPES, Doc, clone, openingGeom, openingCorners, mountPoint };
 })();

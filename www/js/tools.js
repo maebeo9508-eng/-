@@ -42,8 +42,12 @@
       this._emit();
     }
     toggle(id) {
-      if (this.ids.has(id)) this.ids.delete(id);
-      else this.ids.add(id);
+      this.toggleAll([id]);
+    }
+    /** 모두 골라져 있으면 모두 빼고, 아니면 모두 더함 (묶음을 Shift로 누를 때) */
+    toggleAll(ids) {
+      if (ids.every((id) => this.ids.has(id))) ids.forEach((id) => this.ids.delete(id));
+      else ids.forEach((id) => this.ids.add(id));
       this._emit();
     }
     clear() {
@@ -62,6 +66,19 @@
       });
       if (changed) this._emit();
     }
+  }
+
+  /** 묶음: 하나를 고르면 같은 묶음 전체가 함께 골라짐 */
+  function withGroups(ids) {
+    const groups = new Set();
+    ids.forEach((id) => {
+      const el = App.doc.get(id);
+      if (el && el.group) groups.add(el.group);
+    });
+    if (!groups.size) return ids;
+    const out = new Set(ids);
+    for (const el of App.doc.all()) if (el.group && groups.has(el.group)) out.add(el.id);
+    return [...out];
   }
 
   /* ── 선택 도구: 누르기 선택, Shift 추가, 범위 선택, 끌어서 이동 ── */
@@ -97,14 +114,17 @@
       if (!p.mode) {
         if (!dragged(ev, p.ev)) return;
         const hitEl = p.hit && App.doc.get(p.hit);
+        const wallItem = hitEl && hitEl.type === 'item' && (App.catalog.itemDef(hitEl.kind) || {}).wall && !hitEl.group;
         if (p.handle) this.startStretch(p);
-        else if (hitEl && (hitEl.type === 'door' || hitEl.type === 'window')) this.startSlide(p, hitEl);
+        else if (hitEl && (hitEl.type === 'door' || hitEl.type === 'window') && !hitEl.group) this.startSlide(p, hitEl);
+        else if (wallItem && (!App.selection.has(hitEl.id) || App.selection.size === 1)) this.startRemount(p, hitEl);
         else if (p.hit) this.startMove(p);
         else p.mode = 'box';
       }
       if (p.mode === 'move') this.updateMove(p, ev);
       else if (p.mode === 'stretch') this.updateStretch(p, ev);
       else if (p.mode === 'slide') this.updateSlide(p, ev);
+      else if (p.mode === 'remount') this.updateRemount(p, ev);
       else p.cur = ev;
       render();
     }
@@ -119,13 +139,13 @@
         else if (hitEl && hitEl.type === 'text' && !ev.shift && sel.size === 1 && sel.has(p.hit)) {
           App.textEditor.open({ x: hitEl.x, y: hitEl.y }, hitEl); // 고른 메모를 한 번 더 누르면 고치기
         }
-        else if (p.hit) ev.shift ? sel.toggle(p.hit) : sel.set([p.hit]);
+        else if (p.hit) ev.shift ? sel.toggleAll(withGroups([p.hit])) : sel.set(withGroups([p.hit]));
         else if (!ev.shift) sel.clear();
-      } else if (p.mode === 'move' || p.mode === 'stretch' || p.mode === 'slide') {
+      } else if (['move', 'stretch', 'slide', 'remount'].includes(p.mode)) {
         App.doc.commit();
       } else if (p.mode === 'box') {
         const crossing = ev.x < p.ev.x; // 오른쪽에서 왼쪽으로 끌면 걸친 것도 선택
-        const ids = App.doc.inRect(G.rectFromPoints(p.ev.world, ev.world), crossing);
+        const ids = withGroups(App.doc.inRect(G.rectFromPoints(p.ev.world, ev.world), crossing));
         p.ev.shift || ev.shift ? sel.add(ids) : sel.set(ids);
       }
       if (!ev.touch) this.hover(ev);
@@ -134,7 +154,7 @@
 
     startMove(p) {
       const sel = App.selection;
-      if (!sel.has(p.hit)) sel.set([p.hit]);
+      if (!sel.has(p.hit)) sel.set(withGroups([p.hit]));
       p.mode = 'move';
       // 방을 옮기면 그 방을 둘러싼 벽도 함께
       const ids = new Set(sel.list());
@@ -153,6 +173,13 @@
         if (t && t.snapPoints) t.snapPoints(el).forEach((q) => q.kind === 'end' && p.points.push(q));
       });
       App.doc.begin('이동');
+      // 벽에 붙은 기호를 그 벽 없이 옮기면 벽에서 뗌 (벽도 함께 옮기면 붙은 채로 따라감)
+      p.orig.forEach((el, id) => {
+        if (el.type === 'item' && el.wallId && !p.orig.has(el.wallId)) {
+          App.doc.update(id, { wallId: null, t: null, side: null });
+          el.wallId = null;
+        }
+      });
     }
     updateMove(p, ev) {
       let dx = ev.world.x - p.ev.world.x;
@@ -201,6 +228,25 @@
       syncRoomsLive();
     }
 
+    /** 벽에 붙는 기호 끌기: 벽 가까이면 벽면에 붙어 벽을 따라 미끄러지고, 벽에서 멀어지면 떨어져 자유롭게 */
+    startRemount(p, el) {
+      App.selection.set([el.id]);
+      p.mode = 'remount';
+      p.el = App.model.clone(el);
+      p.def = App.catalog.itemDef(el.kind);
+      App.doc.begin(`${el.kind} 이동`);
+    }
+    updateRemount(p, ev) {
+      const depth = p.el.size * p.def.aspect;
+      const m = wallMount(ev, depth);
+      if (m) {
+        App.doc.update(p.el.id, { x: m.x, y: m.y, rotation: m.rotation, ...m.mount });
+      } else {
+        const q = App.snap.point(ev.world, { touch: ev.touch, exclude: new Set([p.el.id]) });
+        App.doc.update(p.el.id, { x: q.x, y: q.y, wallId: null, t: null, side: null });
+      }
+    }
+
     /** 문·창문 끌기: 벽을 따라 미끄러지고, 다른 벽 가까이 가면 그 벽으로 옮겨 붙음 */
     startSlide(p, el) {
       App.selection.set([el.id]);
@@ -215,7 +261,7 @@
     }
 
     cancel() {
-      if (this.press && ['move', 'stretch', 'slide'].includes(this.press.mode)) App.doc.rollback();
+      if (this.press && ['move', 'stretch', 'slide', 'remount'].includes(this.press.mode)) App.doc.rollback();
       this.press = null;
       render();
     }
@@ -231,7 +277,7 @@
       return false;
     }
     highlight() {
-      return this.hoverId && !this.press ? { ids: new Set([this.hoverId]), color: 'accent' } : null;
+      return this.hoverId && !this.press ? { ids: new Set(withGroups([this.hoverId])), color: 'accent' } : null;
     }
     overlay(plan) {
       const p = this.press;
@@ -268,11 +314,13 @@
     return found;
   }
 
-  /** 끄는 동안에도 방 경계를 따라 맞춤 (도면이 크면 손을 뗄 때만) */
+  /** 끄는 동안에도 벽에 붙은 기호와 방 경계를 따라 맞춤 (도면이 크면 손을 뗄 때만) */
   function syncRoomsLive() {
     let walls = 0;
     for (const el of App.doc.all()) if (el.type === 'wall' && ++walls > LIVE_ROOM_SYNC_MAX_WALLS) return;
-    if (App.doc.tx) App.rooms.syncRooms(App.doc.tx);
+    if (!App.doc.tx) return;
+    App.catalog.syncHook(App.doc.tx);
+    App.rooms.syncRooms(App.doc.tx);
   }
 
   /* ── 이어 그리기 도구 (벽·선·치수) ──
@@ -723,17 +771,13 @@
     }
     if (!best) return null;
     const { w, r } = best;
-    const dir = G.unit({ x: w.end.x - w.start.x, y: w.end.y - w.start.y });
-    const n = G.perp(dir);
+    const n = G.perp(G.unit({ x: w.end.x - w.start.x, y: w.end.y - w.start.y }));
     const side = (ev.world.x - r.point.x) * n.x + (ev.world.y - r.point.y) * n.y >= 0 ? 1 : -1;
     const L = G.dist(w.start, w.end);
     let along = r.t * L;
     if (App.settings.snapGrid) along = G.clamp(Math.round(along / App.settings.gridSize) * App.settings.gridSize, 0, L);
-    const off = side * (w.thickness / 2 + depth / 2);
-    let rot = (Math.atan2(dir.y, dir.x) * 180) / Math.PI;
-    if (side < 0) rot += 180; // 기호 앞면이 방 쪽을 보도록
-    rot = ((Math.round(rot) % 360) + 360) % 360;
-    return { x: w.start.x + dir.x * along + n.x * off, y: w.start.y + dir.y * along + n.y * off, rotation: rot };
+    const t = along / L;
+    return { ...App.model.mountPoint(w, t, side, depth), mount: { wallId: w.id, t, side } };
   }
 
   /* ── 전기·설비 도구: 팔레트에서 고른 기호를 놓음. 전선관·배관·덕트를 고르면 선 그리기 ── */
@@ -785,7 +829,7 @@
       if (!pr || dragged(ev, pr)) return;
       const at = this.placeAt(ev);
       if (!at) return;
-      const it = App.model.TYPES.item.create(at, this.category, at.def, at.rotation);
+      const it = App.model.TYPES.item.create(at, this.category, at.def, at.rotation, at.mount || null);
       App.doc.transact(`${at.def.kind} 놓기`, () => App.doc.add(it));
       App.ui.toast(`${at.def.kind} 놓음`);
       if (!ev.touch) this.hover(ev);
@@ -1090,6 +1134,29 @@
       App.doc.transact('90도 돌리기', () => items.forEach((it) => App.doc.update(it.id, { rotation: (it.rotation + 90) % 360 })));
       return true;
     },
+    /** 고른 것들을 한 묶음으로: 하나를 누르면 다 같이 골라지고 함께 움직임 (Ctrl+G) */
+    groupSelection() {
+      const ids = App.selection.list().filter((id) => App.doc.has(id));
+      if (ids.length < 2) {
+        App.ui.toast('묶으려면 두 개 이상 고르세요.');
+        return false;
+      }
+      const group = `grp-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+      App.doc.transact('묶기', () => ids.forEach((id) => App.doc.update(id, { group })));
+      App.ui.toast(`${ids.length}개를 묶었습니다. 하나만 눌러도 함께 골라지고 함께 움직입니다.`);
+      return true;
+    },
+    /** 고른 것의 묶음을 풂 (Ctrl+Shift+G) */
+    ungroupSelection() {
+      const els = App.selection.list().map((id) => App.doc.get(id)).filter((e) => e && e.group);
+      if (!els.length) {
+        App.ui.toast('고른 것 중에 묶음이 없습니다.');
+        return false;
+      }
+      App.doc.transact('묶음 풀기', () => els.forEach((e) => App.doc.update(e.id, { group: null })));
+      App.ui.toast('묶음을 풀었습니다. 이제 하나씩 고를 수 있습니다.');
+      return true;
+    },
     /** 선택한 항목 삭제. 지운 개수를 돌려줌 */
     deleteSelection() {
       const ids = App.selection.list().filter((id) => App.doc.has(id));
@@ -1104,6 +1171,7 @@
   App.Selection = Selection;
   App.tools = tools;
   App.actions = actions;
+  App.withGroups = withGroups;
   App.locateOnWall = locateOnWall;
   App.textEditor = textEditor;
 })();

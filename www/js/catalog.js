@@ -31,29 +31,58 @@
     ['column', { name: '사각 기둥', shape: 'rect', width: 400, depth: 400 }],
     ['column', { name: '원형 기둥', shape: 'circle', width: 400, depth: 400 }],
     // 선 종류: size는 관·덕트 지름(폭). 덕트는 이 폭으로 그림
-    ['line', { name: '전선관 CD 16C', category: '전선관', color: '#e03131', size: 16 }],
-    ['line', { name: '전선관 CD 22C', category: '전선관', color: '#c2255c', size: 22 }],
-    ['line', { name: '급수 배관 15A', category: '배관', color: '#1c7ed6', size: 20 }],
-    ['line', { name: '배수 배관 50A', category: '배관', color: '#2f9e44', size: 60 }],
-    ['line', { name: '덕트 Ø100', category: '덕트', color: '#0c8599', size: 100 }],
-    ['line', { name: '덕트 Ø150', category: '덕트', color: '#0c8599', size: 150 }],
+    // runHeight: 배관이 지나가는 높이(mm, null이면 천장 속). 기구까지 오르내리는 수직 길이를 자동 계산할 때 씀
+    ['line', { name: '전선관 CD 16C', category: '전선관', color: '#e03131', size: 16, runHeight: null }],
+    ['line', { name: '전선관 CD 22C', category: '전선관', color: '#c2255c', size: 22, runHeight: null }],
+    ['line', { name: '급수 배관 15A', category: '배관', color: '#1c7ed6', size: 20, runHeight: 0 }],
+    ['line', { name: '배수 배관 50A', category: '배관', color: '#2f9e44', size: 60, runHeight: 0 }],
+    ['line', { name: '덕트 Ø100', category: '덕트', color: '#0c8599', size: 100, runHeight: null }],
+    ['line', { name: '덕트 Ø150', category: '덕트', color: '#0c8599', size: 150, runHeight: null }],
   ];
 
-  /* 전기·설비 아이템 종류. size: 기본 기호 폭(mm), aspect: 깊이/폭, wall: 벽 가까이 놓으면 벽면에 붙임.
+  /* 전기·설비 아이템 종류
+     size: 기본 기호 폭(mm), aspect: 깊이/폭, wall: 벽 가까이 놓으면 벽면에 붙고 벽을 따라감
+     height: 설치 높이(바닥에서 기구 가운데까지, mm). null이면 천장 (방의 천장 높이)
+     options: 고르는 값 (구수·형식 등), numbers: 숫자 값 (회로 수 등)
      line: 팔레트에서 고르면 선 그리기로 바뀌는 항목 (선 종류의 분류) */
+  const GANG = { label: '구수', values: ['1구', '2구', '3구', '4구'] };
   const ITEM_KINDS = {
     elec: [
-      { kind: '콘센트', size: 250, aspect: 1, wall: true },
-      { kind: '스위치', size: 200, aspect: 1, wall: true },
-      { kind: '조명', size: 400, aspect: 1 },
-      { kind: '분전반', size: 600, aspect: 0.5, wall: true },
+      {
+        kind: '콘센트', size: 250, aspect: 1, wall: true, height: 300,
+        options: { gang: { ...GANG, default: '2구' }, variant: { label: '형식', values: ['일반(접지)', '방수형', '전용', '바닥형'], default: '일반(접지)' } },
+      },
+      {
+        kind: '스위치', size: 200, aspect: 1, wall: true, height: 1200,
+        options: { gang: { ...GANG, default: '1구' }, variant: { label: '형식', values: ['일반', '3로(두 곳에서 켜기)', '디밍'], default: '일반' } },
+      },
+      {
+        kind: '조명', size: 400, aspect: 1, height: null,
+        options: { variant: { label: '형식', values: ['다운라이트', 'LED 평판등', '등기구', '간접등', '센서등'], default: '다운라이트' } },
+      },
+      {
+        kind: '분전반', size: 600, aspect: 0.5, wall: true, height: 1500,
+        numbers: { circuits: { label: '회로 수', unit: '회로', default: 12, min: 1, max: 200 } },
+      },
       { line: '전선관' },
     ],
     mech: [
-      { kind: '에어컨 실내기', size: 900, aspect: 0.3, wall: true },
-      { kind: '에어컨 실외기', size: 800, aspect: 0.45 },
-      { kind: '환기구', size: 250, aspect: 1 },
-      { kind: '배수구', size: 150, aspect: 1 },
+      {
+        kind: '에어컨 실내기', size: 900, aspect: 0.3, wall: true, height: 2100,
+        options: { variant: { label: '형식', values: ['벽걸이', '스탠드', '천장형'], default: '벽걸이' } },
+      },
+      {
+        kind: '에어컨 실외기', size: 800, aspect: 0.45, height: 0,
+        options: { variant: { label: '설치', values: ['바닥', '벽 거치대', '옥상'], default: '바닥' } },
+      },
+      {
+        kind: '환기구', size: 250, aspect: 1, height: null,
+        options: { variant: { label: '형식', values: ['천장형', '벽부형'], default: '천장형' } },
+      },
+      {
+        kind: '배수구', size: 150, aspect: 1, height: 0,
+        options: { variant: { label: '규격', values: ['50A', '75A', '100A'], default: '50A' } },
+      },
       { line: '배관' },
       { line: '덕트' },
     ],
@@ -67,6 +96,7 @@
   const FRAME_NAMES = { none: '없음', wood: '다루끼', metal: '경량 스터드' };
   const SHAPE_NAMES = { rect: '사각', circle: '원형' };
   const num = (v) => String(Number(v));
+  const G_dist = (a, b) => Math.hypot(b.x - a.x, b.y - a.y);
 
   const catalog = {
     FRAME_NAMES,
@@ -77,6 +107,19 @@
 
     itemDef(kind) {
       return [...ITEM_KINDS.elec, ...ITEM_KINDS.mech].find((d) => d.kind === kind) || null;
+    },
+    /** 종류의 기본 속성값 (설치 높이, 구수·형식, 회로 수) */
+    itemDefaults(def) {
+      const v = { height: def.height ?? null };
+      Object.entries(def.options || {}).forEach(([k, o]) => { v[k] = o.default; });
+      Object.entries(def.numbers || {}).forEach(([k, o]) => { v[k] = o.default; });
+      return v;
+    },
+    /** 집계용 이름: '콘센트 2구 · 일반(접지)', '분전반 12회로' */
+    itemLabel(it) {
+      const parts = [it.kind + (it.gang ? ` ${it.gang}` : '') + (it.circuits ? ` ${it.circuits}회로` : '')];
+      if (it.variant) parts.push(it.variant);
+      return parts.join(' · ');
     },
     /** 선 분류에 맞는 레이어: 전선관은 전기, 나머지는 설비 */
     lineLayer(category) {
@@ -136,7 +179,10 @@
       return parts.join(' · ');
     },
     describePreset(p) {
-      if (p.kind === 'line') return p.category === '덕트' ? `${p.category} · 폭 ${num(p.size)}` : `${p.category} · ${catalog.colorName(p.color)}`;
+      if (p.kind === 'line') {
+        const run = p.runHeight == null ? '천장' : p.runHeight === 0 ? '바닥' : `높이 ${num(p.runHeight)}`;
+        return `${p.category} · ${p.category === '덕트' ? `폭 ${num(p.size)}` : catalog.colorName(p.color)} · ${run}`;
+      }
       if (p.kind === 'column') {
         return p.shape === 'circle' ? `원형 Ø${num(p.width)}` : `사각 ${num(p.width)}×${num(p.depth)}`;
       }
@@ -169,17 +215,31 @@
       return types;
     },
 
-    /** 기록 직전 훅: 벽이 없어진 문·창문은 지우고, 벽 두께를 벽 종류에, 선 분류·레이어를 선 종류에 맞춤 (같은 실행 취소 단계) */
+    /** 기록 직전 훅: 벽이 없어진 문·창문은 지우고, 벽 두께를 벽 종류에, 선 분류·레이어를 선 종류에 맞추고,
+        벽에 붙은 기호를 벽 위치에 다시 맞춤 (같은 실행 취소 단계) */
     syncHook(tx) {
       const types = catalog.touchedTypes(tx);
       const walls = types.has('wall') || types.has('wallType');
       const lines = types.has('line') || types.has('preset');
-      if (!walls && !lines) return;
+      const items = walls || types.has('item');
+      if (!walls && !lines && !items) return;
       for (const el of [...App.doc.all()]) {
         if (walls && (el.type === 'door' || el.type === 'window') && !App.doc.has(el.wallId)) App.doc.remove(el.id);
         if (walls && el.type === 'wall') {
           const t = catalog.typeOf(el);
           if (t && el.thickness !== catalog.thickness(t)) App.doc.update(el.id, { thickness: catalog.thickness(t) });
+        }
+      }
+      for (const el of [...App.doc.all()]) {
+        if (items && el.type === 'item' && el.wallId) {
+          const w = App.doc.get(el.wallId);
+          if (!w || G_dist(w.start, w.end) < 1) {
+            App.doc.update(el.id, { wallId: null, t: null, side: null }); // 벽이 없어지면 그 자리에 남김
+          } else {
+            const def = catalog.itemDef(el.kind) || { aspect: 1 };
+            const m = App.model.mountPoint(w, el.t, el.side, el.size * def.aspect);
+            if (Math.abs(m.x - el.x) > 0.01 || Math.abs(m.y - el.y) > 0.01 || m.rotation !== el.rotation) App.doc.update(el.id, m);
+          }
         }
         if (lines && el.type === 'line') {
           const p = App.doc.get(el.presetId);
