@@ -14,6 +14,7 @@
     snapGrid: true,
     snapEnd: true,
     snapMid: true,
+    snapFace: true,       // 벽면·선 위
     ortho: true,          // 직교 고정. Shift를 누르는 동안 반대로
     stretchWalls: true,   // 벽을 옮길 때 이어진 벽도 같이 늘림 (끄면 고른 것만 이동)
     wallHeight: 2400,     // 새 벽 높이
@@ -93,6 +94,7 @@
   App.catalogUI.init();
   App.summary.init();
   App.underlay.init();
+  App.edit.init();
   App.settingsUI.init();
   App.textEditor.init();
   App.keys.init();

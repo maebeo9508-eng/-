@@ -17,7 +17,11 @@
   const render = () => App.plan.requestRender();
   const screenDist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
   const dragged = (ev, from) => screenDist(ev, from) >= (ev.touch ? DRAG_PX.touch : DRAG_PX.mouse);
-  const hitAt = (ev) => App.doc.hitTest(ev.world, (ev.touch ? HIT_PX.touch : HIT_PX.mouse) / App.plan.view.scale);
+  // 숨긴 레이어의 것은 누를 수 없음
+  const hitAt = (ev) => App.doc.hitTest(ev.world, (ev.touch ? HIT_PX.touch : HIT_PX.mouse) / App.plan.view.scale, (el) => App.layers.visible(el));
+  // 잠금: 움직이거나 지우지 못함 (가져온 도면의 '잠금'은 고르지 못하게 하는 것이라 따로)
+  const isLocked = (id) => { const el = App.doc.get(id); return !!(el && el.locked && el.type !== 'underlay'); };
+  const lockedHint = () => App.ui.hint('잠긴 항목입니다. 속성에서 ‘잠금’을 풀면 움직일 수 있습니다.', 3000);
 
   /* ── 선택 ── */
   class Selection {
@@ -98,7 +102,7 @@
     handleAt(ev) {
       if (App.selection.size !== 1) return null;
       const w = App.doc.get(App.selection.list()[0]);
-      if (!w || !HANDLED.has(w.type)) return null;
+      if (!w || !HANDLED.has(w.type) || w.locked) return null;
       const r = (ev.touch ? HANDLE_PX.touch : HANDLE_PX.mouse) / App.plan.view.scale;
       for (const end of ['start', 'end']) if (G.dist(ev.world, w[end]) <= r) return { id: w.id, end };
       return null;
@@ -116,9 +120,14 @@
         const hitEl = p.hit && App.doc.get(p.hit);
         const wallItem = hitEl && hitEl.type === 'item' && (App.catalog.itemDef(hitEl.kind) || {}).wall && !hitEl.group;
         if (p.handle) this.startStretch(p);
-        else if (hitEl && (hitEl.type === 'door' || hitEl.type === 'window') && !hitEl.group) this.startSlide(p, hitEl);
-        else if (wallItem && (!App.selection.has(hitEl.id) || App.selection.size === 1)) this.startRemount(p, hitEl);
-        else if (p.hit) this.startMove(p);
+        else if (hitEl && isLocked(hitEl.id) && !ev.alt && (!App.selection.has(hitEl.id) || App.selection.size === 1)) {
+          p.mode = 'locked'; // 잠긴 것을 끌면 움직이지 않고 알려 줌
+          App.selection.set(withGroups([hitEl.id]));
+          lockedHint();
+        }
+        else if (hitEl && (hitEl.type === 'door' || hitEl.type === 'window') && !hitEl.group && !ev.alt) this.startSlide(p, hitEl);
+        else if (wallItem && !ev.alt && (!App.selection.has(hitEl.id) || App.selection.size === 1)) this.startRemount(p, hitEl);
+        else if (p.hit) this.startMove(p, ev);
         else p.mode = 'box';
       }
       if (p.mode === 'move') this.updateMove(p, ev);
@@ -145,24 +154,36 @@
         App.doc.commit();
       } else if (p.mode === 'box') {
         const crossing = ev.x < p.ev.x; // 오른쪽에서 왼쪽으로 끌면 걸친 것도 선택
-        const ids = withGroups(App.doc.inRect(G.rectFromPoints(p.ev.world, ev.world), crossing));
+        const ids = withGroups(App.doc.inRect(G.rectFromPoints(p.ev.world, ev.world), crossing).filter((id) => App.layers.visible(App.doc.get(id))));
         p.ev.shift || ev.shift ? sel.add(ids) : sel.set(ids);
       }
       if (!ev.touch) this.hover(ev);
       render();
     }
 
-    startMove(p) {
+    startMove(p, ev) {
       const sel = App.selection;
       if (!sel.has(p.hit)) sel.set(withGroups([p.hit]));
       p.mode = 'move';
-      // 방을 옮기면 그 방을 둘러싼 벽도 함께
+      let label = '이동';
+      // Alt를 누르고 끌면 복제해서 옮김 (원본은 제자리)
+      if (ev && ev.alt) {
+        const copies = App.edit.clones(App.edit.expand(sel.list()), 0, 0);
+        if (copies.length) {
+          App.doc.begin('복제');
+          copies.forEach((c) => App.doc.add(c));
+          sel.set(copies.map((c) => c.id).filter((id) => App.doc.has(id)));
+          label = null;
+        }
+      }
+      // 방을 옮기면 그 방을 둘러싼 벽도 함께. 잠긴 것은 빼고
       const ids = new Set(sel.list());
       sel.list().forEach((id) => {
         const el = App.doc.get(id);
         if (el && el.type === 'room') el.wallIds.forEach((w) => App.doc.has(w) && ids.add(w));
       });
-      p.ids = [...ids];
+      p.ids = [...ids].filter((id) => !isLocked(id));
+      if (p.ids.length < ids.size) lockedHint();
       p.orig = new Map(p.ids.map((id) => [id, App.model.clone(App.doc.get(id))]));
       // '늘리기': 옮기는 벽에 붙은 다른 벽의 끝도 같이 움직여 모서리가 떨어지지 않게
       p.attached = App.settings.stretchWalls ? attachedEnds([...p.orig.values()].filter((e) => STRETCHY.has(e.type)), new Set(p.ids)) : [];
@@ -172,7 +193,7 @@
         const t = App.model.TYPES[el.type];
         if (t && t.snapPoints) t.snapPoints(el).forEach((q) => q.kind === 'end' && p.points.push(q));
       });
-      App.doc.begin('이동');
+      if (label) App.doc.begin(label);
       // 벽에 붙은 기호를 그 벽 없이 옮기면 벽에서 뗌 (벽도 함께 옮기면 붙은 채로 따라감)
       p.orig.forEach((el, id) => {
         if (el.type === 'item' && el.wallId && !p.orig.has(el.wallId)) {
@@ -205,7 +226,7 @@
       p.followers = [];
       if (App.settings.stretchWalls) {
         for (const el of App.doc.all()) {
-          if (el.type !== w.type || !STRETCHY.has(el.type) || el.id === w.id) continue;
+          if (el.type !== w.type || !STRETCHY.has(el.type) || el.id === w.id || el.locked) continue;
           ['start', 'end'].forEach((end) => G.samePoint(el[end], from, 1) && p.followers.push({ id: el.id, end }));
         }
       }
@@ -218,6 +239,7 @@
         ortho: App.settings.ortho !== !!ev.shift,
         touch: ev.touch,
         exclude: p.exclude,
+        center: App.doc.get(p.handle.id).type === 'wall',
       });
       if (G.samePoint(target, p.fixed, 1)) return; // 길이 0은 막음
       p.target = target;
@@ -304,7 +326,7 @@
   function attachedEnds(moving, movingIds) {
     const found = [];
     for (const el of App.doc.all()) {
-      if (!STRETCHY.has(el.type) || movingIds.has(el.id)) continue;
+      if (!STRETCHY.has(el.type) || movingIds.has(el.id) || el.locked) continue;
       const same = moving.filter((m) => m.type === el.type);
       ['start', 'end'].forEach((end) => {
         const pt = el[end];
@@ -351,6 +373,7 @@
         from,
         ortho: !!from && App.settings.ortho !== !!ev.shift, // Shift는 직교를 잠깐 반대로
         touch: ev.touch,
+        center: !!this.cfg.snapCenter,
         extra: this.chain ? [{ ...this.chain.points[0], kind: 'end' }] : [],
       });
     }
@@ -477,6 +500,7 @@
   };
   const wallChain = () => new ChainTool({
     label: '벽',
+    snapCenter: true, // 다른 벽에 붙일 때는 중심선에 (T자로 이어져 방이 닫히게)
     create: (a, b) => App.model.TYPES.wall.create(a, b),
     preview: (plan, a, b) => App.draw.previewWall(plan, a, b, currentWallThickness()),
   });
@@ -524,6 +548,11 @@
     }
     collect(ev) {
       const id = hitAt(ev);
+      if (id && isLocked(id)) {
+        if (!this.press.warned) lockedHint();
+        this.press.warned = true;
+        return;
+      }
       if (id && !this.press.ids.has(id)) {
         this.press.ids.add(id);
         render();
@@ -1134,12 +1163,9 @@
       App.selection.prune();
       if (entry) App.ui.toast(`다시 실행: ${entry.label}`);
     },
-    /** 고른 아이템을 90도씩 돌림 (Q) */
+    /** 고른 것을 90도씩 돌림 (Q) */
     rotateSelection() {
-      const items = App.selection.list().map((id) => App.doc.get(id)).filter((e) => e && e.type === 'item');
-      if (!items.length) return false;
-      App.doc.transact('90도 돌리기', () => items.forEach((it) => App.doc.update(it.id, { rotation: (it.rotation + 90) % 360 })));
-      return true;
+      return App.edit.rotate();
     },
     /** 고른 것들을 한 묶음으로: 하나를 누르면 다 같이 골라지고 함께 움직임 (Ctrl+G) */
     groupSelection() {
@@ -1166,11 +1192,15 @@
     },
     /** 선택한 항목 삭제. 지운 개수를 돌려줌 */
     deleteSelection() {
-      const ids = App.selection.list().filter((id) => App.doc.has(id));
-      if (!ids.length) return 0;
+      const all = App.selection.list().filter((id) => App.doc.has(id));
+      const ids = all.filter((id) => !isLocked(id));
+      if (!ids.length) {
+        if (all.length) App.ui.toast('잠긴 항목은 지우지 않습니다. 속성에서 잠금을 풀고 지우세요.');
+        return 0;
+      }
       removeElements(ids, '삭제');
       App.selection.clear();
-      App.ui.toast(`${ids.length}개 항목을 지웠습니다.`);
+      App.ui.toast(`${ids.length}개 항목을 지웠습니다.${all.length > ids.length ? ` 잠긴 ${all.length - ids.length}개는 남겼습니다.` : ''}`);
       return ids.length;
     },
   };

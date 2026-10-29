@@ -200,6 +200,30 @@
       return [];
     },
     /** p에서 r(mm) 안의 꼭짓점 (도면 좌표) */
+    /** p에서 r(mm) 안에 걸칠 수 있는 선분들 [ax, ay, bx, by] (도면 좌표). 선 위 스냅용 */
+    segmentsNear(u, p, r) {
+      const d = store.get(u.dataId);
+      if (!d || !u.visible) return [];
+      const f = frame(u);
+      const l = toLocal(u, p.x, p.y, f);
+      const rl = r / f.k;
+      const box = { minX: l.x - rl, minY: l.y - rl, maxX: l.x + rl, maxY: l.y + rl };
+      const out = [];
+      for (const c of d.chunks) {
+        if (!G.rectsOverlap(c.box, box)) continue;
+        for (const i of c.ids) {
+          const pl = d.polys[i];
+          for (let k = 0; k + 3 < pl.length; k += 2) {
+            const ax = pl[k], ay = pl[k + 1], bx = pl[k + 2], by = pl[k + 3];
+            if (Math.min(ax, bx) > box.maxX || Math.max(ax, bx) < box.minX || Math.min(ay, by) > box.maxY || Math.max(ay, by) < box.minY) continue;
+            const a = toWorld(u, ax, ay, f), b = toWorld(u, bx, by, f);
+            out.push([a.x, a.y, b.x, b.y]);
+            if (out.length > 400) return out; // 너무 많으면 이만큼만
+          }
+        }
+      }
+      return out;
+    },
     snapNear(u, p, r) {
       const d = store.get(u.dataId);
       if (!d || !u.visible) return [];

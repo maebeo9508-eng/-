@@ -233,10 +233,36 @@
     return `<div class="group-row"><button type="button" class="btn" data-act="group" title="Ctrl+G">묶기 (함께 선택·이동)</button></div>`;
   }
 
+  /** 복제·돌리기·정렬·잠금 (휴대폰에서도 단축키 없이) */
+  function editRow() {
+    const locked = els.every((e) => e.locked);
+    const align = els.length >= 2 ? `
+      <div class="field-group-label">정렬</div>
+      <div class="align-row">
+        <button type="button" class="btn" data-align="left">왼쪽</button>
+        <button type="button" class="btn" data-align="hcenter">가로 가운데</button>
+        <button type="button" class="btn" data-align="right">오른쪽</button>
+        <button type="button" class="btn" data-align="top">위</button>
+        <button type="button" class="btn" data-align="vcenter">세로 가운데</button>
+        <button type="button" class="btn" data-align="bottom">아래</button>
+      </div>` : '';
+    return `
+      <div class="btn-row">
+        <button type="button" class="btn" data-act="duplicate" title="Ctrl+D">복제</button>
+        <button type="button" class="btn" data-act="rotate-any" title="Q">90° 돌리기</button>
+      </div>
+      ${align}
+      <label class="check-row" for="f-lock">
+        <input type="checkbox" id="f-lock" ${locked ? 'checked' : ''}>
+        <span><b>잠금</b><small>고를 수는 있지만 움직이거나 지워지지 않습니다.</small></span>
+      </label>`;
+  }
+
   function commonFields(single) {
     const layer = commonText((e) => e.layer) || '';
     const memo = commonText((e) => e.memo);
     return `
+      ${editRow()}
       ${groupRow()}
       ${selectField('f-layer', '레이어', App.model.LAYERS.map((l) => [l.id, l.label]), layer || null)}
       <div class="field">
@@ -553,6 +579,7 @@
         </div>` : ''}
       <div class="field-grid">${numberField('size')}</div>
       <p class="props-meta">도면에서 고른 글자를 한 번 더 누르면 그 자리에서 고칠 수 있습니다.</p>
+      ${editRow()}
       ${groupRow()}
       ${selectField('f-layer', '레이어', App.model.LAYERS.map((l) => [l.id, l.label]), commonText((e) => e.layer))}
       ${deleteButton('텍스트')}`;
@@ -569,6 +596,7 @@
         ${numberField('offset')}
       </div>
       <p class="props-meta">치수선 띄우기는 잰 선에서 치수선을 옆으로 옮기는 거리입니다 (반대쪽은 음수).</p>
+      ${editRow()}
       ${groupRow()}
       ${selectField('f-layer', '레이어', App.model.LAYERS.map((l) => [l.id, l.label]), commonText((e) => e.layer))}
       ${deleteButton('치수')}`;
@@ -760,6 +788,10 @@
         apply('메모 수정', () => ({ memo: t.value }));
         return;
       }
+      if (id === 'f-lock') {
+        App.edit.setLocked(els.map((e) => e.id), t.checked);
+        return;
+      }
       if (id === 'f-visible' || id === 'f-locked') {
         const key = id === 'f-visible' ? 'visible' : 'locked';
         apply(key === 'visible' ? (t.checked ? '밑그림 보이기' : '밑그림 숨기기') : (t.checked ? '밑그림 잠금' : '밑그림 잠금 풀기'), () => ({ [key]: t.checked }));
@@ -909,6 +941,11 @@
     });
 
     pane.addEventListener('click', (e) => {
+      const al = e.target.closest('[data-align]');
+      if (al) {
+        App.edit.align(al.dataset.align);
+        return;
+      }
       const act = e.target.closest('[data-act]');
       if (!act) return;
       switch (act.dataset.act) {
@@ -922,6 +959,8 @@
         case 'detach': apply('벽에서 떼기', (it) => (it.wallId ? { wallId: null, t: null, side: null } : {})); break;
         case 'group': App.actions.groupSelection(); break;
         case 'calibrate': App.underlay.calibrate(els[0].id); break;
+        case 'duplicate': App.edit.duplicate(); break;
+        case 'rotate-any': App.edit.rotate(); break;
         case 'select-underlay': App.selection.set([act.dataset.id]); break;
         case 'fit-underlay': {
           const b = App.doc.bounds(els.map((e) => e.id));

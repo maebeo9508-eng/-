@@ -102,7 +102,7 @@
     const walls = [], rooms = [], openings = [], columns = [], zones = [], lines = [], items = [], texts = [], dims = [], underlays = [];
     for (const el of App.doc.all()) {
       const t = App.model.TYPES[el.type];
-      if (!t || t.catalog) continue;
+      if (!t || t.catalog || !App.layers.visible(el)) continue; // 숨긴 레이어
       const b = t.bounds(el);
       if (!b || !G.rectsOverlap(b, vis)) continue;
       if (el.type === 'wall') walls.push(el);
@@ -172,7 +172,7 @@
     ctx.strokeStyle = c.accent;
     ctx.lineWidth = sel.size === 1 ? 2 : 1.5;
     const handled = [...selectedWalls, ...lines.filter((l) => sel.has(l.id)), ...dims.filter((d) => sel.has(d.id))];
-    handled.forEach((w) => {
+    handled.filter((w) => !w.locked).forEach((w) => {
       [w.start, w.end].forEach((p) => {
         const s = plan.view.toScreen(p.x, p.y);
         ctx.fillRect(s.x - handle, s.y - handle, handle * 2, handle * 2);
@@ -180,6 +180,31 @@
       });
     });
     drawGroupBoxes(plan);
+    drawLockBadges(plan);
+  }
+
+  /** 고른 것 중 잠긴 것: 오른쪽 위에 자물쇠 */
+  function drawLockBadges(plan) {
+    const ctx = plan.ctx;
+    App.selection.list().forEach((id) => {
+      const el = App.doc.get(id);
+      if (!el || !el.locked || el.type === 'underlay') return;
+      const b = App.model.TYPES[el.type].bounds(el);
+      if (!b) return;
+      const s = plan.view.toScreen(b.maxX, b.minY);
+      const x = s.x + 4, y = s.y - 20;
+      ctx.fillStyle = plan.colors.accent;
+      ctx.beginPath();
+      ctx.arc(x + 8, y + 8, 10, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = plan.colors.accentFg;
+      ctx.fillStyle = plan.colors.accentFg;
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.arc(x + 8, y + 6, 2.6, Math.PI, 0);
+      ctx.stroke();
+      ctx.fillRect(x + 4.5, y + 6.5, 7, 5.5);
+    });
   }
 
   /** 고른 묶음 둘레에 점선 상자: 하나씩이 아니라 묶음으로 골라졌다는 표시 */
@@ -965,6 +990,13 @@
       ctx.moveTo(s.x, s.y - 7);
       ctx.lineTo(s.x + 7, s.y + 5);
       ctx.lineTo(s.x - 7, s.y + 5);
+      ctx.closePath();
+    } else if (p.kind === 'near') {
+      // 선 위: 모래시계 (CAD의 '근처점' 표시)
+      ctx.moveTo(s.x - 6, s.y - 6);
+      ctx.lineTo(s.x + 6, s.y - 6);
+      ctx.lineTo(s.x - 6, s.y + 6);
+      ctx.lineTo(s.x + 6, s.y + 6);
       ctx.closePath();
     } else {
       ctx.moveTo(s.x - 5, s.y);

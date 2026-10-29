@@ -26,6 +26,7 @@
 <script src="js/catalog-ui.js" defer></script>
 <script src="js/export.js" defer></script>
 <script src="js/summary.js" defer></script>
+<script src="js/edit.js" defer></script>
 <script src="js/settings.js" defer></script>
 <script src="js/projects.js" defer></script>
 <script src="js/keys.js" defer></script>
@@ -55,6 +56,8 @@
         <button type="button" class="menu-item" role="menuitem" id="menuCsv">집계표 CSV (엑셀)</button>
         <button type="button" class="menu-item" role="menuitem" disabled>도면 PNG<span class="menu-tag">11단계</span></button>
         <button type="button" class="menu-item" role="menuitem" disabled>도면+집계표 PDF<span class="menu-tag">11단계</span></button>
+        <div class="menu-sep" role="separator"></div>
+        <button type="button" class="menu-item" role="menuitem" id="menuShortcuts">단축키 보기 <kbd>?</kbd></button>
       </div>
     </div>
 
@@ -68,6 +71,8 @@
 
     <span class="tb-spacer"></span>
 
+    <button type="button" class="tb-btn" id="btnSearch" title="찾기 (Ctrl+F)" aria-label="찾기"><span class="ico" data-icon="search"></span></button>
+
     <button type="button" class="tb-btn tb-chip pc-only" id="btnUnits" title="단위 설정"><span class="ico" data-icon="ruler"></span><span id="unitLabel">mm · ㎡</span></button>
     <button type="button" class="tb-btn" id="btnSettings" aria-label="설정"><span class="ico" data-icon="gear"></span><span class="pc-only">설정</span></button>
   </header>
@@ -79,12 +84,21 @@
       <canvas class="plan" id="plan" aria-label="도면"></canvas>
 
       <div class="stage-top" id="stageTop">
+      <div class="stage-row">
       <div class="snapbar" id="snapbar" role="group" aria-label="그리기 보조">
         <button type="button" class="snap-btn" data-snap="snapGrid" aria-pressed="true" title="격자 스냅">격자</button>
         <button type="button" class="snap-btn" data-snap="snapEnd" aria-pressed="true" title="끝점 스냅">끝점</button>
         <button type="button" class="snap-btn" data-snap="snapMid" aria-pressed="true" title="중간점 스냅">중간점</button>
+        <button type="button" class="snap-btn" data-snap="snapFace" aria-pressed="true" title="벽면·선 위 스냅 (벽 그릴 때는 중심선)">벽면</button>
         <button type="button" class="snap-btn" data-snap="ortho" aria-pressed="true" title="직교 고정 (Shift로 잠깐 전환)">직교</button>
         <button type="button" class="snap-btn" data-snap="stretchWalls" data-only="select" aria-pressed="true" title="벽을 옮기거나 끝을 끌 때 이어진 벽도 같이 늘리기 (끄면 고른 벽만 이동)">늘리기</button>
+      </div>
+      <div class="menu-wrap layer-wrap">
+        <button type="button" class="stage-pill" id="btnLayers" aria-label="레이어" aria-haspopup="menu" aria-expanded="false" aria-controls="layerMenu" title="레이어 보이기·숨기기">
+          <span class="ico ico-sm" data-icon="layers"></span><span class="pill-label">레이어</span><span id="layerCount"></span>
+        </button>
+        <div class="menu layer-menu" id="layerMenu" role="menu" hidden></div>
+      </div>
       </div>
       <div class="palette" id="palette" role="toolbar" aria-label="기호 고르기" hidden></div>
       <div class="menu-wrap tool-opt-wrap">

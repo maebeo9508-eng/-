@@ -29,7 +29,9 @@
 
   /** 도면 전체를 세어 기록 목록으로: { sec, group, key, room(id 또는 null), qty } */
   function compute() {
-    const all = [...App.doc.all()];
+    // 설정에 따라 숨긴 레이어의 것은 집계에서 뺌
+    const exclude = App.layers.excludeHidden();
+    const all = [...App.doc.all()].filter((e) => !exclude || App.layers.visible(e));
     const of = (t) => all.filter((e) => e.type === t);
     const M = App.measure;
     const rooms = of('room').map((r) => ({ id: r.id, name: r.name || '이름 없음', issue: r.issue, points: r.points, box: bbox(r.points), q: M.room(r) }));
@@ -58,6 +60,7 @@
     const walls = of('wall');
     const wallQ = walls.map((w) => M.wall(w));
     return {
+      excluded: exclude ? App.layers.hidden().map((id) => (App.layers.list().find((l) => l.id === id) || {}).label).filter(Boolean) : [],
       rooms,
       records,
       arch: {
@@ -258,6 +261,7 @@
         </div>
         <button type="button" class="btn" data-act="csv" ${blocks.length ? '' : 'disabled'} title="엑셀에서 열 수 있는 CSV 파일로 저장">CSV</button>
       </div>
+      ${s.excluded.length ? `<p class="dialog-note is-warn">숨긴 레이어(${esc(s.excluded.join(', '))})는 집계에서 뺐습니다. 위쪽 ‘레이어’에서 바꿀 수 있습니다.</p>` : ''}
       ${blocks.map(blockHtml).join('') || `
         <div class="empty">
           <div class="empty-title">집계할 항목 없음</div>
@@ -301,10 +305,12 @@
       if (pane.hidden) dirty = true; // 안 보일 때는 탭을 열 때 계산
       else render();
     });
-    App.ui.on('settings', () => {
+    const again = () => {
       if (pane.hidden) dirty = true;
       else render();
-    });
+    };
+    App.ui.on('settings', again);
+    App.ui.on('layers', again);
     App.ui.on('tab', (id) => {
       if (id === 'tab-summary' && dirty) {
         render();

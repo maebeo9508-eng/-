@@ -148,6 +148,7 @@
     }
     showName();
     App.ui.updateHistory();
+    App.ui.emit('project');
     setState('saved');
     const missing = await App.underlay.loadAll();
     if (missing) App.ui.toast(`가져온 도면 ${missing}개의 밑그림 데이터를 이 기기에서 찾지 못했습니다. 지우고 다시 불러오세요.`);

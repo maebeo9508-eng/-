@@ -1,11 +1,43 @@
-/* 스냅: 끝점 > 중간점 > (직교) > 격자 순으로 붙인다.
-   끝점·중간점이 가까우면 직교보다 우선 (CAD와 같음) */
+/* 스냅: 끝점 > 중간점 > 벽면·선 위 > (직교) > 격자 순으로 붙인다.
+   끝점·중간점이 가까우면 직교보다 우선 (CAD와 같음).
+   벽면·선 위: 벽을 그릴 때는 벽 중심선(T자로 이어져 방이 닫히게), 다른 도구는 벽의 양쪽 면(안목 치수),
+   그리고 배관·전선관 선과 가져온 도면의 선. 직교 중이면 직교 방향 선과 만나는 점 */
 (function () {
   'use strict';
   const App = (window.App = window.App || {});
 
   const RADIUS_PX = { mouse: 12, touch: 24 };
   const roundTo = (v, step) => Math.round(v / step) * step;
+  const visible = (el) => !App.layers || App.layers.visible(el);
+
+  /** 스냅 대상 선분들: [ax, ay, bx, by] (도면 좌표). p 둘레 r 안에 걸칠 수 있는 것만 */
+  function segmentsNear(p, r, opts) {
+    const out = [];
+    const near = (ax, ay, bx, by) => {
+      if (Math.min(ax, bx) - r > p.x || Math.max(ax, bx) + r < p.x || Math.min(ay, by) - r > p.y || Math.max(ay, by) + r < p.y) return;
+      out.push([ax, ay, bx, by]);
+    };
+    for (const el of App.doc.all()) {
+      if ((opts.exclude && opts.exclude.has(el.id)) || !visible(el)) continue;
+      if (el.type === 'wall') {
+        const L = Math.hypot(el.end.x - el.start.x, el.end.y - el.start.y);
+        if (L < 1) continue;
+        if (opts.center) {
+          near(el.start.x, el.start.y, el.end.x, el.end.y);
+        } else {
+          const nx = -(el.end.y - el.start.y) / L * (el.thickness / 2), ny = (el.end.x - el.start.x) / L * (el.thickness / 2);
+          near(el.start.x + nx, el.start.y + ny, el.end.x + nx, el.end.y + ny);
+          near(el.start.x - nx, el.start.y - ny, el.end.x - nx, el.end.y - ny);
+        }
+      } else if (el.type === 'line') {
+        near(el.start.x, el.start.y, el.end.x, el.end.y);
+      } else {
+        const t = App.model.TYPES[el.type];
+        if (t && t.segmentsNear) t.segmentsNear(el, p, r).forEach((sg) => near(...sg));
+      }
+    }
+    return out;
+  }
 
   const snap = {
     /** 스냅이 잡히는 거리(mm). 화면에서 일정한 픽셀 크기 */
@@ -34,13 +66,18 @@
           }
         };
         for (const el of App.doc.all()) {
-          if (opts.exclude && opts.exclude.has(el.id)) continue;
+          if ((opts.exclude && opts.exclude.has(el.id)) || !visible(el)) continue;
           const t = App.model.TYPES[el.type];
           if (t && t.snapPoints) t.snapPoints(el).forEach(consider);
           if (t && t.snapNear && s.snapEnd) t.snapNear(el, raw, r).forEach(consider); // 가져온 도면: 가까운 꼭짓점만 찾아 봄
         }
         (opts.extra || []).forEach(consider);
         if (best) return { x: best.x, y: best.y, kind: best.kind };
+      }
+
+      if (s.snapFace) {
+        const n = snap.near(raw, r, opts);
+        if (n) return n;
       }
 
       const g = s.gridSize;
@@ -58,6 +95,49 @@
       return { x: raw.x, y: raw.y, kind: null };
     },
 
+    /** 벽면·선 위의 가장 가까운 점. 직교 중이면(opts.ortho, opts.from) 직교 방향 선과 만나는 점 */
+    near(raw, r, opts = {}) {
+      const segs = segmentsNear(raw, r, opts);
+      if (!segs.length) return null;
+      let best = null, bestD = r;
+      const f = opts.ortho && opts.from ? opts.from : null;
+      const horizontal = f && Math.abs(raw.x - f.x) >= Math.abs(raw.y - f.y);
+      for (const [ax, ay, bx, by] of segs) {
+        const dx = bx - ax, dy = by - ay;
+        let x, y;
+        if (f) {
+          // 직교선(가로면 y = f.y, 세로면 x = f.x)과 선분이 만나는 점
+          const den = horizontal ? dy : dx;
+          if (Math.abs(den) < 1e-9) continue;
+          const t = horizontal ? (f.y - ay) / dy : (f.x - ax) / dx;
+          if (t < 0 || t > 1) continue;
+          x = ax + dx * t;
+          y = ay + dy * t;
+        } else if (Math.abs(dy) < 1e-9 || Math.abs(dx) < 1e-9) {
+          // 가로·세로 선: 선의 좌표는 그대로 두고 선을 따라서는 격자에 (T자 이음이 딱 떨어지게)
+          const g = App.settings.snapGrid ? App.settings.gridSize : 0;
+          const along = (v, a, b) => {
+            const lo = Math.min(a, b), hi = Math.max(a, b);
+            const r2 = g ? Math.round(v / g) * g : v;
+            return Math.max(lo, Math.min(hi, r2 >= lo && r2 <= hi ? r2 : v));
+          };
+          if (Math.abs(dy) < 1e-9) { x = along(raw.x, ax, bx); y = ay; }
+          else { x = ax; y = along(raw.y, ay, by); }
+        } else {
+          const len2 = dx * dx + dy * dy;
+          const t = len2 ? Math.max(0, Math.min(1, ((raw.x - ax) * dx + (raw.y - ay) * dy) / len2)) : 0;
+          x = ax + dx * t;
+          y = ay + dy * t;
+        }
+        const d = Math.hypot(x - raw.x, y - raw.y);
+        if (d <= bestD) {
+          bestD = d;
+          best = { x, y, kind: 'near' };
+        }
+      }
+      return best;
+    },
+
     /** 이동할 때: 움직이는 요소의 끝점이 다른 요소 끝점에 닿으면 맞춰 줌 */
     moveDelta(dx, dy, movingPoints, exclude, touch) {
       const s = App.settings;
@@ -65,7 +145,7 @@
         const r = snap.radius(touch);
         let best = null, bestD = Infinity;
         for (const el of App.doc.all()) {
-          if (exclude.has(el.id)) continue;
+          if (exclude.has(el.id) || !visible(el)) continue;
           const t = App.model.TYPES[el.type];
           if (t && t.snapNear) {
             movingPoints.slice(0, 200).forEach((p) => {

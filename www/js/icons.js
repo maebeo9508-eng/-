@@ -125,6 +125,30 @@
       stroke(c, [9, 20, 4, 20, 4, 15], 2);
       c.globalAlpha = 0.35; c.fillRect(8.5, 8.5, 7, 7); c.globalAlpha = 1;
     },
+    search(c) {
+      c.lineWidth = 2.2;
+      c.beginPath();
+      c.arc(10.5, 10.5, 6, 0, Math.PI * 2);
+      c.stroke();
+      c.lineWidth = 2.6;
+      stroke(c, [15, 15, 20.5, 20.5], 2.6);
+    },
+    layers(c) {
+      c.lineWidth = 1.8;
+      c.lineJoin = 'round';
+      path(c, [12, 4, 21, 8.5, 12, 13, 3, 8.5]);
+      c.globalAlpha = 0.25; c.fill(); c.globalAlpha = 1;
+      c.stroke();
+      stroke(c, [3, 12.5, 12, 17, 21, 12.5], 1.8);
+      stroke(c, [3, 16.5, 12, 21, 21, 16.5], 1.8);
+    },
+    lock(c) {
+      c.lineWidth = 2;
+      c.beginPath();
+      c.arc(12, 9.5, 4.2, Math.PI, 0);
+      c.stroke();
+      c.fillRect(6, 10, 12, 10);
+    },
     gear(c) {
       const teeth = 8, ro = 10, ri = 7.4;
       c.beginPath();

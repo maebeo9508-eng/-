@@ -651,5 +651,5 @@
     }
   }
 
-  App.model = { DATA_VERSION, LAYERS, TYPES, Doc, clone, openingGeom, openingCorners, mountPoint };
+  App.model = { DATA_VERSION, LAYERS, TYPES, Doc, clone, newId, openingGeom, openingCorners, mountPoint };
 })();

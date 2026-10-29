@@ -102,6 +102,7 @@
         ${toggle('snapGrid', '격자에 붙기')}
         ${toggle('snapEnd', '끝점에 붙기', '벽·선 끝, 기호 가운데, 가져온 도면의 꼭짓점')}
         ${toggle('snapMid', '중간점에 붙기')}
+        ${toggle('snapFace', '벽면·선 위에 붙기', '벽을 그릴 때는 벽 중심선, 치수·선은 벽의 면, 배관과 가져온 도면의 선 위')}
         ${toggle('ortho', '직교 (가로·세로로만)', 'Shift를 누르는 동안은 반대로')}
         ${toggle('stretchWalls', '벽을 옮길 때 이어진 벽도 늘리기')}
       </section>
