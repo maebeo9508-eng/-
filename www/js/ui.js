@@ -89,6 +89,7 @@
     setTool(id);
     if (USAGE[id]) hint(isTouch() ? USAGE[id].touch : USAGE[id].pc, 4000);
     else if (!App.tools.implemented(id)) hint(`‘${t.label}’ 도구는 ${t.stage}단계에서 만듭니다.`);
+    else $('#toolHint').classList.remove('is-show'); // 이전 도구 안내가 남지 않게
   }
 
   function setTool(id) {
@@ -154,12 +155,21 @@
     bar.addEventListener('click', (e) => {
       const b = e.target.closest('[data-snap]');
       if (!b) return;
-      App.settings[b.dataset.snap] = !App.settings[b.dataset.snap];
+      const key = b.dataset.snap;
+      App.settings[key] = !App.settings[key];
       sync();
+      if (key === 'stretchWalls') {
+        toast(App.settings[key] ? '벽을 옮기면 이어진 벽도 같이 늘어납니다.' : '고른 벽만 옮깁니다. 이어진 벽은 그대로 둡니다.');
+      }
       App.nav.refreshTool(false);
       App.plan.requestRender();
     });
     sync();
+
+    // 특정 도구에서만 의미 있는 버튼 (예: '늘리기'는 선택 도구에서만)
+    ui.on('tool', (id) => bar.querySelectorAll('[data-only]').forEach((b) => {
+      b.hidden = b.dataset.only !== id;
+    }));
 
     $('#btnFinish').addEventListener('click', () => App.tools.finish());
     ui.on('toolstate', (tool) => {

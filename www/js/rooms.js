@@ -148,19 +148,19 @@
     return `방 ${n + 1}`;
   }
 
-  /** 벽이 바뀌었을 때 방의 새 경계: seed를 둘러싼 가장 작은 면. 원래 벽과 하나도 안 겹치면 다른 곳이므로 null */
-  function matchFace(room, all) {
+  /** 방 안쪽 기준점(seed)을 둘러싼 가장 작은 면. 원래 벽과 하나도 안 겹치면 다른 곳이므로 null */
+  function seedFace(room, all, old) {
     let face = null;
     all.forEach((f) => {
       if (G.pointInPolygon(room.seed, f.points) && (!face || f.area < face.area)) face = f;
     });
-    if (!face) return null;
-    const old = new Set(room.wallIds);
-    if (old.size && !face.wallIds.some((id) => old.has(id))) return null;
+    if (!face || (old.size && !face.wallIds.some((id) => old.has(id)))) return null;
     return face;
   }
 
-  /** 기록 직전 훅: 벽이 바뀐 변경이면 모든 방의 경계를 다시 맞춤 (같은 실행 취소 단계에 들어감) */
+  /** 기록 직전 훅: 벽이 바뀐 변경이면 모든 방의 경계를 다시 맞춤 (같은 실행 취소 단계에 들어감)
+      1차: 기준점이 들어 있는 면. 2차: 방이 줄어 기준점이 밖으로 나간 경우, 아무 방도 차지하지 않았고
+      예전 모양 안에 있으면서 원래 벽을 공유하는 면 */
   function syncRooms(tx) {
     let wallsChanged = false;
     for (const [id, before] of tx.before) {
@@ -174,14 +174,43 @@
     const rooms = [...App.doc.all()].filter((e) => e.type === 'room');
     if (!rooms.length) return;
     const all = faces();
-    const used = new Set();
+    const claimed = new Set();
+    const result = new Map(); // 방 id → 면 | 'overlap'
+    const olds = new Map(rooms.map((r) => [r.id, new Set(r.wallIds)]));
+
     rooms.forEach((r) => {
-      const f = matchFace(r, all);
+      const f = seedFace(r, all, olds.get(r.id));
+      if (!f) return;
+      if (claimed.has(f)) result.set(r.id, 'overlap');
+      else {
+        claimed.add(f);
+        result.set(r.id, f);
+      }
+    });
+    rooms.forEach((r) => {
+      if (result.has(r.id)) return;
+      const old = olds.get(r.id);
+      let best = null, bestN = 0;
+      all.forEach((f) => {
+        if (claimed.has(f) || !G.pointInPolygon(G.interiorPoint(f.points), r.points)) return;
+        const n = f.wallIds.reduce((k, id) => k + (old.has(id) ? 1 : 0), 0);
+        if (n > bestN) {
+          best = f;
+          bestN = n;
+        }
+      });
+      if (best) {
+        claimed.add(best);
+        result.set(r.id, best);
+      }
+    });
+
+    rooms.forEach((r) => {
+      const f = result.get(r.id);
       let patch;
       if (!f) patch = { issue: 'open' };
-      else if (used.has(f)) patch = { issue: 'overlap' };
+      else if (f === 'overlap') patch = { issue: 'overlap' };
       else {
-        used.add(f);
         patch = {
           points: f.points,
           wallIds: f.wallIds,

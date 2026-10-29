@@ -121,16 +121,17 @@
     screenTransform(plan);
     drawWallLabels(plan, visibleWalls);
     drawRoomLabels(plan, visibleRooms);
-    // 선택한 벽의 끝점 표시
+    // 선택한 벽의 끝점. 벽 하나만 골랐으면 끌어서 늘일 수 있는 손잡이로 크게
+    const handle = sel.size === 1 ? 5.5 : 3.5;
     ctx.fillStyle = c.canvasBg;
     ctx.strokeStyle = c.accent;
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = sel.size === 1 ? 2 : 1.5;
     visibleWalls.forEach((w) => {
       if (!sel.has(w.id)) return;
       [w.start, w.end].forEach((p) => {
         const s = plan.view.toScreen(p.x, p.y);
-        ctx.fillRect(s.x - 3.5, s.y - 3.5, 7, 7);
-        ctx.strokeRect(s.x - 3.5, s.y - 3.5, 7, 7);
+        ctx.fillRect(s.x - handle, s.y - handle, handle * 2, handle * 2);
+        ctx.strokeRect(s.x - handle, s.y - handle, handle * 2, handle * 2);
       });
     });
   }

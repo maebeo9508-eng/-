@@ -9,6 +9,8 @@
   const DRAG_PX = { mouse: 4, touch: 8 };     // 이만큼 움직여야 끌기로 봄
   const HIT_PX = { mouse: 6, touch: 14 };     // 요소를 누른 것으로 보는 여유
   const DOUBLE_CLICK_MS = 350;
+  const HANDLE_PX = { mouse: 10, touch: 22 }; // 벽 끝 손잡이를 잡는 범위
+  const LIVE_ROOM_SYNC_MAX_WALLS = 400;       // 이보다 벽이 많으면 끄는 동안 방 경계를 다시 계산하지 않음
 
   const render = () => App.plan.requestRender();
   const screenDist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -73,8 +75,18 @@
         render();
       }
     }
+    /** 벽 하나만 골랐을 때 그 벽의 양 끝 손잡이 */
+    handleAt(ev) {
+      if (App.selection.size !== 1) return null;
+      const w = App.doc.get(App.selection.list()[0]);
+      if (!w || w.type !== 'wall') return null;
+      const r = (ev.touch ? HANDLE_PX.touch : HANDLE_PX.mouse) / App.plan.view.scale;
+      for (const end of ['start', 'end']) if (G.dist(ev.world, w[end]) <= r) return { id: w.id, end };
+      return null;
+    }
     down(ev) {
-      this.press = { ev, hit: hitAt(ev), mode: null };
+      const handle = this.handleAt(ev);
+      this.press = { ev, handle, hit: handle ? null : hitAt(ev), mode: null };
       this.hoverId = null;
     }
     move(ev) {
@@ -82,10 +94,12 @@
       if (!p) return this.hover(ev);
       if (!p.mode) {
         if (!dragged(ev, p.ev)) return;
-        if (p.hit) this.startMove(p);
+        if (p.handle) this.startStretch(p);
+        else if (p.hit) this.startMove(p);
         else p.mode = 'box';
       }
       if (p.mode === 'move') this.updateMove(p, ev);
+      else if (p.mode === 'stretch') this.updateStretch(p, ev);
       else p.cur = ev;
       render();
     }
@@ -95,9 +109,10 @@
       if (!p) return;
       const sel = App.selection;
       if (!p.mode) {
-        if (p.hit) ev.shift ? sel.toggle(p.hit) : sel.set([p.hit]);
+        if (p.handle) { /* 손잡이를 누르기만 함: 선택 그대로 */ }
+        else if (p.hit) ev.shift ? sel.toggle(p.hit) : sel.set([p.hit]);
         else if (!ev.shift) sel.clear();
-      } else if (p.mode === 'move') {
+      } else if (p.mode === 'move' || p.mode === 'stretch') {
         App.doc.commit();
       } else if (p.mode === 'box') {
         const crossing = ev.x < p.ev.x; // 오른쪽에서 왼쪽으로 끌면 걸친 것도 선택
@@ -107,6 +122,7 @@
       if (!ev.touch) this.hover(ev);
       render();
     }
+
     startMove(p) {
       const sel = App.selection;
       if (!sel.has(p.hit)) sel.set([p.hit]);
@@ -119,7 +135,9 @@
       });
       p.ids = [...ids];
       p.orig = new Map(p.ids.map((id) => [id, App.model.clone(App.doc.get(id))]));
-      p.exclude = new Set(p.ids);
+      // '늘리기': 옮기는 벽에 붙은 다른 벽의 끝도 같이 움직여 모서리가 떨어지지 않게
+      p.attached = App.settings.stretchWalls ? attachedEnds([...p.orig.values()].filter((e) => e.type === 'wall'), new Set(p.ids)) : [];
+      p.exclude = new Set([...p.ids, ...p.attached.map((a) => a.id)]);
       p.points = [];
       p.orig.forEach((el) => {
         const t = App.model.TYPES[el.type];
@@ -136,12 +154,46 @@
       if (lockY) dy = 0;
       const s = App.snap.moveDelta(dx, dy, p.points, p.exclude, ev.touch);
       p.snap = s;
-      p.orig.forEach((el, id) => {
-        App.doc.update(id, App.model.TYPES[el.type].movedBy(el, lockX ? 0 : s.dx, lockY ? 0 : s.dy));
-      });
+      const mx = lockX ? 0 : s.dx, my = lockY ? 0 : s.dy;
+      p.orig.forEach((el, id) => App.doc.update(id, App.model.TYPES[el.type].movedBy(el, mx, my)));
+      p.attached.forEach((a) => App.doc.update(a.id, { [a.end]: { x: a.x + mx, y: a.y + my } }));
+      syncRoomsLive();
     }
+
+    /** 벽 끝 손잡이 끌기: 벽 길이·방향 바꾸기. '늘리기'면 같은 점에 붙은 벽 끝도 따라옴 */
+    startStretch(p) {
+      p.mode = 'stretch';
+      const w = App.doc.get(p.handle.id);
+      p.fixed = { ...w[p.handle.end === 'start' ? 'end' : 'start'] };
+      const from = w[p.handle.end];
+      p.followers = [];
+      if (App.settings.stretchWalls) {
+        for (const el of App.doc.all()) {
+          if (el.type !== 'wall' || el.id === w.id) continue;
+          ['start', 'end'].forEach((end) => G.samePoint(el[end], from, 1) && p.followers.push({ id: el.id, end }));
+        }
+      }
+      p.exclude = new Set([w.id, ...p.followers.map((f) => f.id)]);
+      App.doc.begin('벽 늘이기');
+    }
+    updateStretch(p, ev) {
+      const target = App.snap.point(ev.world, {
+        from: p.fixed,
+        ortho: App.settings.ortho !== !!ev.shift,
+        touch: ev.touch,
+        exclude: p.exclude,
+      });
+      if (G.samePoint(target, p.fixed, 1)) return; // 길이 0은 막음
+      p.target = target;
+      p.lastEv = ev;
+      const pt = { x: target.x, y: target.y };
+      App.doc.update(p.handle.id, { [p.handle.end]: pt });
+      p.followers.forEach((f) => App.doc.update(f.id, { [f.end]: pt }));
+      syncRoomsLive();
+    }
+
     cancel() {
-      if (this.press && this.press.mode === 'move') App.doc.rollback();
+      if (this.press && (this.press.mode === 'move' || this.press.mode === 'stretch')) App.doc.rollback();
       this.press = null;
       render();
     }
@@ -164,7 +216,31 @@
       if (!p) return;
       if (p.mode === 'box' && p.cur) App.draw.selectionBox(plan, p.ev, p.cur, p.cur.x < p.ev.x);
       if (p.mode === 'move' && p.snap && p.snap.kind === 'end') App.draw.snapMarker(plan, { ...p.snap.at, kind: 'end' });
+      if (p.mode === 'stretch' && p.target) {
+        App.draw.snapMarker(plan, p.target);
+        App.draw.lengthTag(plan, p.fixed, p.target, p.lastEv && p.lastEv.touch);
+      }
     }
+  }
+
+  /** 옮기는 벽 위(끝이나 중간)에 닿아 있는, 옮기지 않는 벽의 끝 */
+  function attachedEnds(movingWalls, movingIds) {
+    const found = [];
+    for (const el of App.doc.all()) {
+      if (el.type !== 'wall' || movingIds.has(el.id)) continue;
+      ['start', 'end'].forEach((end) => {
+        const pt = el[end];
+        if (movingWalls.some((m) => G.closestOnSegment(pt, m.start, m.end).dist < 1)) found.push({ id: el.id, end, x: pt.x, y: pt.y });
+      });
+    }
+    return found;
+  }
+
+  /** 끄는 동안에도 방 경계를 따라 맞춤 (도면이 크면 손을 뗄 때만) */
+  function syncRoomsLive() {
+    let walls = 0;
+    for (const el of App.doc.all()) if (el.type === 'wall' && ++walls > LIVE_ROOM_SYNC_MAX_WALLS) return;
+    if (App.doc.tx) App.rooms.syncRooms(App.doc.tx);
   }
 
   /* ── 벽 도구 ──

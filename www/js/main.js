@@ -14,6 +14,7 @@
     snapEnd: true,
     snapMid: true,
     ortho: true,          // 직교 고정. Shift를 누르는 동안 반대로
+    stretchWalls: true,   // 벽을 옮길 때 이어진 벽도 같이 늘림 (끄면 고른 것만 이동)
     wallThickness: 100,
     wallHeight: 2400,
   };

@@ -31,6 +31,8 @@
         this.tool('hover', null);
       });
       el.addEventListener('wheel', (e) => this.wheel(e), { passive: false });
+      // 빠르게 그은 뒤 바로 누른 도구 버튼이 무시되지 않게 브라우저 자체 제스처(관성 스크롤)를 막음
+      el.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
       el.addEventListener('contextmenu', (e) => e.preventDefault());
       window.addEventListener('keydown', (e) => this.key(e, true));
       window.addEventListener('keyup', (e) => this.key(e, false));

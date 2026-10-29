@@ -286,7 +286,6 @@ button { font: inherit; color: inherit; }
   min-height: 36px;
   padding: 0 12px;
   border: 0;
-  border-right: 1px solid var(--line);
   background: transparent;
   font-size: 13px;
   font-weight: 600;
@@ -294,7 +293,7 @@ button { font: inherit; color: inherit; }
   cursor: pointer;
   touch-action: manipulation;
 }
-.snap-btn:last-child { border-right: 0; }
+.snap-btn + .snap-btn { border-left: 1px solid var(--line); }
 .snap-btn[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
 .snap-btn:focus-visible { outline-offset: -2px; }
 
