@@ -709,6 +709,14 @@ button { font: inherit; color: inherit; }
 .field-label output { float: right; font-weight: 600; color: var(--fg); }
 .btn-primary { background: var(--accent); border: 1px solid var(--accent); color: var(--accent-fg); }
 .btn-primary:hover { background: var(--accent); filter: brightness(1.08); }
+/* 설정 화면 */
+.set-sec { display: grid; gap: 10px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+.set-sec:last-child { border-bottom: none; }
+.set-title { margin: 4px 0 0; font-size: 15px; }
+.seg-inline { display: flex; flex-wrap: wrap; gap: 6px; }
+.seg-inline .seg-btn { flex: 1 1 0; min-width: 64px; padding: 0 8px; }
+.seg-btn[aria-checked="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+.set-preview { margin: 0; padding: 10px 12px; border-radius: 8px; background: var(--surface-2); font-size: 13px; font-variant-numeric: tabular-nums; }
 .modal-dialog { z-index: 70; }
 .busy { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 24px; background: rgba(10, 15, 20, 0.35); }
 .busy-card {

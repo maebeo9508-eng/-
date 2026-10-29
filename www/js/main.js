@@ -3,11 +3,12 @@
   'use strict';
   const App = window.App;
 
-  // 7단계에서 설정 화면과 저장 기능으로 옮김
-  App.settings = {
+  // 설정 기본값. 설정 화면(settings.js)에서 고치고 기기에 저장되어 다음 실행 때도 유지
+  App.DEFAULT_SETTINGS = {
     lengthUnit: 'mm',
     areaUnit: '㎡',
     decimals: 0,
+    runUnit: 'm',         // 배관·전선관 길이: 'm' 고정 또는 'unit' 길이 단위 따름
     gridSize: 100,
     showGrid: true,
     snapGrid: true,
@@ -15,9 +16,22 @@
     snapMid: true,
     ortho: true,          // 직교 고정. Shift를 누르는 동안 반대로
     stretchWalls: true,   // 벽을 옮길 때 이어진 벽도 같이 늘림 (끄면 고른 것만 이동)
-    wallHeight: 2400,
+    wallHeight: 2400,     // 새 벽 높이
+    ceilingHeight: 2400,  // 새 방 천장 높이
     dimTextSize: 150,     // 치수 글자 크기(mm). 화면에서는 11px보다 작아지지 않음
+    theme: 'light',       // light | dark | auto(기기 설정 따라)
   };
+  App.SETTING_CHOICES = {
+    lengthUnit: ['mm', 'cm', 'm', 'ft'],
+    areaUnit: ['㎡', '평', 'ft²'],
+    decimals: [0, 1, 2, 3],
+    runUnit: ['m', 'unit'],
+    theme: ['light', 'dark', 'auto'],
+  };
+  App.settings = App.storage.loadSettings(App.DEFAULT_SETTINGS, App.SETTING_CHOICES);
+  App.saveSettings = () => App.storage.saveSettings(App.settings);
+  App.settingsUI.applyTheme(); // 캔버스가 색을 읽기 전에
+
   // 그린 것이 없을 때 '화면 맞춤' 범위(mm): 10m × 8m
   App.DEFAULT_VIEW_RECT = { minX: 0, minY: 0, maxX: 10000, maxY: 8000 };
 
@@ -42,6 +56,7 @@
   const scaleBar = document.getElementById('scaleBar');
   const scaleLabel = document.getElementById('scaleLabel');
   let lastScale = 0;
+  App.ui.on('settings', () => { lastScale = 0; }); // 단위가 바뀌면 축척 글자도 다시
   plan.onRender(() => {
     const scale = plan.view.scale;
     if (scale === lastScale) return;
@@ -78,6 +93,7 @@
   App.catalogUI.init();
   App.summary.init();
   App.underlay.init();
+  App.settingsUI.init();
   App.textEditor.init();
   App.keys.init();
   App.ui.updateHistory();

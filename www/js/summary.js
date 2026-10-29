@@ -77,11 +77,14 @@
   /* ── 값: 화면 글자와 CSV 숫자·단위 ── */
   const V = {
     count: (n, unit = '개') => ({ text: `${n.toLocaleString('ko-KR')}${unit}`, num: n, unit }),
-    meters: (mm) => ({ text: App.measure.meters(mm), num: Number((mm / 1000).toFixed(1)), unit: 'm' }),
+    run: (mm) => {
+      const [n, unit] = App.units.runValue(mm);
+      return { text: App.units.formatRun(mm), num: n, unit };
+    },
     area: (mm2) => ({ text: App.units.formatArea(mm2), num: App.units.areaValue(mm2), unit: App.units.areaLabel() }),
     length: (mm) => ({ text: App.units.formatLength(mm), num: App.units.lengthValue(mm), unit: App.units.lengthLabel() }),
   };
-  const secValue = (sec, qty) => (sec.unit === 'm' ? V.meters(qty) : V.count(qty));
+  const secValue = (sec, qty) => (sec.unit === 'm' ? V.run(qty) : V.count(qty));
 
   /** 같은 열쇠끼리 수량을 더함 (처음 나온 순서 유지) */
   function sumBy(list, keyOf) {
@@ -296,6 +299,10 @@
     const pane = document.getElementById('pane-summary');
     App.doc.onChange(() => {
       if (pane.hidden) dirty = true; // 안 보일 때는 탭을 열 때 계산
+      else render();
+    });
+    App.ui.on('settings', () => {
+      if (pane.hidden) dirty = true;
       else render();
     });
     App.ui.on('tab', (id) => {

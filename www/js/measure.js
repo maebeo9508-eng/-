@@ -56,6 +56,18 @@
       return withUnit ? `${s} ${unit().label}` : s;
     },
 
+    /** 배관·전선관 길이 표시: 설정에 따라 m(소수 1자리) 또는 길이 단위 */
+    formatRun(mm) {
+      if (App.settings.runUnit !== 'unit') {
+        return `${(mm / 1000).toLocaleString('ko-KR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}m`;
+      }
+      return units.formatLength(mm);
+    },
+    /** 표 내보내기용 배관 길이: [숫자, 단위] */
+    runValue(mm) {
+      return App.settings.runUnit !== 'unit' ? [Number((mm / 1000).toFixed(1)), 'm'] : [units.lengthValue(mm), unit().label];
+    },
+
     /** 면적(mm²) 표시 */
     formatArea(mm2, withUnit = true) {
       const s = fixed(mm2 / areaUnit().factor);

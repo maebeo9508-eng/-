@@ -7,6 +7,7 @@
 <title>현장 도면·물량</title>
 <link rel="stylesheet" href="css/style.css">
 <script src="js/icons.js" defer></script>
+<script src="js/storage.js" defer></script>
 <script src="js/geom.js" defer></script>
 <script src="js/measure.js" defer></script>
 <script src="js/model.js" defer></script>
@@ -25,6 +26,7 @@
 <script src="js/catalog-ui.js" defer></script>
 <script src="js/export.js" defer></script>
 <script src="js/summary.js" defer></script>
+<script src="js/settings.js" defer></script>
 <script src="js/keys.js" defer></script>
 <script src="js/main.js" defer></script>
 </head>
@@ -143,6 +145,16 @@
         <button type="button" class="seg-btn" role="tab" data-kind="line" aria-selected="false">선</button>
       </div>
       <div class="modal-body" id="catalogBody"></div>
+    </div>
+  </div>
+
+  <div class="modal" id="settingsModal" hidden>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+      <header class="modal-head">
+        <h2 class="modal-title" id="settingsTitle">설정</h2>
+        <button type="button" class="tb-btn" id="settingsClose">닫기</button>
+      </header>
+      <div class="modal-body" id="settingsBody"></div>
     </div>
   </div>
 

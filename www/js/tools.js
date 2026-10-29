@@ -590,7 +590,10 @@
       const created = App.model.TYPES.room.create(face.points, face.wallIds, App.rooms.nextName());
       // 둘러싼 벽 높이가 모두 같으면 그 값을 방의 벽 높이로
       const heights = new Set(face.wallIds.map((id) => App.doc.get(id).height));
-      if (heights.size === 1) created.wallHeight = created.ceilingHeight = [...heights][0];
+      if (heights.size === 1) {
+        created.wallHeight = [...heights][0];
+        created.ceilingHeight = Math.min(App.settings.ceilingHeight, created.wallHeight); // 천장은 벽보다 높을 수 없음
+      }
       App.doc.transact('방 만들기', () => App.doc.add(created));
       App.selection.set([created.id]);
       App.ui.toast(`${created.name}: 바닥 ${App.units.formatArea(face.area)}`);

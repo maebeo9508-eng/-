@@ -156,8 +156,8 @@
     item('#menuCsv', () => App.summary.exportCsv());
     $('#btnUndo').addEventListener('click', () => App.actions.undo());
     $('#btnRedo').addEventListener('click', () => App.actions.redo());
-    $('#btnSettings').addEventListener('click', () => toast('설정 화면은 7단계에서 만듭니다.'));
-    $('#btnUnits').addEventListener('click', () => toast('단위 설정은 7단계에서 만듭니다.'));
+    $('#btnSettings').addEventListener('click', () => App.settingsUI.open());
+    $('#btnUnits').addEventListener('click', () => App.settingsUI.open('units'));
   }
 
   function updateHistory() {
@@ -176,6 +176,7 @@
       if (!b) return;
       const key = b.dataset.snap;
       App.settings[key] = !App.settings[key];
+      App.saveSettings();
       sync();
       if (key === 'stretchWalls') {
         toast(App.settings[key] ? '벽을 옮기면 이어진 벽도 같이 늘어납니다.' : '고른 벽만 옮깁니다. 이어진 벽은 그대로 둡니다.');
@@ -184,6 +185,7 @@
       App.plan.requestRender();
     });
     sync();
+    ui.on('settings', sync); // 설정 화면에서 바꾼 것도 반영
 
     // 특정 도구에서만 의미 있는 버튼 (예: '늘리기'는 선택 도구에서만)
     ui.on('tool', (id) => bar.querySelectorAll('[data-only]').forEach((b) => {
@@ -333,6 +335,7 @@
       if (e.key === 'Escape') closeToolMenu();
     });
     ui.on('tool', updateToolOption);
+    ui.on('settings', updateToolOption);
     App.doc.onChange(updateToolOption);
 
     // 캔버스 위쪽 버튼 묶음 높이: 안내 문구와 '화면 맞춤'이 그 아래를 쓰도록

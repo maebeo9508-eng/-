@@ -495,11 +495,12 @@
       g.extra += q.extra;
       groups.set(key, g);
     });
-    const breakdown = (g) => [`평면 ${M.meters(g.plan)}`, g.auto ? `기구 수직 ${M.meters(g.auto)}` : '', g.extra ? `추가 ${M.meters(g.extra)}` : '']
+    const run = U.formatRun;
+    const breakdown = (g) => [`평면 ${run(g.plan)}`, g.auto ? `기구 수직 ${run(g.auto)}` : '', g.extra ? `추가 ${run(g.extra)}` : '']
       .filter(Boolean).join(' + ');
-    const rows = [...groups.entries()].map(([name, g]) => stat(name, M.meters(g.plan + g.auto + g.extra), breakdown(g))).join('');
+    const rows = [...groups.entries()].map(([name, g]) => stat(name, run(g.plan + g.auto + g.extra), breakdown(g))).join('');
     // 선 하나: 끝마다 어느 기구까지 얼마나 오르내리는지
-    const ends = single ? M.line(els[0]).ends.map((e) => stat(`${e.item.kind} 수직`, M.meters(e.drop),
+    const ends = single ? M.line(els[0]).ends.map((e) => stat(`${e.item.kind} 수직`, run(e.drop),
       `${e.run === 0 ? '바닥' : `배관 ${U.formatLength(e.run)}`} ↔ 기구 ${U.formatLength(e.height)}`)).join('') : '';
     return `
       ${head('선', single ? (App.doc.get(els[0].presetId) || {}).name || els[0].category : `${els.length}개 선택`)}
