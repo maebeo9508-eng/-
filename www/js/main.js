@@ -19,7 +19,7 @@
     stretchWalls: true,   // 벽을 옮길 때 이어진 벽도 같이 늘림 (끄면 고른 것만 이동)
     wallHeight: 2400,     // 새 벽 높이
     ceilingHeight: 2400,  // 새 방 천장 높이
-    dimTextSize: 150,     // 치수 글자 크기(mm). 화면에서는 11px보다 작아지지 않음
+    dimTextSize: 150,     // 치수 글자 크기(mm). 화면에서는 11~22px 안에서
     theme: 'light',       // light | dark | auto(기기 설정 따라)
   };
   App.SETTING_CHOICES = {

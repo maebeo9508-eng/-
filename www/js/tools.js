@@ -683,7 +683,7 @@
     const cursorAt = best.r.t * L;
     let c = cursorAt;
     if (App.settings.snapGrid) {
-      const g = App.settings.gridSize;
+      const g = App.snap.step();
       c = Math.round((c - width / 2) / g) * g + width / 2;
     }
     c = G.clamp(c, width / 2, L - width / 2);
@@ -828,7 +828,7 @@
     const side = (ev.world.x - r.point.x) * n.x + (ev.world.y - r.point.y) * n.y >= 0 ? 1 : -1;
     const L = G.dist(w.start, w.end);
     let along = r.t * L;
-    if (App.settings.snapGrid) along = G.clamp(Math.round(along / App.settings.gridSize) * App.settings.gridSize, 0, L);
+    if (App.settings.snapGrid) along = G.clamp(Math.round(along / App.snap.step()) * App.snap.step(), 0, L);
     const t = along / L;
     return { ...App.model.mountPoint(w, t, side, depth), mount: { wallId: w.id, t, side } };
   }

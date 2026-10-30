@@ -6,7 +6,7 @@
   const $ = (sel) => document.querySelector(sel);
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-  const APP_VERSION = '1.0.0'; // sw.js의 VERSION과 같이 올림
+  const APP_VERSION = '1.0.1'; // sw.js의 VERSION과 같이 올림
   const LENGTHS = {
     gridSize: { label: '격자 간격', min: 1, max: 10000 },
     dimTextSize: { label: '치수 글자 크기', min: 10, max: 5000 },
@@ -94,13 +94,13 @@
         ${choice('theme', '색', [['light', '밝게'], ['dark', '어둡게'], ['auto', '기기 설정 따라']], '현장에서 밝은 햇빛 아래는 ‘밝게’, 실내·밤에는 ‘어둡게’가 눈이 덜 부십니다.')}
         ${toggle('showGrid', '격자 보이기')}
         <div class="field-grid">${length('gridSize')}${length('dimTextSize')}</div>
-        <p class="props-meta">치수 글자는 확대·축소해도 화면에서 11px보다 작아지지 않습니다.</p>
+        <p class="props-meta">격자는 확대할수록 잘게 나뉘어 가장 크게 확대하면 5mm 단위로 맞출 수 있습니다. 정확한 길이는 숫자로 입력하세요. 치수 글자는 화면에서 너무 작거나 커지지 않게 맞춥니다.</p>
       </section>
 
       <section class="set-sec">
         <h3 class="set-title">스냅 (도면 위쪽 버튼과 같음)</h3>
         ${toggle('snapGrid', '격자에 붙기')}
-        ${toggle('snapEnd', '끝점에 붙기', '벽·선 끝, 기호 가운데, 가져온 도면의 꼭짓점')}
+        ${toggle('snapEnd', '끝점에 붙기', '벽·선 끝, 벽 모서리, 기호 가운데, 가져온 도면의 꼭짓점')}
         ${toggle('snapMid', '중간점에 붙기')}
         ${toggle('snapFace', '벽면·선 위에 붙기', '벽을 그릴 때는 벽 중심선, 치수·선은 벽의 면, 배관과 가져온 도면의 선 위')}
         ${toggle('ortho', '직교 (가로·세로로만)', 'Shift를 누르는 동안은 반대로')}

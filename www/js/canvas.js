@@ -189,9 +189,9 @@
       for (const fn of this._renderHooks) fn(this);
     }
 
-    /** 지금 배율에서 그릴 격자 간격(mm). 너무 촘촘하면 10배씩 넓힌다. 스냅 간격은 설정값 그대로 */
+    /** 지금 배율에서 그릴 격자 간격(mm). 확대하면 붙는 간격과 같이 잘게, 너무 촘촘하면 10배씩 넓힌다 */
     gridStep() {
-      let step = App.settings.gridSize;
+      let step = App.snap ? App.snap.step(this.view.scale) : App.settings.gridSize;
       while (step * this.view.scale < GRID_MIN_PX) step *= 10;
       return step;
     }

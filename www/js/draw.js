@@ -8,59 +8,16 @@
   const TAG_FONT = '600 13px system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif';
   const ROOM_NAME_FONT = '700 13px system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif';
   const ROOM_AREA_FONT = '12px system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif';
-  const MITER_LIMIT = 5; // 모서리가 두께의 5배보다 길게 뾰족해지면 맞춤 생략
+  const DIM_TEXT_MAX_PX = 22;
 
-  /* ── 벽 외곽선: 두 벽만 만나는 모서리는 비스듬히 잘라 이음매 없이 ── */
+  /* ── 벽 외곽선: 이음 모양(T자는 상대 벽 면에서 끊고, ㄱ자는 비스듬히)은 joins.js에서 정함 ── */
   let outlineCache = { version: -1, map: new Map() };
-
-  const key = (p) => `${Math.round(p.x)},${Math.round(p.y)}`;
 
   function wallOutlines() {
     const doc = App.doc;
     if (outlineCache.version === doc.version) return outlineCache.map;
-    const walls = [];
-    const ends = new Map(); // 끝점 위치 → 그 점에 닿는 벽들
-    for (const el of doc.all()) {
-      if (el.type !== 'wall') continue;
-      walls.push(el);
-      for (const at of ['start', 'end']) {
-        const k = key(el[at]);
-        if (!ends.has(k)) ends.set(k, []);
-        ends.get(k).push({ wall: el, at });
-      }
-    }
     const map = new Map();
-    for (const w of walls) {
-      const d = G.unit({ x: w.end.x - w.start.x, y: w.end.y - w.start.y });
-      const h = w.thickness / 2;
-      // 끝점 P에서 벽이 뻗어 나가는 방향(away) 기준으로 양쪽 면의 모서리를 구함
-      const corners = (P, away) => {
-        const na = G.perp(away);
-        const plus = { x: P.x + na.x * h, y: P.y + na.y * h };
-        const minus = { x: P.x - na.x * h, y: P.y - na.y * h };
-        const others = ends.get(key(P)).filter((o) => o.wall !== w);
-        const joined = others.length > 0;
-        if (others.length !== 1) return { plus, minus, joined };
-        const o = others[0].wall;
-        const oFrom = others[0].at === 'start' ? o.start : o.end;
-        const oTo = others[0].at === 'start' ? o.end : o.start;
-        const e = G.unit({ x: oTo.x - oFrom.x, y: oTo.y - oFrom.y });
-        if (Math.abs(G.cross(away, e)) < 0.02) return { plus, minus, joined }; // 일직선
-        const m = G.perp(e);
-        const k = o.thickness / 2;
-        // 이 벽의 +na 면은 상대 벽의 -m 면과, -na 면은 +m 면과 만난다
-        const p2 = G.lineIntersect(plus, away, { x: P.x - m.x * k, y: P.y - m.y * k }, e);
-        const m2 = G.lineIntersect(minus, away, { x: P.x + m.x * k, y: P.y + m.y * k }, e);
-        const limit = MITER_LIMIT * Math.max(h, k);
-        if (!p2 || !m2 || G.dist(p2, P) > limit || G.dist(m2, P) > limit) return { plus, minus, joined };
-        return { plus: p2, minus: m2, joined };
-      };
-      const s = corners(w.start, d);                 // 시작점: +na가 벽의 왼쪽
-      const t = corners(w.end, { x: -d.x, y: -d.y }); // 끝점: +na가 벽의 오른쪽
-      // 모든 벽이 같은 방향으로 감기도록 (겹치는 부분이 비지 않게): 왼쪽 시작→끝, 오른쪽 끝→시작
-      // joined: 그 끝에 다른 벽이 붙어 있으면 끝선을 그리지 않음
-      map.set(w.id, { pts: [s.plus, t.minus, t.plus, s.minus], joined: [s.joined, t.joined] });
-    }
+    for (const el of doc.all()) if (el.type === 'wall') map.set(el.id, App.joins.outline(el));
     outlineCache = { version: doc.version, map };
     return map;
   }
@@ -286,13 +243,11 @@
     if (frame) {
       const wood = t.frameKind === 'wood';
       layer(pos, pos + frame, wood ? c.layerWood : c.layerMetal);
-      // 세로재 단면: 간격마다 작은 네모 (다루끼는 채움, 스터드는 테두리)
+      // 세로재 단면: 물량과 같은 자리에 작은 네모 (다루끼는 채움, 스터드는 테두리). 다른 벽 안으로는 안 들어감
       const sw = wood ? Math.min(frame, 45) : 50;
-      const count = Math.ceil(L / t.frameSpacing - 1e-9) + 1;
       const o1 = T / 2 - pos, o2 = T / 2 - pos - frame;
       ctx.lineWidth = 1.2 * px;
-      for (let i = 0; i < count; i++) {
-        const sc = G.clamp(Math.min(i * t.frameSpacing, L), sw / 2, Math.max(sw / 2, L - sw / 2));
+      for (const sc of App.joins.frame(w, t, sw).studs) {
         const pts = [at(sc - sw / 2, o1), at(sc + sw / 2, o1), at(sc + sw / 2, o2), at(sc - sw / 2, o2)];
         ctx.beginPath();
         polygon(ctx, pts);
@@ -746,8 +701,8 @@
       ctx.lineTo(p.x + tx, p.y + ty);
     });
     ctx.stroke();
-    // 글자
-    const size = Math.max(App.settings.dimTextSize * view.scale, 11);
+    // 글자: 도면 크기(mm)를 따르되 화면에서 11~22px (크게 확대해도 글자가 화면을 덮지 않게)
+    const size = G.clamp(App.settings.dimTextSize * view.scale, 11, DIM_TEXT_MAX_PX);
     const value = d.manual != null ? d.manual : g.length;
     const text = App.units.formatLength(value);
     let ang = Math.atan2(b.y - a.y, b.x - a.x);

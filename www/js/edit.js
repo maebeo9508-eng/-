@@ -115,7 +115,7 @@
     return out.sort((a, b) => (order[a.type] ?? 3) - (order[b.type] ?? 3));
   }
 
-  const snapStep = (v) => (App.settings.snapGrid ? Math.round(v / App.settings.gridSize) * App.settings.gridSize : v);
+  const snapStep = (v) => (App.settings.snapGrid ? Math.round(v / App.snap.step()) * App.snap.step() : v);
 
   function copy(cut = false) {
     const ids = App.selection.list();

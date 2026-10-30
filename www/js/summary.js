@@ -66,6 +66,7 @@
       arch: {
         walls: walls.length,
         wallLength: wallQ.reduce((s, q) => s + q.length, 0),
+        wallOverlap: wallQ.reduce((s, q) => s + q.overlap, 0),
         wallArea: wallQ.reduce((s, q) => s + q.area, 0),
         floor: rooms.reduce((s, r) => s + r.q.floor, 0),
         ceiling: rooms.reduce((s, r) => s + r.q.ceiling, 0),
@@ -134,7 +135,7 @@
     const a = s.arch;
     const arch = [];
     if (a.walls) {
-      arch.push(row('벽 길이 합계', V.length(a.wallLength), `벽 ${a.walls}개`));
+      arch.push(row('벽 길이 합계', V.length(a.wallLength), `벽 ${a.walls}개${a.wallOverlap > 0.5 ? ` · 맞닿은 부분 ${App.units.formatLength(a.wallOverlap)} 뺌` : ''}`));
       arch.push(row('벽 면적 합계 (한 면)', V.area(a.wallArea), '문·창문 뺌'));
     }
     if (s.rooms.length) {

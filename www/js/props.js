@@ -320,6 +320,7 @@
       </div>
       <div class="stats">
         ${stat('두께', thickness === null ? '여러 값' : App.units.formatLength(thickness), '벽 종류에서 정해짐')}
+        ${single && qs[0].overlap > 0.5 ? stat('실제 길이', App.units.formatLength(qs[0].length), `붙은 벽 안으로 들어간 ${App.units.formatLength(qs[0].overlap)} 뺌 · 물량 기준`) : ''}
         ${stat(single ? '벽 면적 (한 면)' : '벽 면적 합계 (한 면)', App.units.formatArea(area), openings ? `문·창문 ${openings}개 뺌` : '')}
         ${single ? stat('방', roomsOfWall(els[0].id)) : ''}
       </div>

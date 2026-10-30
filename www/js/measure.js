@@ -92,11 +92,15 @@
 
   /* ── 물량 계산 ──
      벽 하나: 길이 L, 높이 H, 한 면 면적 = L × H − 문·창문 면적
-     틀(벽 종류에 틀이 있을 때): 세로재 = (L ÷ 세로 간격 올림 + 1)개 × H
-                                 가로재 = (위·아래 2줄 + 중간 줄) × L, 중간 줄 = H ÷ 가로 간격 올림 − 1
+       L은 실제 길이: T자로 다른 벽에 붙은 끝은 그 벽 면까지 (겹치는 두께의 반을 뺌, joins.js).
+       ㄱ자 모서리는 중심선 길이 그대로 (바깥 면은 길고 안쪽 면은 짧아 합이 같음)
+     틀(벽 종류에 틀이 있을 때): 세로재 = (틀 길이 ÷ 세로 간격 올림 + 1)개 × H
+                                 가로재 = (위·아래 2줄 + 중간 줄) × 틀 길이, 중간 줄 = H ÷ 가로 간격 올림 − 1
+       틀 길이는 틀 층에서 잰 길이 (다른 벽 안으로 들어가는 부분은 뺌), 그림의 세로재 자리와 같음.
+       같은 종류 벽이 일직선으로 이어지면 이음 자리 세로재는 한 개만 셈
        다루끼는 세로·가로 모두 '다루끼', 경량은 세로 '스터드', 가로 '런너'
        문·창문 자리의 틀은 빼지 않음 (그 자리에 보강재가 들어가는 것으로 봄)
-     석고보드: 한 면 면적 × 겹 수
+     석고보드: 면마다 (그 면의 길이 × H − 문·창문 면적) × 그 면의 겹 수
      본 수·장 수는 여러 벽의 길이·면적을 다 더한 뒤 (1 + 로스%)를 곱해 마지막에 올림 */
   const EPS = 1e-9;
   let openingIndex = { version: -1, map: new Map() };
@@ -309,27 +313,40 @@
 
     /** 벽 하나의 기본 수치와 자재 (길이 mm, 면적 mm²) */
     wall(w) {
-      const L = Math.hypot(w.end.x - w.start.x, w.end.y - w.start.y);
+      const center = Math.hypot(w.end.x - w.start.x, w.end.y - w.start.y);
+      const L = App.joins.length(w);
       const H = w.height;
       const openings = openingsOf(w.id);
-      const openingArea = Math.min(L * H, openings.reduce((sum, o) => sum + App.model.TYPES[o.type].area(o), 0));
+      const openingSum = openings.reduce((sum, o) => sum + App.model.TYPES[o.type].area(o), 0);
+      const openingArea = Math.min(L * H, openingSum);
       const area = L * H - openingArea;
-      const q = { length: L, height: H, grossArea: L * H, openingArea, openings: openings.length, area, frames: [], boards: [] };
+      const q = {
+        length: L, centerLength: center, overlap: Math.max(0, center - L),
+        height: H, grossArea: L * H, openingArea, openings: openings.length, area, frames: [], boards: [],
+      };
       const t = App.catalog.typeOf(w);
       if (!t || L <= 0 || H <= 0) return q;
       if (t.frameKind !== 'none') {
-        const verticalCount = Math.ceil(L / t.frameSpacing - EPS) + 1;
+        const f = App.joins.frame(w, t);
+        const verticalCount = f.studs.length;
         const rows = 2 + (t.frameRowSpacing > 0 ? Math.max(0, Math.ceil(H / t.frameRowSpacing - EPS) - 1) : 0);
-        q.frameDetail = { verticalCount, rows };
+        q.frameDetail = { verticalCount, rows, run: f.run };
         const item = (name, length) => ({ name, length, piece: t.framePiece, loss: t.frameLoss });
-        if (t.frameKind === 'wood') q.frames.push(item('다루끼', verticalCount * H + rows * L));
-        else q.frames.push(item('스터드', verticalCount * H), item('런너', rows * L));
+        if (t.frameKind === 'wood') q.frames.push(item('다루끼', verticalCount * H + rows * f.run));
+        else q.frames.push(item('스터드', verticalCount * H), item('런너', rows * f.run));
       }
       const layers = t.boardFace + t.boardBack;
       if (layers > 0) {
+        // 마감 쪽 면은 벽 방향 왼쪽(뒤집으면 오른쪽). 면마다 길이가 다를 수 있음 (ㄱ자 바깥·안쪽)
+        const sgn = w.flip ? -1 : 1;
+        const faceArea = (off) => {
+          const gross = App.joins.lengthAt(w, off) * H;
+          return gross - Math.min(gross, openingSum);
+        };
+        const boardArea = t.boardFace * faceArea((sgn * w.thickness) / 2) + t.boardBack * faceArea((-sgn * w.thickness) / 2);
         q.boards.push({
           spec: `석고보드 ${Number(t.boardT)}T ${Number(t.boardW)}×${Number(t.boardL)}`,
-          area: area * layers, sheetArea: t.boardW * t.boardL, loss: t.boardLoss, layers,
+          area: boardArea, sheetArea: t.boardW * t.boardL, loss: t.boardLoss, layers,
         });
       }
       return q;

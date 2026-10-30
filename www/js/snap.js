@@ -1,5 +1,7 @@
 /* 스냅: 끝점 > 중간점 > 벽면·선 위 > (직교) > 격자 순으로 붙인다.
    끝점·중간점이 가까우면 직교보다 우선 (CAD와 같음).
+   끝점에는 벽 모서리(면이 꺾이는 점)도 들어감. 벽을 그릴 때는 이어 붙도록 중심선 끝점만.
+   격자 간격은 확대할수록 잘게: 설정 간격(100)이 화면에서 크면 50 → 20 → 10 → 5mm (가장 크게 확대하면 5mm)
    벽면·선 위: 벽을 그릴 때는 벽 중심선(T자로 이어져 방이 닫히게), 다른 도구는 벽의 양쪽 면(안목 치수),
    그리고 배관·전선관 선과 가져온 도면의 선. 직교 중이면 직교 방향 선과 만나는 점 */
 (function () {
@@ -7,6 +9,8 @@
   const App = (window.App = window.App || {});
 
   const RADIUS_PX = { mouse: 12, touch: 24 };
+  const STEP_MAX_PX = 30; // 격자 한 칸이 화면에서 이보다 크면 더 잘게 나눔 (손가락으로 집기 좋은 폭)
+  const NICE = [5000, 2000, 1000, 500, 200, 100, 50, 20, 10, 5, 2, 1];
   const roundTo = (v, step) => Math.round(v / step) * step;
   const visible = (el) => !App.layers || App.layers.visible(el);
 
@@ -40,6 +44,19 @@
   }
 
   const snap = {
+    /** 지금 배율에서 붙는 격자 간격(mm). 설정 간격을 나누어 떨어지는 값으로만 잘게 (격자점이 어긋나지 않게) */
+    step(scale = App.plan ? App.plan.view.scale : 0) {
+      const g = App.settings.gridSize || 100;
+      if (!(g * scale > STEP_MAX_PX)) return g;
+      const finer = NICE.filter((v) => v < g && Math.abs(g / v - Math.round(g / v)) < 1e-9);
+      let best = g;
+      for (const v of finer) {
+        best = v;
+        if (v * scale <= STEP_MAX_PX) break;
+      }
+      return best;
+    },
+
     /** 스냅이 잡히는 거리(mm). 화면에서 일정한 픽셀 크기 */
     radius(touch) {
       return (touch ? RADIUS_PX.touch : RADIUS_PX.mouse) / App.plan.view.scale;
@@ -69,6 +86,7 @@
           if ((opts.exclude && opts.exclude.has(el.id)) || !visible(el)) continue;
           const t = App.model.TYPES[el.type];
           if (t && t.snapPoints) t.snapPoints(el).forEach(consider);
+          if (el.type === 'wall' && !opts.center && s.snapEnd) App.joins.corners(el).forEach((p) => consider({ x: p.x, y: p.y, kind: 'end' }));
           if (t && t.snapNear && s.snapEnd) t.snapNear(el, raw, r).forEach(consider); // 가져온 도면: 가까운 꼭짓점만 찾아 봄
         }
         (opts.extra || []).forEach(consider);
@@ -80,7 +98,7 @@
         if (n) return n;
       }
 
-      const g = s.gridSize;
+      const g = snap.step();
       if (opts.ortho && opts.from) {
         const f = opts.from;
         const dx = raw.x - f.x, dy = raw.y - f.y;
@@ -115,7 +133,7 @@
           y = ay + dy * t;
         } else if (Math.abs(dy) < 1e-9 || Math.abs(dx) < 1e-9) {
           // 가로·세로 선: 선의 좌표는 그대로 두고 선을 따라서는 격자에 (T자 이음이 딱 떨어지게)
-          const g = App.settings.snapGrid ? App.settings.gridSize : 0;
+          const g = App.settings.snapGrid ? snap.step() : 0;
           const along = (v, a, b) => {
             const lo = Math.min(a, b), hi = Math.max(a, b);
             const r2 = g ? Math.round(v / g) * g : v;
@@ -172,7 +190,7 @@
         }
         if (best) return { dx: best.dx, dy: best.dy, kind: 'end', at: best.at };
       }
-      if (s.snapGrid) return { dx: roundTo(dx, s.gridSize), dy: roundTo(dy, s.gridSize), kind: 'grid' };
+      if (s.snapGrid) return { dx: roundTo(dx, snap.step()), dy: roundTo(dy, snap.step()), kind: 'grid' };
       return { dx, dy, kind: null };
     },
   };

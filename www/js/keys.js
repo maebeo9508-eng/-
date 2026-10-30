@@ -49,10 +49,10 @@
       }
       if (e.altKey) return;
       if (document.querySelector('.modal:not([hidden])')) return; // 목록 편집·설정 창이 열려 있으면 도면 단축키 끔
-      // 화살표: 격자 한 칸씩 옮기기 (Shift: 열 칸). 누르고 있으면 계속
+      // 화살표: 격자 한 칸씩 옮기기 (확대하면 잘게, Shift: 열 칸). 누르고 있으면 계속
       if (e.key.startsWith('Arrow') && App.selection.size && App.tools.id === 'select') {
         e.preventDefault();
-        const step = (App.settings.gridSize || 100) * (e.shiftKey ? 10 : 1);
+        const step = App.snap.step() * (e.shiftKey ? 10 : 1);
         const d = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
         App.edit.nudge(d[0], d[1]);
         return;
