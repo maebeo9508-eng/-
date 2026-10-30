@@ -8,16 +8,19 @@ Capacitor로 그대로 감싸면 안드로이드 앱이 됩니다. 실제 빌드
 | 파일 | 내용 |
 |---|---|
 | `www/` | 앱 전체 (index.html, css, js, lib, icons, manifest.json, sw.js) |
-| `capacitor.config.json` | 앱 이름 `현장도면`, 웹 폴더 `www`. **appId**(`kr.hyeonjang.domyeon`)는 구글 플레이에 올리기 전에 회사 도메인으로 바꾸세요. 한 번 올리면 못 바꿉니다. |
-| `package.json` | Capacitor 8과 플러그인 2개(파일 저장 `@capacitor/filesystem`, 공유 `@capacitor/share`) |
-| `www/icons/icon-512.png` | 앱 아이콘 원본 (안드로이드용 크기는 아래 4단계에서 자동 생성) |
+| `android/` | 안드로이드 프로젝트 (Capacitor 8, 대상 Android 16 / 최소 Android 7.0). 아이콘·시작 화면 들어 있음 |
+| `assets/` | 아이콘·시작 화면 원본 (바꾸면 `npx @capacitor/assets generate --android`로 다시 만듦) |
+| `capacitor.config.json` | 앱 이름 `현장도면`, 앱 ID `kr.hyeonjang.domyeon`, 웹 폴더 `www` |
+| `package.json` | Capacitor 8과 플러그인 3개: 뒤로 버튼·앱 숨김(`@capacitor/app`), 파일 저장(`@capacitor/filesystem`), 공유(`@capacitor/share`) |
+| `android/keystore.properties`, `android/release.keystore` | **앱 서명 키 (git에 올리지 않음)**. 따로 보관 (아래 6단계) |
 
 앱 안에서 달라지는 점은 이미 코드에 들어 있습니다.
 
 - **파일 내보내기**(집계표 CSV, PNG, PDF, 백업 JSON): 앱 안에서는 브라우저 다운로드가 안 되므로
   파일을 앱 임시 폴더에 쓰고 **공유 창**을 띄웁니다. 거기서 ‘내 파일에 저장’, 카카오톡, 드라이브 등을 고르면 됩니다.
 - **파일 불러오기**(DWG·DXF, 백업 JSON): 안드로이드 파일 고르기 창이 그대로 열립니다.
-- **뒤로 버튼**: 열린 창·메뉴·그리기·서랍을 하나씩 닫고, 마지막엔 한 번 더 눌러야 앱이 닫힙니다.
+- **뒤로 버튼**: 열린 창·메뉴·그리기·서랍을 하나씩 닫고, 마지막엔 한 번 더 눌러야 앱이 닫힙니다 (`@capacitor/app`).
+- **앱이 뒤로 숨을 때**(다른 앱으로 넘어가거나 화면이 꺼질 때) 도면을 바로 저장합니다.
 - **서비스 워커**(오프라인 저장)는 앱 안에서는 쓰지 않습니다. 앱 파일이 이미 기기 안에 있기 때문입니다.
 - **저장**: 도면은 앱 안 저장소(localStorage·IndexedDB)에 자동 저장됩니다. **앱을 지우면 함께 지워지니** 중요한 도면은 백업 파일로 받아 두세요.
 
@@ -35,28 +38,32 @@ Capacitor로 그대로 감싸면 안드로이드 앱이 됩니다. 실제 빌드
 
 ```bash
 npm install                 # package.json의 Capacitor 설치
-npx cap add android         # android/ 폴더 생성
 npx cap sync android        # www/ 내용을 안드로이드 프로젝트로 복사
 ```
 
-## 4. 아이콘
+`android/` 폴더와 아이콘은 이미 만들어 두었습니다.
 
-```bash
-npx @capacitor/assets generate --iconBackgroundColor '#c54b08' --android
-```
+## 4. 서명 키 넣기
 
-`assets/icon.png`(1024×1024 권장)를 찾으므로, 처음에는 `www/icons/icon-512.png`를 `assets/icon.png`로 복사해 쓰거나
-더 큰 원본을 만들어 넣으세요.
+동료에게 줄 APK는 **늘 같은 서명 키**로 만들어야 합니다. 키가 바뀌면 업데이트 설치가 안 되고,
+지웠다 다시 깔면 폰에 저장된 도면이 사라집니다.
+
+- 보관해 둔 `release.keystore`와 `keystore.properties`를 `android/` 폴더에 넣습니다.
+- 두 파일이 없으면 release 빌드는 서명 없이 만들어져 설치가 안 됩니다 (debug 빌드는 됨).
 
 ## 5. 빌드와 설치
 
+명령으로 (Android Studio 없이도 SDK만 있으면):
+
 ```bash
-npx cap open android        # Android Studio가 열림
+cd android
+./gradlew assembleRelease   # 결과: android/app/build/outputs/apk/release/app-release.apk
 ```
 
-- 휴대폰을 USB로 연결 → 위쪽 ▶(Run)을 누르면 휴대폰에 바로 설치됩니다.
-- APK 파일: 메뉴 **Build → Build App Bundle(s) / APK(s) → Build APK(s)** → `android/app/build/outputs/apk/debug/app-debug.apk`
-- 구글 플레이용: **Build → Generate Signed App Bundle / APK** (서명 키를 만들고 잘 보관해야 다음 업데이트를 올릴 수 있습니다)
+또는 Android Studio에서 `npx cap open android` → 휴대폰을 USB로 연결 → ▶(Run).
+
+동료에게 줄 때: `app-release.apk` 파일을 카카오톡·메일 등으로 보내고, 받은 폰에서 파일을 눌러 설치합니다.
+처음에는 ‘출처를 알 수 없는 앱 설치 허용’을 한 번 켜야 합니다 (폰이 안내함).
 
 ## 6. 고친 뒤 다시 넣기
 
@@ -66,10 +73,15 @@ npx cap open android        # Android Studio가 열림
 npx cap sync android
 ```
 
-그리고 버전을 올립니다.
+그리고 버전을 올린 뒤 같은 서명 키로 다시 빌드해 보냅니다. 받은 사람은 그냥 덮어 설치하면 되고 도면은 그대로 남습니다.
 
 - `www/js/settings.js`의 `APP_VERSION`, `www/sw.js`의 `VERSION` (웹 주소로 쓰는 사람의 오프라인 저장분이 새것으로 바뀜)
 - `android/app/build.gradle`의 `versionCode`(1씩 올림)와 `versionName`
+
+## 6-1. 서명 키 보관
+
+`android/release.keystore`와 `android/keystore.properties`(비밀번호 들어 있음)는 git에 올리지 않습니다.
+PC 두 곳 이상(예: 회사 PC와 개인 클라우드)에 복사해 두세요. 이 키를 잃어버리면 같은 앱으로 업데이트할 수 없습니다.
 
 ## 7. 휴대폰에서 문제를 볼 때
 

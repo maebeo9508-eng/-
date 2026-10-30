@@ -307,11 +307,32 @@
     return false;
   }
   function bindBack() {
+    let armed = false;
+    // 안드로이드 앱(Capacitor): 뒤로 버튼은 App 플러그인이 알려 줌 (없으면 바로 앱이 닫힘)
+    const C = window.Capacitor;
+    const CapApp = C && C.isNativePlatform && C.isNativePlatform() && C.Plugins && C.Plugins.App;
+    if (CapApp) {
+      CapApp.addListener('backButton', () => {
+        if (closeTop()) {
+          armed = false;
+          return;
+        }
+        if (!armed) {
+          armed = true;
+          toast('한 번 더 누르면 앱을 닫습니다. 도면은 저장되어 있습니다.');
+          setTimeout(() => { armed = false; }, 2500);
+          return;
+        }
+        if (App.projects) App.projects.flush();
+        CapApp.exitApp();
+      });
+      return;
+    }
+    // 웹·홈 화면 앱: 방문 기록 한 칸을 끼워 두고 뒤로 가기를 가로챔
     if (!window.history || !history.pushState) return;
     const guard = () => history.pushState({ hjdm: 'guard' }, '');
     history.replaceState({ hjdm: 'base' }, '');
     guard();
-    let armed = false;
     window.addEventListener('popstate', () => {
       if (closeTop()) {
         armed = false;

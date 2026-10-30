@@ -1,0 +1,5 @@
+# Capacitor·안드로이드 빌드용 (앱 소스는 www/)
+node_modules/
+android/keystore.properties
+*.keystore
+*.jks

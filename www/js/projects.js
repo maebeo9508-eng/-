@@ -488,6 +488,9 @@
     window.addEventListener('pagehide', flush);
     document.addEventListener('visibilitychange', () => { if (document.hidden) flush(); });
     window.addEventListener('beforeunload', flush);
+    // 안드로이드 앱이 뒤로 숨을 때도 바로 저장
+    const C = window.Capacitor;
+    if (C && C.isNativePlatform && C.isNativePlatform() && C.Plugins && C.Plugins.App) C.Plugins.App.addListener('pause', flush);
     App.ui.on('settings', schedule); // 기본 벽 종류 등 고른 값도 저장
     App.ui.on('current', schedule);
 
