@@ -243,11 +243,12 @@
     if (frame) {
       const wood = t.frameKind === 'wood';
       layer(pos, pos + frame, wood ? c.layerWood : c.layerMetal);
-      // 세로재 단면: 물량과 같은 자리에 작은 네모 (다루끼는 채움, 스터드는 테두리). 다른 벽 안으로는 안 들어감
-      const sw = wood ? Math.min(frame, 45) : 50;
+      // 세로재 단면: 물량과 같은 자리에 작은 네모 (다루끼는 채움, 스터드는 테두리).
+      // 다른 벽 안으로는 안 들어가고, 문·창문 양옆에 하나씩
+      const { studs, sw } = App.measure.frameLayout(w, t);
       const o1 = T / 2 - pos, o2 = T / 2 - pos - frame;
       ctx.lineWidth = 1.2 * px;
-      for (const sc of App.joins.frame(w, t, sw).studs) {
+      for (const sc of studs) {
         const pts = [at(sc - sw / 2, o1), at(sc + sw / 2, o1), at(sc + sw / 2, o2), at(sc - sw / 2, o2)];
         ctx.beginPath();
         polygon(ctx, pts);

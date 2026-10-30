@@ -170,8 +170,9 @@
       };
     },
 
-    /** 틀 배치: 세로재 가운데 위치들(시작점에서 잰 mm)과 가로재 한 줄 길이.
-        세로재 수 = 틀 길이 ÷ 간격 올림 + 1. 일직선 이음에서 붙은 벽이 세는 자리는 뺌. sw는 그림용 세로재 폭 */
+    /** 틀 배치(문·창문 보강 전): 세로재 가운데 위치들(시작점에서 잰 mm), 가로재 한 줄 길이, 틀이 놓이는 구간.
+        세로재 수 = 틀 길이 ÷ 간격 올림 + 1. 일직선 이음에서 붙은 벽이 세는 자리는 뺌. sw는 세로재 폭.
+        문·창문 보강은 measure.frameLayout에서 */
     frame(w, t, sw = 0) {
       const L = G.dist(w.start, w.end);
       const b = frameBand(w, t);
@@ -189,7 +190,7 @@
           studs.push(G.clamp(s0 + i * t.frameSpacing, lo, hi));
         }
       }
-      return { studs, run };
+      return { studs, run, from: s0, to: s1 };
     },
 
     /** 벽 끝 모서리 점들 (치수·선을 벽 모서리에 붙일 때). 일직선으로 이어진 끝은 모서리가 아니라 뺌 */

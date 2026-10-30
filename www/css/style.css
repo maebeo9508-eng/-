@@ -355,6 +355,23 @@ button { font: inherit; color: inherit; }
 }
 .keys-table th { width: 46%; }
 .keys-table td { font-weight: 400; text-align: left; padding-left: 8px; }
+/* 미세 이동: 십자 화살표 + 한 번에 움직일 거리 */
+.nudge { display: flex; align-items: center; gap: 12px; }
+.nudge-pad {
+  display: grid; grid-template-columns: repeat(3, var(--hit)); grid-template-rows: repeat(3, var(--hit)); gap: 2px;
+  grid-template-areas: ". up ." "left . right" ". down .";
+}
+.nudge-pad .btn { width: var(--hit); min-width: 0; padding: 0; justify-content: center; touch-action: none; }
+.nudge-up { grid-area: up; }
+.nudge-left { grid-area: left; }
+.nudge-right { grid-area: right; }
+.nudge-down { grid-area: down; }
+.nudge-up .ico { transform: rotate(180deg); }
+.nudge-left .ico { transform: rotate(90deg); }
+.nudge-right .ico { transform: rotate(-90deg); }
+.nudge-steps { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 0; }
+.nudge-steps .btn { font-size: 13px; }
+.nudge-steps .btn[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
 .align-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .align-row .btn { padding: 0 6px; font-size: 13px; }
 .snap-btn[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }

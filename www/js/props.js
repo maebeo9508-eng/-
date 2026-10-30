@@ -233,6 +233,26 @@
     return `<div class="group-row"><button type="button" class="btn" data-act="group" title="Ctrl+G">묶기 (함께 선택·이동)</button></div>`;
   }
 
+  /* 미세 이동: 한 번 누를 때 움직일 거리(mm). 패널을 다시 그려도 유지 */
+  const NUDGE_STEPS = [1, 10, 100];
+  let nudgeStep = 10;
+  const NUDGE_DIRS = [['up', 0, -1, '위로'], ['left', -1, 0, '왼쪽으로'], ['right', 1, 0, '오른쪽으로'], ['down', 0, 1, '아래로']];
+
+  /** 화살표로 조금씩 옮기기. 벽에 붙은 기호는 벽을 따라 움직임. 누르고 있으면 계속 */
+  function nudgeRow() {
+    if (!els.some((e) => !['door', 'window', 'room'].includes(e.type))) return '';
+    return `
+      <div class="field-group-label">미세 이동</div>
+      <div class="nudge">
+        <div class="nudge-pad">
+          ${NUDGE_DIRS.map(([id, , , label]) => `<button type="button" class="btn nudge-${id}" data-nudge="${id}" aria-label="${label} ${nudgeStep}mm"><span class="ico" data-icon="chevron"></span></button>`).join('')}
+        </div>
+        <div class="nudge-steps" role="group" aria-label="한 번에 움직일 거리">
+          ${NUDGE_STEPS.map((v) => `<button type="button" class="btn" data-nudge-step="${v}" aria-pressed="${v === nudgeStep}">${v}mm</button>`).join('')}
+        </div>
+      </div>`;
+  }
+
   /** 복제·돌리기·정렬·잠금 (휴대폰에서도 단축키 없이) */
   function editRow() {
     const locked = els.every((e) => e.locked);
@@ -251,6 +271,7 @@
         <button type="button" class="btn" data-act="duplicate" title="Ctrl+D">복제</button>
         <button type="button" class="btn" data-act="rotate-any" title="Q">90° 돌리기</button>
       </div>
+      ${nudgeRow()}
       ${align}
       <label class="check-row" for="f-lock">
         <input type="checkbox" id="f-lock" ${locked ? 'checked' : ''}>
@@ -325,6 +346,7 @@
         ${single ? stat('방', roomsOfWall(els[0].id)) : ''}
       </div>
       ${materialRows(els)}
+      ${qs.some((q) => q.frameDetail && q.frameDetail.jambs) ? '<p class="props-meta">문·창문 양옆 세로재, 그 위·아래 토막, 인방·창대 가로재까지 넣은 물량입니다.</p>' : ''}
       ${single ? `
         <div class="field-group-label">시작점</div>
         <div class="field-grid">${numberField('sx')}${numberField('sy')}</div>
@@ -698,6 +720,7 @@
     else if (type === 'dim') pane.innerHTML = dimForm();
     else if (type === 'underlay') pane.innerHTML = underlayForm();
     else pane.innerHTML = mixedForm();
+    App.icons.apply(pane);
     pane.scrollTop = scroll;
   }
 
@@ -941,7 +964,40 @@
       }
     });
 
+    // 미세 이동: 누르는 순간 한 번, 누르고 있으면 계속 (패널이 다시 그려져도 손을 뗄 때까지)
+    let repeat = null;
+    const stopRepeat = () => { clearTimeout(repeat); clearInterval(repeat); repeat = null; };
+    const nudgeBy = (id) => {
+      const [, x, y] = NUDGE_DIRS.find((d) => d[0] === id);
+      return App.edit.nudge(x * nudgeStep, y * nudgeStep);
+    };
+    pane.addEventListener('pointerdown', (e) => {
+      const b = e.target.closest('[data-nudge]');
+      if (!b || e.button > 0) return;
+      e.preventDefault();
+      stopRepeat();
+      const id = b.dataset.nudge;
+      if (!nudgeBy(id)) return;
+      repeat = setTimeout(() => { repeat = setInterval(() => nudgeBy(id) || stopRepeat(), 90); }, 400);
+    });
+    ['pointerup', 'pointercancel', 'blur'].forEach((ev) => window.addEventListener(ev, stopRepeat));
+
     pane.addEventListener('click', (e) => {
+      const nb = e.target.closest('[data-nudge]');
+      if (nb) {
+        if (e.detail === 0) nudgeBy(nb.dataset.nudge); // 키보드(Enter·Space)로 누른 경우
+        return;
+      }
+      const ns = e.target.closest('[data-nudge-step]');
+      if (ns) {
+        nudgeStep = Number(ns.dataset.nudgeStep);
+        pane.querySelectorAll('[data-nudge-step]').forEach((b) => b.setAttribute('aria-pressed', String(b === ns)));
+        pane.querySelectorAll('[data-nudge]').forEach((b) => {
+          const d = NUDGE_DIRS.find((x) => x[0] === b.dataset.nudge);
+          b.setAttribute('aria-label', `${d[3]} ${nudgeStep}mm`);
+        });
+        return;
+      }
       const al = e.target.closest('[data-align]');
       if (al) {
         App.edit.align(al.dataset.align);

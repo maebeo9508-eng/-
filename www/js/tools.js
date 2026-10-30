@@ -212,7 +212,12 @@
       if (lockY) dy = 0;
       const s = App.snap.moveDelta(dx, dy, p.points, p.exclude, ev.touch);
       p.snap = s;
-      const mx = lockX ? 0 : s.dx, my = lockY ? 0 : s.dy;
+      let mx = lockX ? 0 : s.dx, my = lockY ? 0 : s.dy;
+      // 기호·기둥 하나를 옮길 때는 가장자리를 벽면에 딱 붙임
+      if (p.orig.size === 1 && s.kind !== 'end' && !ev.shift) {
+        const f = App.snap.flush([...p.orig.values()][0], mx, my, p.exclude, ev.touch);
+        if (f) { mx = f.dx; my = f.dy; }
+      }
       p.orig.forEach((el, id) => App.doc.update(id, App.model.TYPES[el.type].movedBy(el, mx, my)));
       p.attached.forEach((a) => App.doc.update(a.id, { [a.end]: { x: a.x + mx, y: a.y + my } }));
       syncRoomsLive();
@@ -770,8 +775,13 @@
     preset() {
       return App.doc.get(App.current.columnPresetId);
     }
+    /** 놓일 가운데: 격자·끝점 스냅 뒤, 가장자리가 벽면 가까이면 벽면에 딱 붙임 */
     pointAt(ev) {
-      return App.snap.point(ev.world, { touch: ev.touch });
+      const p = App.snap.point(ev.world, { touch: ev.touch });
+      const preset = this.preset();
+      if (!preset || p.kind === 'end') return p;
+      const f = App.snap.flush(App.model.TYPES.column.create({ x: 0, y: 0 }, preset), p.x, p.y, null, ev.touch);
+      return f ? { x: f.dx, y: f.dy, kind: 'near' } : p;
     }
     hover(ev) {
       this.cursor = ev ? this.pointAt(ev) : null;
@@ -859,6 +869,9 @@
       const mount = def.wall ? wallMount(ev, def.size * def.aspect) : null;
       if (mount) return { ...mount, def };
       const p = App.snap.point(ev.world, { touch: ev.touch });
+      // 벽에 붙지 않는 기호(실외기 등)도 가장자리가 벽면 가까이면 벽면에 딱 붙임
+      const f = p.kind !== 'end' && App.snap.flush({ kind: def.kind, size: def.size, rotation: 0, x: 0, y: 0, type: 'item' }, p.x, p.y, null, ev.touch);
+      if (f) return { x: f.dx, y: f.dy, rotation: 0, def, snap: { x: f.dx, y: f.dy, kind: 'near' } };
       return { x: p.x, y: p.y, rotation: 0, def, snap: p };
     }
     hover(ev) {

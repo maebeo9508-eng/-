@@ -273,13 +273,24 @@
   }
 
   /** 화살표 키로 조금씩 옮기기 (격자 한 칸, Shift는 열 칸) */
+  /** 고른 것을 (dx, dy)만큼 옮김. 벽에 붙은 기호는 벽 방향으로 누르면 벽을 따라 미끄러지고,
+      벽에서 멀어지는 방향이면 벽에서 떼어 옮김 */
   function nudge(dx, dy) {
     const T = App.model.TYPES;
     const ids = App.selection.list().filter((id) => { const el = doc().get(id); return el && !el.locked && T[el.type].movedBy && el.type !== 'door' && el.type !== 'window'; });
     if (!ids.length) return false;
     doc().transact('이동', () => ids.forEach((id) => {
       const el = doc().get(id);
-      if (el.type === 'item' && el.wallId && !ids.includes(el.wallId)) doc().update(id, { wallId: null, t: null, side: null });
+      const w = el.type === 'item' && el.wallId && !ids.includes(el.wallId) ? doc().get(el.wallId) : null;
+      if (w) {
+        const L = Math.hypot(w.end.x - w.start.x, w.end.y - w.start.y);
+        const along = L > 0 ? (dx * (w.end.x - w.start.x) + dy * (w.end.y - w.start.y)) / L : 0;
+        if (Math.abs(along) >= Math.hypot(dx, dy) * 0.5) {
+          doc().update(id, { t: Math.min(1, Math.max(0, el.t + along / L)) }); // 자리는 기록 직전 훅이 벽에 맞춤
+          return;
+        }
+        doc().update(id, { wallId: null, t: null, side: null });
+      }
       doc().update(id, T[el.type].movedBy(doc().get(id), dx, dy));
     }));
     return true;

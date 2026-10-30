@@ -295,6 +295,11 @@
         const { hx, hy } = TYPES.column.half(c);
         return { minX: c.x - hx, minY: c.y - hy, maxX: c.x + hx, maxY: c.y + hy };
       },
+      /** 가운데에서 방향 u(단위 벡터)로 가장자리까지 거리. 벽면에 붙일 때 씀 */
+      extent(c, u) {
+        const { hx, hy } = TYPES.column.half(c);
+        return c.shape === 'circle' ? hx : hx * Math.abs(u.x) + hy * Math.abs(u.y);
+      },
       distance(c, p) {
         const { hx, hy } = TYPES.column.half(c);
         if (c.shape === 'circle') return Math.max(0, Math.hypot(p.x - c.x, p.y - c.y) - hx);
@@ -340,6 +345,13 @@
         const { w, h } = TYPES.item.dims(it);
         const r = Math.max(w, h) / 2;
         return { minX: it.x - r, minY: it.y - r, maxX: it.x + r, maxY: it.y + r };
+      },
+      /** 가운데에서 방향 u(단위 벡터)로 실제 크기(화면 최소 크기 아님)의 가장자리까지 거리 */
+      extent(it, u) {
+        const def = App.catalog.itemDef(it.kind);
+        const w = it.size, h = it.size * (def ? def.aspect : 1);
+        const a = (it.rotation * Math.PI) / 180;
+        return (w / 2) * Math.abs(u.x * Math.cos(a) + u.y * Math.sin(a)) + (h / 2) * Math.abs(-u.x * Math.sin(a) + u.y * Math.cos(a));
       },
       distance(it, p) {
         const { w, h } = TYPES.item.dims(it);

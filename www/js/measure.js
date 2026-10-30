@@ -99,7 +99,9 @@
        틀 길이는 틀 층에서 잰 길이 (다른 벽 안으로 들어가는 부분은 뺌), 그림의 세로재 자리와 같음.
        같은 종류 벽이 일직선으로 이어지면 이음 자리 세로재는 한 개만 셈
        다루끼는 세로·가로 모두 '다루끼', 경량은 세로 '스터드', 가로 '런너'
-       문·창문 자리의 틀은 빼지 않음 (그 자리에 보강재가 들어가는 것으로 봄)
+     문·창문 보강(frameLayout): 양옆에 통 세로재 하나씩 (옆에 있던 세로재는 이것으로 대신),
+       개구부에 걸리던 세로재는 위(천장까지)·아래(창대까지) 토막으로, 위에는 인방, 창문 아래에는 창대 가로재.
+       개구부를 지나던 가로재는 빼고, 문 자리는 바닥 줄(런너)도 뺌
      석고보드: 면마다 (그 면의 길이 × H − 문·창문 면적) × 그 면의 겹 수
      본 수·장 수는 여러 벽의 길이·면적을 다 더한 뒤 (1 + 로스%)를 곱해 마지막에 올림 */
   const EPS = 1e-9;
@@ -311,6 +313,51 @@
       return { plan, auto, extra, rise: auto + extra, total: plan + auto + extra, ends };
     },
 
+    /** 틀 배치 (그림의 세로재 자리와 물량이 같은 계산을 씀)
+        studs: 통 세로재 가운데 위치들(시작점에서 잰 mm), jambs: 그중 문·창문 옆,
+        studLength: 세로재 길이 합(토막 포함), rowLength: 가로재 길이 합(인방·창대 포함), sw: 세로재 폭 */
+    frameLayout(w, t) {
+      const H = w.height;
+      const sw = t.frameKind === 'wood' ? Math.min(t.frameDepth, 45) : 50;
+      const base = App.joins.frame(w, t, sw);
+      const lo = base.from + sw / 2, hi = Math.max(lo, base.to - sw / 2);
+      const rows = 2 + (t.frameRowSpacing > 0 ? Math.max(0, Math.ceil(H / t.frameRowSpacing - EPS) - 1) : 0);
+      const rowHeights = [0, H];
+      for (let k = 1; k <= rows - 2; k++) rowHeights.push(k * t.frameRowSpacing);
+      const ops = openingsOf(w.id).map((o) => {
+        const g = App.model.openingGeom(o);
+        if (!g) return null;
+        const bottom = o.type === 'window' ? Math.max(0, o.sill || 0) : 0;
+        return { s0: Math.max(base.from, g.c - g.half), s1: Math.min(base.to, g.c + g.half), bottom, top: Math.min(H, bottom + o.height) };
+      }).filter((o) => o && o.s1 - o.s0 > 1 && o.top > o.bottom);
+      // 문·창문 양옆 통 세로재 (붙어 있는 개구부 사이는 하나로)
+      const jambs = [];
+      ops.forEach((o) => [o.s0 - sw / 2, o.s1 + sw / 2].forEach((p) => {
+        const c = G().clamp(p, lo, hi);
+        if (ops.some((q) => c > q.s0 + 0.5 && c < q.s1 - 0.5)) return; // 다른 개구부 안
+        if (!jambs.some((j) => Math.abs(j - c) < sw)) jambs.push(c);
+      }));
+      let studs = [...jambs], crippleLength = 0, cripples = 0;
+      base.studs.forEach((p) => {
+        if (jambs.some((j) => Math.abs(j - p) < sw)) return; // 옆 세로재가 대신함
+        const o = ops.find((q) => p + sw / 2 > q.s0 && p - sw / 2 < q.s1);
+        if (!o) { studs.push(p); return; }
+        // 개구부에 걸린 세로재: 위·아래 토막
+        [H - o.top, o.bottom].forEach((len) => { if (len > 1) { crippleLength += len; cripples++; } });
+      });
+      studs.sort((a, b) => a - b);
+      let rowLength = rows * base.run;
+      ops.forEach((o) => {
+        const width = o.s1 - o.s0;
+        const cut = rowHeights.filter((h) => (h > o.bottom && h < o.top) || (h === 0 && o.bottom <= 0)).length;
+        rowLength += width * ((o.top < H - 1 ? 1 : 0) + (o.bottom > 1 ? 1 : 0) - cut);
+      });
+      return {
+        studs, jambs, sw, rows, run: base.run, openings: ops.length, cripples,
+        studLength: studs.length * H + crippleLength, rowLength: Math.max(0, rowLength),
+      };
+    },
+
     /** 벽 하나의 기본 수치와 자재 (길이 mm, 면적 mm²) */
     wall(w) {
       const center = Math.hypot(w.end.x - w.start.x, w.end.y - w.start.y);
@@ -327,13 +374,11 @@
       const t = App.catalog.typeOf(w);
       if (!t || L <= 0 || H <= 0) return q;
       if (t.frameKind !== 'none') {
-        const f = App.joins.frame(w, t);
-        const verticalCount = f.studs.length;
-        const rows = 2 + (t.frameRowSpacing > 0 ? Math.max(0, Math.ceil(H / t.frameRowSpacing - EPS) - 1) : 0);
-        q.frameDetail = { verticalCount, rows, run: f.run };
+        const f = measure.frameLayout(w, t);
+        q.frameDetail = { verticalCount: f.studs.length, jambs: f.jambs.length, cripples: f.cripples, rows: f.rows, run: f.run };
         const item = (name, length) => ({ name, length, piece: t.framePiece, loss: t.frameLoss });
-        if (t.frameKind === 'wood') q.frames.push(item('다루끼', verticalCount * H + rows * f.run));
-        else q.frames.push(item('스터드', verticalCount * H), item('런너', rows * f.run));
+        if (t.frameKind === 'wood') q.frames.push(item('다루끼', f.studLength + f.rowLength));
+        else q.frames.push(item('스터드', f.studLength), item('런너', f.rowLength));
       }
       const layers = t.boardFace + t.boardBack;
       if (layers > 0) {

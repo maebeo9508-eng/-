@@ -156,6 +156,40 @@
       return best;
     },
 
+    /** 기호·기둥을 옮길 때: 가장자리가 벽면 가까이 오면 벽면에 딱 붙임. 두 벽이 만나는 구석이면 양쪽 벽면에.
+        dx, dy: 격자 등으로 이미 맞춘 이동량. 붙을 벽면이 없으면 null */
+    flush(el, dx, dy, exclude, touch) {
+      const T = App.model.TYPES[el.type];
+      if (!T || !T.extent || !App.settings.snapFace) return null;
+      const r = snap.radius(touch);
+      const c = { x: el.x + dx, y: el.y + dy };
+      const used = []; // 이미 붙인 벽면 방향 (같은 방향 벽에는 두 번 붙이지 않음)
+      for (let pass = 0; pass < 2; pass++) {
+        let best = null;
+        for (const w of App.doc.all()) {
+          if (w.type !== 'wall' || (exclude && exclude.has(w.id)) || !visible(w)) continue;
+          const L = Math.hypot(w.end.x - w.start.x, w.end.y - w.start.y);
+          if (L < 1) continue;
+          const d = { x: (w.end.x - w.start.x) / L, y: (w.end.y - w.start.y) / L };
+          const n = { x: -d.y, y: d.x };
+          if (used.some((m) => Math.abs(m.x * n.y - m.y * n.x) < 0.5)) continue;
+          const rx = c.x - w.start.x, ry = c.y - w.start.y;
+          const along = rx * d.x + ry * d.y, off = rx * n.x + ry * n.y;
+          const eD = T.extent(el, d);
+          if (along + eD < 0 || along - eD > L) continue; // 벽 옆이 아님
+          const gap = Math.abs(off) - T.extent(el, n) - w.thickness / 2; // 가장자리와 벽면 사이 (음수면 벽 속)
+          if (Math.abs(gap) > r || (best && Math.abs(gap) >= Math.abs(best.gap))) continue;
+          const side = off >= 0 ? 1 : -1;
+          best = { gap, n: { x: n.x * side, y: n.y * side } };
+        }
+        if (!best) break;
+        c.x -= best.n.x * best.gap;
+        c.y -= best.n.y * best.gap;
+        used.push(best.n);
+      }
+      return used.length ? { dx: c.x - el.x, dy: c.y - el.y } : null;
+    },
+
     /** 이동할 때: 움직이는 요소의 끝점이 다른 요소 끝점에 닿으면 맞춰 줌 */
     moveDelta(dx, dy, movingPoints, exclude, touch) {
       const s = App.settings;
