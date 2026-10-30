@@ -550,6 +550,72 @@
     preview: (plan, a, b) => App.draw.previewDim(plan, a, b),
   });
 
+  /* ── 치수 도구: 방식은 위쪽 칩에서 고름 (App.current.dimMode, dims.js)
+     안목: 빈 곳을 누르면 가로·세로로 벽 면에서 면까지, 벽을 누르면 그 면의 안목 길이
+     벽 중심: 벽을 누르면 이어진 벽 중심까지. 두 점: 잴 두 점을 차례로 누름
+     어느 방식이든 끌면 두 점 치수 ── */
+  class DimTool {
+    constructor() {
+      this.free = dimChain();
+    }
+    /** 누르면 자동으로 재는 방식인지 (두 점을 찍는 중이면 아님) */
+    auto() {
+      return (App.current.dimMode || 'clear') !== 'free' && !this.free.isChaining();
+    }
+    activate() {
+      this.free.activate();
+      this.press = null;
+      this.ghost = null;
+    }
+    deactivate() { this.free.deactivate(); }
+    /** 두 점 방식의 커서 (스냅된 점) */
+    get cursor() { return this.free.cursor; }
+    isChaining() { return this.free.isChaining(); }
+    addLength(len, dir) { return this.free.addLength(len, dir); }
+    currentDir() { return this.free.currentDir(); }
+    finish() { this.free.finish(); }
+    context(ev) { this.free.context(ev); }
+    onDocChange() { this.free.onDocChange(); }
+    hover(ev) {
+      if (!this.auto()) return this.free.hover(ev);
+      this.ghost = ev ? App.dims.at(ev.world, App.current.dimMode, ev.touch) : null; // PC: 만들어질 치수 미리 보기
+      render();
+    }
+    down(ev) {
+      if (!this.auto()) return this.free.down(ev);
+      this.press = ev;
+      this.ghost = null;
+      this.free.down(ev); // 끌면 두 점 치수가 되도록
+    }
+    move(ev) {
+      if (this.press) return this.free.move(ev);
+      return this.auto() ? this.hover(ev) : this.free.move(ev);
+    }
+    up(ev) {
+      if (!this.press) return this.free.up(ev);
+      this.press = null;
+      if (this.free.press && this.free.press.dragging) return this.free.up(ev);
+      this.free.cancel();
+      App.dims.create(ev.world, App.current.dimMode, ev.touch);
+      if (!ev.touch) this.hover(ev);
+    }
+    cancel() {
+      this.press = null;
+      this.free.cancel();
+    }
+    escape() {
+      if (this.press) {
+        this.cancel();
+        return true;
+      }
+      return this.free.escape();
+    }
+    overlay(plan) {
+      if (!this.auto() || this.press) return this.free.overlay(plan);
+      (this.ghost || []).forEach((g) => App.draw.previewDim(plan, g.start, g.end, g.offset));
+    }
+  }
+
   /* ── 지우개: 누르거나 문지른 요소를 지움 (한 번에 실행 취소 한 단계) ── */
   class EraseTool {
     activate() {
@@ -843,7 +909,29 @@
     return { ...App.model.mountPoint(w, t, side, depth), mount: { wallId: w.id, t, side } };
   }
 
-  /* ── 전기·설비 도구: 팔레트에서 고른 기호를 놓음. 전선관·배관·덕트를 고르면 선 그리기 ── */
+  /** 점 p에서 reach 안에 있는 가장 가까운 벽: 등(기호 위쪽)을 그 벽으로 돌리는 각도(0·90·180·270),
+      벽에서 p 쪽 방향 n, p와 벽면 사이 거리 gap. 벽이 없으면 null */
+  function facingWall(p, reach) {
+    let best = null, bestGap = reach;
+    for (const w of App.doc.all()) {
+      if (w.type !== 'wall' || !App.layers.visible(w)) continue;
+      const c = G.closestOnSegment(p, w.start, w.end);
+      const gap = c.dist - w.thickness / 2;
+      if (gap < bestGap && c.dist > 0.5) {
+        bestGap = gap;
+        best = { x: (p.x - c.point.x) / c.dist, y: (p.y - c.point.y) / c.dist }; // 벽에서 p 쪽
+      }
+    }
+    if (!best) return null;
+    const deg = (Math.atan2(-best.x, best.y) * 180) / Math.PI; // 등(-y)이 벽을 보게
+    const rotation = ((Math.round(deg / 90) * 90) % 360 + 360) % 360;
+    // 돌린 방향에 맞춘 벽 쪽 직각 방향 (기울어진 벽은 가까운 가로·세로로)
+    const a = (rotation * Math.PI) / 180;
+    const n = { x: -Math.round(Math.sin(a)), y: Math.round(Math.cos(a)) };
+    return { rotation, n, gap: bestGap };
+  }
+
+  /* ── 전기·설비·가구 도구: 팔레트에서 고른 기호를 놓음. 전선관·배관·덕트를 고르면 선 그리기 ── */
   class ItemTool {
     constructor(category) {
       this.category = category;
@@ -868,11 +956,19 @@
       if (!def || def.line) return null;
       const mount = def.wall ? wallMount(ev, def.size * def.aspect) : null;
       if (mount) return { ...mount, def };
-      const p = App.snap.point(ev.world, { touch: ev.touch });
-      // 벽에 붙지 않는 기호(실외기 등)도 가장자리가 벽면 가까이면 벽면에 딱 붙임
-      const f = p.kind !== 'end' && App.snap.flush({ kind: def.kind, size: def.size, rotation: 0, x: 0, y: 0, type: 'item' }, p.x, p.y, null, ev.touch);
-      if (f) return { x: f.dx, y: f.dy, rotation: 0, def, snap: { x: f.dx, y: f.dy, kind: 'near' } };
-      return { x: p.x, y: p.y, rotation: 0, def, snap: p };
+      let p = App.snap.point(ev.world, { touch: ev.touch });
+      const ghost = { kind: def.kind, size: def.size, depth: def.depth, rotation: 0, x: 0, y: 0, type: 'item' };
+      // 등이 있는 가구(침대·소파·옷장 등)는 가까운 벽 쪽으로 등을 돌리고 그 벽면에 등을 붙임
+      const face = def.back && p.kind !== 'end' ? facingWall(p, Math.max(def.size, def.depth) * 0.75 + App.snap.radius(ev.touch)) : null;
+      if (face) {
+        ghost.rotation = face.rotation;
+        const shift = face.gap - App.model.TYPES.item.extent(ghost, face.n); // 등과 벽면 사이
+        p = { x: p.x - face.n.x * shift, y: p.y - face.n.y * shift, kind: 'near' };
+      }
+      // 벽에 붙지 않는 기호(실외기·가구 등)도 가장자리가 벽면 가까이면 벽면에 딱 붙임 (구석이면 옆 벽에도)
+      const f = p.kind !== 'end' && App.snap.flush(ghost, p.x, p.y, null, ev.touch);
+      if (f) p = { x: f.dx, y: f.dy, kind: 'near' };
+      return { x: p.x, y: p.y, rotation: ghost.rotation, def, snap: p };
     }
     hover(ev) {
       if (this.lineTool) return this.lineTool.hover(ev);
@@ -897,7 +993,12 @@
       if (!at) return;
       const it = App.model.TYPES.item.create(at, this.category, at.def, at.rotation, at.mount || null);
       App.doc.transact(`${at.def.kind} 놓기`, () => App.doc.add(it));
-      App.ui.toast(`${at.def.kind} 놓음`);
+      if (this.category === 'furn') {
+        App.selection.set([it.id]); // 가구는 놓은 뒤 바로 돌리기·크기·미세 이동을 할 수 있게
+        App.ui.toast(`${at.def.kind} 놓음 · 속성에서 돌리기·크기 조정`);
+      } else {
+        App.ui.toast(`${at.def.kind} 놓음`);
+      }
       if (!ev.touch) this.hover(ev);
     }
     cancel() {
@@ -913,7 +1014,7 @@
       if (this.lineTool) return this.lineTool.overlay(plan);
       const g = this.ghost;
       if (!g || this.press) return;
-      App.draw.previewItem(plan, { kind: g.def.kind, category: this.category, x: g.x, y: g.y, rotation: g.rotation, size: g.def.size });
+      App.draw.previewItem(plan, { kind: g.def.kind, category: this.category, x: g.x, y: g.y, rotation: g.rotation, size: g.def.size, depth: g.def.depth });
       if (g.snap) App.draw.snapMarker(plan, g.snap);
     }
   }
@@ -1127,9 +1228,10 @@
     select: () => new SelectTool(),
     wall: wallChain,
     line: () => lineChain(() => App.current.linePresetId),
-    dim: dimChain,
+    dim: () => new DimTool(),
     elec: () => new ItemTool('elec'),
     mech: () => new ItemTool('mech'),
+    furn: () => new ItemTool('furn'),
     zone: () => new ZoneTool(),
     text: () => new TextTool(),
     room: () => new RoomTool(),

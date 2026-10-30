@@ -6,7 +6,7 @@
   const $ = (sel) => document.querySelector(sel);
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-  const APP_VERSION = '1.0.2'; // sw.js의 VERSION과 같이 올림
+  const APP_VERSION = '1.1.0'; // sw.js의 VERSION과 같이 올림
   const LENGTHS = {
     gridSize: { label: '격자 간격', min: 1, max: 10000 },
     dimTextSize: { label: '치수 글자 크기', min: 10, max: 5000 },
@@ -93,6 +93,7 @@
         <h3 class="set-title">화면</h3>
         ${choice('theme', '색', [['light', '밝게'], ['dark', '어둡게'], ['auto', '기기 설정 따라']], '현장에서 밝은 햇빛 아래는 ‘밝게’, 실내·밤에는 ‘어둡게’가 눈이 덜 부십니다.')}
         ${toggle('showGrid', '격자 보이기')}
+        ${toggle('showRulers', '눈금자 보이기', '도면 위쪽과 왼쪽에 자 눈금을 표시합니다 (설정한 길이 단위)')}
         <div class="field-grid">${length('gridSize')}${length('dimTextSize')}</div>
         <p class="props-meta">격자는 확대할수록 잘게 나뉘어 가장 크게 확대하면 5mm 단위로 맞출 수 있습니다. 정확한 길이는 숫자로 입력하세요. 치수 글자는 화면에서 너무 작거나 커지지 않게 맞춥니다.</p>
       </section>

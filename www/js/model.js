@@ -12,6 +12,7 @@
     { id: 'arch', label: '건축' },
     { id: 'elec', label: '전기' },
     { id: 'mech', label: '설비' },
+    { id: 'furn', label: '가구' },
     { id: 'zone', label: '영역' },
     { id: 'memo', label: '메모' },
     { id: 'dim', label: '치수' },
@@ -331,12 +332,14 @@
       create(p, category, def, rotation = 0, mount = null) {
         return {
           ...base('item', category), category, kind: def.kind, x: p.x, y: p.y, rotation, size: def.size,
+          ...(def.depth ? { depth: def.depth } : {}), // 가구: 깊이를 따로 (폭·깊이를 각각 고칠 수 있게)
           ...App.catalog.itemDefaults(def),
           wallId: mount ? mount.wallId : null, t: mount ? mount.t : null, side: mount ? mount.side : null,
         };
       },
-      /** 화면에 그려지는 폭·깊이(mm). 멀리서 봐도 16px보다 작아지지 않음 */
+      /** 화면에 그려지는 폭·깊이(mm). 기호는 멀리서 봐도 16px보다 작아지지 않음. 가구는 늘 실제 크기 */
       dims(it) {
+        if (it.depth != null) return { w: it.size, h: it.depth };
         const def = App.catalog.itemDef(it.kind);
         const w = Math.max(it.size, minWorld(16));
         return { w, h: w * (def ? def.aspect : 1) };
@@ -349,7 +352,7 @@
       /** 가운데에서 방향 u(단위 벡터)로 실제 크기(화면 최소 크기 아님)의 가장자리까지 거리 */
       extent(it, u) {
         const def = App.catalog.itemDef(it.kind);
-        const w = it.size, h = it.size * (def ? def.aspect : 1);
+        const w = it.size, h = it.depth != null ? it.depth : it.size * (def ? def.aspect : 1);
         const a = (it.rotation * Math.PI) / 180;
         return (w / 2) * Math.abs(u.x * Math.cos(a) + u.y * Math.sin(a)) + (h / 2) * Math.abs(-u.x * Math.sin(a) + u.y * Math.cos(a));
       },

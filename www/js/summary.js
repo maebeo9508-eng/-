@@ -18,6 +18,7 @@
       { id: 'column', title: '기둥', unit: '개' },
       { id: 'elec', title: '전기', unit: '개' },
       { id: 'mech', title: '설비', unit: '개' },
+      { id: 'furn', title: '가구', unit: '개' },
       ...App.catalog.LINE_CATEGORIES.map((c) => ({ id: `line:${c}`, title: c, unit: 'm' })),
     ];
   }

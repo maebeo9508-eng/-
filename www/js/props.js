@@ -100,7 +100,8 @@
       },
     },
     item: {
-      size: { label: '기호 크기', min: 50, max: 5000, get: (it) => it.size, set: (it, v) => ({ size: v }) },
+      size: { label: '기호 크기', min: 50, max: 10000, get: (it) => it.size, set: (it, v) => ({ size: v }) },
+      depth: { label: '깊이', min: 50, max: 10000, get: (it) => it.depth, set: (it, v) => ({ depth: v }) },
       height: {
         label: '설치 높이 (비우면 천장)', min: 0, max: 20000, allowEmpty: true, emptyText: '천장',
         get: (it) => it.height, set: (it, v) => ({ height: v }),
@@ -492,9 +493,39 @@
     return kind ? App.catalog.itemDef(kind) : null;
   };
 
+  /** 가구: 종류, 규격, 폭·깊이, 회전, 위치 */
+  function furnForm() {
+    const single = els.length === 1;
+    const kind = commonText((e) => e.kind);
+    const def = kind ? App.catalog.itemDef(kind) : null;
+    const counts = {};
+    els.forEach((e) => { const k = App.catalog.itemLabel(e); counts[k] = (counts[k] || 0) + 1; });
+    const sizeKey = commonText((e) => `${e.size}x${e.depth}`);
+    const sizes = def && def.sizes ? def.sizes.map(([name, w, d]) => [`${w}x${d}`, `${name} · ${w}×${d}`]) : [];
+    const custom = sizeKey !== null && !sizes.some(([v]) => v === sizeKey);
+    return `
+      ${head('가구', single ? App.catalog.itemLabel(els[0]) : `${els.length}개 선택`)}
+      ${selectField('f-itemKind', '종류', App.catalog.ITEM_KINDS.furn.map((d) => [d.kind, d.kind]), kind)}
+      ${sizes.length ? selectField('f-furnSize', '규격', custom ? [[sizeKey, '직접 넣은 크기'], ...sizes] : sizes, sizeKey) : ''}
+      <div class="field-grid">
+        ${numberField('size', '폭')}
+        ${numberField('depth')}
+      </div>
+      ${selectField('f-rotation', '회전', [['0', '0°'], ['90', '90°'], ['180', '180°'], ['270', '270°']], commonText((e) => String(e.rotation)),
+        '<button type="button" class="btn" data-act="rotate">90° 돌리기</button>')}
+      ${single ? `<div class="field-group-label">가운데 위치</div><div class="field-grid">${numberField('x')}${numberField('y')}</div>` : ''}
+      <div class="stats">
+        ${single ? stat('방', roomName(els[0].room)) : Object.entries(counts).map(([k, n]) => stat(k, `${n}개`)).join('')}
+      </div>
+      <p class="props-meta">벽 가까이로 끌면 벽면에 딱 붙습니다. 아래 미세 이동 화살표로 1mm까지 맞출 수 있습니다.</p>
+      ${commonFields(single)}
+      ${deleteButton('가구')}`;
+  }
+
   function itemForm() {
     const single = els.length === 1;
     const cat = commonText((e) => e.category);
+    if (cat === 'furn') return furnForm();
     const kinds = cat ? App.catalog.ITEM_KINDS[cat].filter((d) => d.kind).map((d) => [d.kind, d.kind]) : [];
     const rotation = commonText((e) => String(e.rotation));
     const def = commonDef();
@@ -859,6 +890,7 @@
         if (def) {
           apply('종류 변경', () => ({
             kind: def.kind, size: def.size, gang: null, variant: null, circuits: null, ...App.catalog.itemDefaults(def),
+            ...(def.depth ? { depth: def.depth } : {}),
             ...(def.wall ? {} : { wallId: null, t: null, side: null }),
           }));
         }
@@ -883,6 +915,11 @@
         }
         showError(box, '');
         apply(`${o.label} 변경`, () => ({ [key]: r.value }));
+        return;
+      }
+      if (id === 'f-furnSize') {
+        const [w, d] = t.value.split('x').map(Number);
+        if (w > 0 && d > 0) apply('규격 변경', () => ({ size: w, depth: d }));
         return;
       }
       if (id === 'f-rotation') {

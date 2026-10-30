@@ -568,14 +568,153 @@
         seg(-w * 0.18, 0, w * 0.18, 0); seg(0, -h * 0.18, 0, h * 0.18);
         break;
       default:
+        if (furniture(ctx, kind, w, h, lw, seg, box, back)) break;
         circle(w / 2); back(); lw(1.6); ctx.stroke();
+    }
+  }
+
+  /** 가구 평면 기호 (기호 가운데 기준, 위쪽 -y가 등·벽 쪽). 가구 종류가 아니면 false */
+  function furniture(ctx, kind, w, h, lw, seg, box, back) {
+    const W = w / 2, H = h / 2, m = Math.min(w, h);
+    const rect = (x, y, ww, hh, r = 0) => {
+      ctx.beginPath();
+      if (r > 0 && ctx.roundRect) ctx.roundRect(x, y, ww, hh, Math.min(r, ww / 2, hh / 2));
+      else ctx.rect(x, y, ww, hh);
+    };
+    const ellipse = (x, y, rx, ry) => { ctx.beginPath(); ctx.ellipse(x, y, Math.max(rx, 0.01), Math.max(ry, 0.01), 0, 0, Math.PI * 2); };
+    const outline = () => { box(); back(); lw(1.3); ctx.stroke(); lw(0.9); };
+    switch (kind) {
+      case '침대': {
+        outline();
+        const hb = h * 0.05;
+        seg(-W, -H + hb, W, -H + hb); // 머리판
+        const n = w >= h * 0.65 ? 2 : 1;
+        const pw = (w - m * 0.12 * (n + 1)) / n;
+        for (let i = 0; i < n; i++) { rect(-W + m * 0.12 + i * (pw + m * 0.12), -H + hb + h * 0.03, pw, h * 0.12, h * 0.03); ctx.stroke(); }
+        const fold = -H + h * 0.3; // 이불 접힌 선
+        seg(-W, fold, W, fold);
+        seg(W - m * 0.28, fold, W, fold + m * 0.28);
+        return true;
+      }
+      case '소파': {
+        outline();
+        const br = h * 0.25, aw = Math.min(w * 0.12, h * 0.28);
+        rect(-W, -H, w, br); ctx.stroke();
+        rect(-W, -H + br, aw, h - br); ctx.stroke();
+        rect(W - aw, -H + br, aw, h - br); ctx.stroke();
+        const n = w >= h * 2 ? 3 : w >= h * 1.4 ? 2 : 1;
+        for (let i = 1; i < n; i++) { const x = -W + aw + ((w - aw * 2) * i) / n; seg(x, -H + br, x, H); }
+        return true;
+      }
+      case '식탁': {
+        const n = w >= h * 1.7 ? 3 : w >= h * 1.2 ? 2 : 1;
+        const cs = Math.min((w / n) * 0.6, h * 0.55);
+        for (const side of [-1, 1]) {
+          for (let i = 0; i < n; i++) {
+            const x = -W + ((i + 0.5) * w) / n;
+            const y = side < 0 ? -H - cs * 0.75 : H - cs * 0.25;
+            rect(x - cs / 2, y, cs, cs, cs * 0.15); back(); lw(0.9); ctx.stroke();
+            const by = side < 0 ? y + cs * 0.12 : y + cs * 0.88;
+            seg(x - cs * 0.4, by, x + cs * 0.4, by);
+          }
+        }
+        box(); back(); lw(1.3); ctx.stroke();
+        return true;
+      }
+      case '의자':
+        rect(-W, -H + h * 0.12, w, h * 0.88, m * 0.12); back(); lw(1.3); ctx.stroke();
+        rect(-W, -H, w, h * 0.22, m * 0.1); back(); ctx.stroke();
+        return true;
+      case '책상':
+        outline();
+        seg(-W, -H + h * 0.22, W, -H + h * 0.22);
+        rect(-w * 0.2, -H + h * 0.06, w * 0.4, h * 0.1); ctx.stroke(); // 모니터
+        return true;
+      case '옷장': {
+        outline();
+        ctx.setLineDash([m * 0.06, m * 0.05]);
+        seg(-W + m * 0.08, 0, W - m * 0.08, 0); // 옷걸이 봉
+        ctx.setLineDash([]);
+        const n = Math.max(3, Math.round(w / (m * 0.45)));
+        for (let i = 1; i < n; i++) { const x = -W + (w * i) / n; seg(x - m * 0.08, -m * 0.16, x + m * 0.08, m * 0.16); }
+        seg(-W, H - h * 0.08, W, H - h * 0.08); // 문
+        return true;
+      }
+      case '수납장':
+        outline();
+        seg(-W, -H, W, H); seg(-W, H, W, -H);
+        return true;
+      case 'TV장':
+        outline();
+        rect(-w * 0.35, -H + h * 0.12, w * 0.7, h * 0.16); ctx.fill(); // TV
+        return true;
+      case '냉장고':
+        outline();
+        seg(-W, H - h * 0.1, W, H - h * 0.1);
+        if (w >= h * 0.95) seg(0, -H, 0, H - h * 0.1); // 양문형
+        ctx.font = `600 ${m * 0.2}px system-ui, sans-serif`;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('냉장고', 0, -h * 0.05);
+        return true;
+      case '세탁기':
+        outline();
+        seg(-W, -H + h * 0.18, W, -H + h * 0.18);
+        ellipse(0, h * 0.08, m * 0.3, m * 0.3); ctx.stroke();
+        ellipse(0, h * 0.08, m * 0.18, m * 0.18); ctx.stroke();
+        return true;
+      case '싱크대': {
+        outline();
+        const bw = Math.min(w * 0.35, h * 1.3), bh = h * 0.62;
+        const cx = w > h * 2 ? -w * 0.12 : 0;
+        rect(cx - bw / 2, -bh / 2 + h * 0.04, bw, bh, bh * 0.2); ctx.stroke();
+        ellipse(cx, -H + h * 0.1, m * 0.04, m * 0.04); ctx.fill(); // 수전
+        if (w > h * 2) for (let i = 0; i < 2; i++) { ellipse(w * 0.22 + (i - 0.5) * h * 0.4, 0, h * 0.14, h * 0.14); ctx.stroke(); }
+        return true;
+      }
+      case '쿡탑': {
+        outline();
+        const r = Math.min(w / 4, h / 4) * 0.72;
+        for (const [x, y] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) { ellipse((x * w) / 4, (y * h) / 4, r, r); ctx.stroke(); }
+        return true;
+      }
+      case '변기':
+        rect(-W, -H, w, h * 0.24, m * 0.08); back(); lw(1.3); ctx.stroke(); // 물탱크
+        ellipse(0, -H + h * 0.24 + h * 0.38, W * 0.92, h * 0.37); back(); ctx.stroke();
+        lw(0.9); ellipse(0, -H + h * 0.24 + h * 0.4, W * 0.6, h * 0.24); ctx.stroke();
+        return true;
+      case '세면대':
+        rect(-W, -H, w, h, m * 0.12); back(); lw(1.3); ctx.stroke();
+        lw(0.9); ellipse(0, h * 0.08, W * 0.72, H * 0.6); ctx.stroke();
+        ellipse(0, -H + h * 0.14, m * 0.04, m * 0.04); ctx.fill();
+        return true;
+      case '욕조': {
+        outline();
+        const i = m * 0.09;
+        rect(-W + i, -H + i, w - i * 2, h - i * 2, h * 0.3); ctx.stroke();
+        ellipse(W - h * 0.28, 0, m * 0.04, m * 0.04); ctx.stroke(); // 배수구
+        return true;
+      }
+      case '샤워부스':
+        outline();
+        seg(-W, H, W, -H);
+        ellipse(0, 0, m * 0.06, m * 0.06); ctx.stroke();
+        return true;
+      case '신발장': {
+        outline();
+        const n = Math.min(5, Math.max(2, Math.round(w / (h * 1.2))));
+        for (let i = 1; i < n; i++) { const x = -W + (w * i) / n; seg(x, -H, x, H); }
+        seg(-W, H - h * 0.12, W, H - h * 0.12);
+        return true;
+      }
+      default:
+        return false;
     }
   }
 
   function itemShape(plan, it, color, alpha = 1) {
     const ctx = plan.ctx;
     const { w, h } = App.model.TYPES.item.dims(it);
-    const ink = color || (it.category === 'elec' ? plan.colors.elec : plan.colors.mech);
+    const ink = color || plan.colors[it.category] || plan.colors.mech;
     ctx.save();
     ctx.globalAlpha = alpha;
     ctx.translate(it.x, it.y);
@@ -1004,9 +1143,9 @@
     worldTransform(plan);
     itemShape(plan, it, plan.colors.accent, 0.75);
   }
-  function previewDim(plan, a, b) {
+  function previewDim(plan, a, b, offset = 0) {
     screenTransform(plan);
-    dimShape(plan, { start: a, end: b, offset: 0, manual: null }, plan.colors.accent);
+    dimShape(plan, { start: a, end: b, offset, manual: null }, plan.colors.accent);
   }
   /** 영역 그리는 중: 찍은 점들과 커서까지 */
   function previewZone(plan, points, color) {

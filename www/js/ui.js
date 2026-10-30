@@ -17,6 +17,7 @@
     { sep: true },
     { id: 'elec', label: '전기', key: 'E', stage: 5 },
     { id: 'mech', label: '설비', key: 'F', stage: 5 },
+    { id: 'furn', label: '가구', key: 'U', stage: 5 },
     { id: 'line', label: '선', key: 'L', stage: 5 },
     { sep: true },
     { id: 'zone', label: '영역', key: 'A', stage: 5 },
@@ -38,12 +39,25 @@
     column: { pc: '기둥을 놓을 곳을 클릭하세요', touch: '기둥을 놓을 곳을 누르세요' },
     elec: { pc: '위쪽 팔레트에서 기호를 고르고 클릭 · 콘센트·스위치는 벽 가까이면 벽면에 붙음', touch: '위쪽에서 기호를 고르고 누르세요 · 벽 가까이면 벽면에 붙음' },
     mech: { pc: '위쪽 팔레트에서 기호를 고르고 클릭 · 배관·덕트를 고르면 선 그리기', touch: '위쪽에서 기호를 고르고 누르세요 · 배관·덕트는 선 그리기' },
+    furn: { pc: '위쪽에서 가구를 고르고 클릭 · 벽 가까이 놓으면 등을 벽에 대고 붙음', touch: '위쪽에서 가구를 고르고 누르세요 · 벽 가까이면 등을 벽에 대고 붙음' },
     line: { pc: '끌거나 클릭으로 점을 이어 그립니다 · 기구 가운데·끝점에 붙음 · Esc: 끝내기', touch: '끌거나 점을 차례로 눌러 그립니다' },
     zone: { pc: '끌면 사각형, 클릭으로 점을 찍으면 다각형 · 처음 점을 다시 누르면 닫힘', touch: '끌면 사각형, 점을 차례로 누르면 다각형' },
     text: { pc: '글자를 넣을 곳을 클릭 · Enter로 확정, Shift+Enter 줄바꿈', touch: '글자를 넣을 곳을 누르고 입력하세요' },
-    dim: { pc: '잴 두 점을 차례로 클릭하거나 끌기', touch: '잴 두 점을 차례로 누르거나 끄세요' },
+    get dim() { return DIM_USAGE[App.current.dimMode] || DIM_USAGE.clear; },
     erase: { pc: '지울 항목을 클릭하거나 문지르세요', touch: '지울 항목을 누르거나 문지르세요' },
   };
+
+  // 치수 도구 방식별 사용법 (위쪽 칩에서 고름)
+  const DIM_USAGE = {
+    clear: { pc: '안목: 방 안을 클릭하면 가로·세로, 벽을 클릭하면 그 면 길이 · 끌면 두 점', touch: '안목: 방 안을 누르면 가로·세로, 벽을 누르면 그 면 길이' },
+    center: { pc: '벽 중심: 벽을 클릭하면 이어진 벽 중심까지 · 끌면 두 점', touch: '벽 중심: 벽을 누르면 이어진 벽 중심까지' },
+    free: { pc: '잴 두 점을 차례로 클릭하거나 끌기', touch: '잴 두 점을 차례로 누르거나 끄세요' },
+  };
+  const DIM_MODES = [
+    { id: 'clear', name: '안목 (면에서 면까지)', sub: '방 안을 누르면 가로·세로, 벽을 누르면 그 면 길이' },
+    { id: 'center', name: '벽 중심', sub: '벽을 누르면 이어진 벽 중심까지 길이' },
+    { id: 'free', name: '두 점 직접', sub: '잴 두 점을 차례로 누르기' },
+  ];
 
   const handlers = {};
   const ui = (App.ui = {
@@ -75,6 +89,7 @@
     dialog,
     busy,
     openLength,
+    closeTop,
   });
 
   /* ── 도구 바 ───────────────────────────── */
@@ -281,6 +296,7 @@
       dialogDone('cancel');
       return true;
     }
+    if (App.view3d && App.view3d.close()) return true;
     if (!$('#settingsModal').hidden) {
       App.settingsUI.close();
       return true;
@@ -407,6 +423,13 @@
           list: () => App.catalog.COLORS.map(([id, name]) => ({ id, name })),
           text: (c) => c.name, sub: () => '', swatch: (c) => c.id,
         };
+      case 'dim':
+        return {
+          label: '치수', key: 'dimMode',
+          list: () => DIM_MODES,
+          text: (m) => m.name, sub: (m) => m.sub,
+          actions: [{ act: 'dims-outside', label: '바깥 치수 한 번에 넣기 (벽 중심)' }],
+        };
       case 'text':
         return {
           label: '글자 크기', key: 'textSize',
@@ -445,13 +468,14 @@
         <button type="button" class="menu-item opt-item" role="menuitemradio" aria-checked="${item.id === App.current[o.key]}" data-id="${escHtml(item.id)}">
           <span class="opt-text"><b>${swatchHtml(o.swatch && o.swatch(item))}${escHtml(item.name)}</b>${o.sub(item) ? `<small>${escHtml(o.sub(item))}</small>` : ''}</span>
         </button>`).join('')}
-      ${o.edit ? '<div class="menu-sep" role="separator"></div><button type="button" class="menu-item" role="menuitem" data-act="edit">목록 편집…</button>' : ''}`;
+      ${o.edit ? '<div class="menu-sep" role="separator"></div><button type="button" class="menu-item" role="menuitem" data-act="edit">목록 편집…</button>' : ''}
+      ${o.actions ? `<div class="menu-sep" role="separator"></div>${o.actions.map((a) => `<button type="button" class="menu-item" role="menuitem" data-act="${escHtml(a.act)}">${escHtml(a.label)}</button>`).join('')}` : ''}`;
   }
 
-  /** 전기·설비 기호 팔레트 */
+  /** 전기·설비·가구 기호 팔레트 */
   function renderPalette() {
     const pal = $('#palette');
-    const cat = ui.tool === 'elec' || ui.tool === 'mech' ? ui.tool : null;
+    const cat = ['elec', 'mech', 'furn'].includes(ui.tool) ? ui.tool : null;
     pal.hidden = !cat;
     if (!cat) return;
     const current = App.current[`${cat}Kind`];
@@ -496,9 +520,13 @@
         updateToolOption();
         App.nav.refreshTool(false);
         App.plan.requestRender();
+        if (ui.tool === 'dim') hint(isTouch() ? DIM_USAGE[item.dataset.id].touch : DIM_USAGE[item.dataset.id].pc, 4000);
       } else if (e.target.closest('[data-act="edit"]')) {
         closeToolMenu();
         App.catalogUI.open(o.edit, App.current[o.key]);
+      } else if (e.target.closest('[data-act="dims-outside"]')) {
+        closeToolMenu();
+        App.dims.outside();
       }
     });
     document.addEventListener('pointerdown', (e) => {

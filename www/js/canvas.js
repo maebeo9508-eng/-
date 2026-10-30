@@ -8,6 +8,8 @@
   const MAX_SCALE = 4;     // px/mm. 1mm가 4px
   const GRID_MIN_PX = 6;   // 격자선 간격이 이보다 좁으면 10배 넓혀서 그림
   const GRID_FADE_PX = 14; // 가는 격자선이 완전히 진해지기까지의 간격 폭
+  const RULER_PX = 20;     // 눈금자 두께
+  const RULER_MAJOR_PX = 64; // 숫자를 적는 큰 눈금 사이가 이보다 넓게
 
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
   // 선 두께가 홀수 픽셀이면 0.5px 어긋나게 해야 흐려지지 않음
@@ -119,10 +121,14 @@
         glass: v('--glass'),
         elec: v('--elec'),
         mech: v('--mech'),
+        furn: v('--furn'),
         dim: v('--dim'),
         note: v('--note'),
         underlay: v('--underlay'),
         fg: v('--fg'),
+        surface: v('--surface'),
+        line: v('--line'),
+        muted: v('--fg-muted'),
       };
       this.requestRender();
     }
@@ -186,7 +192,89 @@
         fn(this);
         ctx.restore();
       }
+      if (this.rulerSize) this.drawRulers();
       for (const fn of this._renderHooks) fn(this);
+    }
+
+    /** 눈금자 두께(px). 설정에서 끄면 0 */
+    get rulerSize() {
+      return App.settings.showRulers ? RULER_PX : 0;
+    }
+
+    /** 위·왼쪽 눈금자: 설정 길이 단위로 큰 눈금마다 숫자. 확대·축소에 따라 1·2·5 간격으로 바뀜.
+        rulerHover(도면 좌표)가 있으면 그 자리를 표시 (PC 마우스 위치) */
+    drawRulers() {
+      const { ctx, view, dpr, colors } = this;
+      const W = this.width, H = this.height, R = RULER_PX;
+      const f = App.units.lengthFactor(); // 단위 하나가 몇 mm
+      const ppu = view.scale * f; // 단위 하나가 몇 px
+      const raw = RULER_MAJOR_PX / ppu;
+      const pow = 10 ** Math.floor(Math.log10(raw));
+      const n = raw / pow;
+      const major = (n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10) * pow;
+      const minor = [10, 5, 2].map((d) => major / d).find((m) => m * ppu >= 6) || major;
+      const digits = Math.max(0, Math.ceil(-Math.log10(major) - 1e-9));
+      const label = (v) => (Math.abs(v) < major / 1e6 ? 0 : v).toLocaleString('ko-KR', { maximumFractionDigits: digits });
+      const isMul = (v, m) => Math.abs(v / m - Math.round(v / m)) < 1e-6;
+
+      ctx.save();
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.fillStyle = colors.surface;
+      ctx.fillRect(0, 0, W, R);
+      ctx.fillRect(0, 0, R, H);
+      ctx.fillStyle = colors.muted;
+      ctx.strokeStyle = colors.muted;
+      ctx.font = '10px system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif';
+      ctx.textBaseline = 'top';
+      ctx.lineWidth = 1;
+      // 한 축의 눈금: from~to px 구간, toPx(값) → px, tick(px, 길이), text(px, 글자)
+      const axis = (fromPx, toPx, world0, world1, toScreen, tick, text) => {
+        const a = Math.min(world0, world1) / f, b = Math.max(world0, world1) / f;
+        ctx.beginPath();
+        for (let i = Math.ceil(a / minor); i * minor <= b; i++) {
+          const v = i * minor;
+          const p = Math.round(toScreen(v * f)) + 0.5;
+          if (p < fromPx || p > toPx) continue;
+          const big = isMul(v, major);
+          tick(p, big ? R : isMul(v, major / 2) ? R * 0.45 : R * 0.25);
+          if (big) text(p, label(v));
+        }
+        ctx.stroke();
+      };
+      axis(R, W, view.toWorld(R, 0).x, view.toWorld(W, 0).x, (x) => x * view.scale + view.ox,
+        (p, len) => { ctx.moveTo(p, R); ctx.lineTo(p, R - len); },
+        (p, t) => { if (p + 3 + ctx.measureText(t).width < W) ctx.fillText(t, p + 3, 2); });
+      axis(R, H, view.toWorld(0, R).y, view.toWorld(0, H).y, (y) => y * view.scale + view.oy,
+        (p, len) => { ctx.moveTo(R, p); ctx.lineTo(R - len, p); },
+        (p, t) => {
+          if (p - 3 - ctx.measureText(t).width < R) return; // 모서리 칸에 가리면 생략
+          ctx.save(); ctx.translate(2, p - 3); ctx.rotate(-Math.PI / 2); ctx.fillText(t, 0, 0); ctx.restore();
+        });
+      // 테두리와 모서리 칸(단위)
+      ctx.beginPath();
+      ctx.moveTo(R, R - 0.5); ctx.lineTo(W, R - 0.5);
+      ctx.moveTo(R - 0.5, R); ctx.lineTo(R - 0.5, H);
+      ctx.strokeStyle = colors.line;
+      ctx.stroke();
+      ctx.fillStyle = colors.surface;
+      ctx.fillRect(0, 0, R, R);
+      ctx.fillStyle = colors.muted;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = '9px system-ui, sans-serif';
+      ctx.fillText(App.units.lengthLabel(), R / 2, R / 2);
+      // 마우스 위치
+      const h = this.rulerHover;
+      if (h) {
+        const s = view.toScreen(h.x, h.y);
+        ctx.strokeStyle = colors.accent;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        if (s.x > R) { ctx.moveTo(s.x, 0); ctx.lineTo(s.x, R); }
+        if (s.y > R) { ctx.moveTo(0, s.y); ctx.lineTo(R, s.y); }
+        ctx.stroke();
+      }
+      ctx.restore();
     }
 
     /** 지금 배율에서 그릴 격자 간격(mm). 확대하면 붙는 간격과 같이 잘게, 너무 촘촘하면 10배씩 넓힌다 */

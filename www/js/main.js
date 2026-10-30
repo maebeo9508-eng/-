@@ -11,6 +11,7 @@
     runUnit: 'm',         // 배관·전선관 길이: 'm' 고정 또는 'unit' 길이 단위 따름
     gridSize: 100,
     showGrid: true,
+    showRulers: false,    // 위·왼쪽 눈금자
     snapGrid: true,
     snapEnd: true,
     snapMid: true,
@@ -67,15 +68,31 @@
     const n = raw / pow;
     const len = (n >= 5 ? 5 : n >= 2 ? 2 : 1) * pow;
     scaleBar.style.width = len * scale + 'px';
-    scaleLabel.textContent = App.units.formatLength(len);
+    // 단위가 m 등일 때 0.2처럼 작은 값도 보이게 (소수점 설정보다 필요한 만큼 더)
+    const v = len / App.units.lengthFactor();
+    const digits = Math.max(App.settings.decimals, Math.ceil(-Math.log10(v) - 1e-9), 0);
+    scaleLabel.textContent = `${v.toLocaleString('ko-KR', { maximumFractionDigits: digits })} ${App.units.lengthLabel()}`;
   });
 
-  // 마우스 위치 좌표 (PC)
+  // 마우스 위치 좌표 (PC). 눈금자에도 표시
   const coords = document.getElementById('coords');
   nav.onHover((w) => {
     coords.hidden = !w;
     if (w) coords.textContent = `X ${App.units.formatLength(w.x, false)}  Y ${App.units.formatLength(w.y)}`;
+    if (plan.rulerSize || plan.rulerHover) {
+      plan.rulerHover = w;
+      plan.requestRender();
+    }
   });
+
+  // 눈금자: 켜면 위쪽 버튼 묶음과 축척 표시가 자 안쪽으로 비켜남
+  const stage = document.getElementById('stage');
+  const applyRulers = () => {
+    stage.classList.toggle('has-rulers', !!plan.rulerSize);
+    plan.insets.left = plan.rulerSize;
+    plan.requestRender();
+  };
+  App.ui.on('settings', applyRulers);
 
   // 모바일 서랍이 캔버스 아래쪽을 덮는 만큼 화면 맞춤에서 피함
   App.ui.on('sheet', (h) => {
@@ -105,11 +122,13 @@
   const setTopInset = () => {
     plan.insets.top = stageTop.offsetTop + stageTop.offsetHeight;
   };
+  document.getElementById('btn3d').addEventListener('click', () => App.view3d.open());
   document.getElementById('btnFit').addEventListener('click', () => {
     setTopInset();
     plan.fitToContent();
   });
 
+  applyRulers();
   plan.resize();
   setTopInset();
   App.projects.init(); // 마지막에 열었던 도면과 화면 위치를 불러옴 (처음이면 새 도면, 화면 맞춤)

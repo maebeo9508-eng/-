@@ -30,6 +30,10 @@
     lengthLabel() {
       return unit().label;
     },
+    /** 길이 단위 하나가 몇 mm인지 (눈금자 등) */
+    lengthFactor() {
+      return unit().factor;
+    },
     areaLabel() {
       return areaUnit().label;
     },

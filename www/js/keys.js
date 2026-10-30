@@ -10,6 +10,10 @@
     document.addEventListener('keydown', (e) => {
       if (isTyping(e.target)) return;
       if (!document.getElementById('dialog').hidden) return; // 확인 창이 떠 있으면 그 창의 키만
+      if (App.view3d && App.view3d.isOpen()) { // 3D 보기 중에는 도면 단축키를 쓰지 않음
+        if (e.key === 'Escape') App.view3d.close();
+        return;
+      }
       const ctrl = e.ctrlKey || e.metaKey;
 
       if (ctrl && !e.altKey) {

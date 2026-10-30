@@ -86,7 +86,30 @@
       { line: '배관' },
       { line: '덕트' },
     ],
+    /* 가구: 실제 크기(폭 size × 깊이 depth, mm)로 그림. 기호의 위쪽(-y)이 등(벽 쪽).
+       back: 벽 가까이 놓으면 등을 벽에 대고 붙음, sizes: 규격 [이름, 폭, 깊이], h3: 3D 보기 높이 */
+    furn: [
+      { kind: '침대', size: 1500, depth: 2000, h3: 450, back: true, sizes: [['싱글', 1000, 2000], ['슈퍼싱글', 1100, 2000], ['더블', 1400, 2000], ['퀸', 1500, 2000], ['킹', 1600, 2000]] },
+      { kind: '소파', size: 2000, depth: 850, h3: 800, back: true, sizes: [['1인', 900, 850], ['2인', 1500, 850], ['3인', 2000, 850]] },
+      { kind: '식탁', size: 1200, depth: 800, h3: 750, sizes: [['2인', 800, 700], ['4인', 1200, 800], ['6인', 1600, 900]] },
+      { kind: '의자', size: 450, depth: 450, h3: 850 },
+      { kind: '책상', size: 1200, depth: 600, h3: 730, back: true, sizes: [['1000', 1000, 600], ['1200', 1200, 600], ['1400', 1400, 700]] },
+      { kind: '옷장', size: 1200, depth: 600, h3: 2100, back: true, sizes: [['800', 800, 600], ['1200', 1200, 600], ['1800', 1800, 600], ['2400', 2400, 600]] },
+      { kind: '수납장', size: 800, depth: 400, h3: 900, back: true },
+      { kind: 'TV장', size: 1800, depth: 400, h3: 450, back: true },
+      { kind: '냉장고', size: 900, depth: 900, h3: 1800, back: true, sizes: [['일반', 700, 750], ['양문형', 900, 900]] },
+      { kind: '세탁기', size: 700, depth: 700, h3: 1000, back: true },
+      { kind: '싱크대', size: 2400, depth: 600, h3: 850, back: true, sizes: [['1800', 1800, 600], ['2400', 2400, 600], ['3000', 3000, 600]] },
+      { kind: '쿡탑', size: 600, depth: 520, h3: 850, back: true },
+      { kind: '변기', size: 400, depth: 700, h3: 750, back: true },
+      { kind: '세면대', size: 600, depth: 450, h3: 850, back: true },
+      { kind: '욕조', size: 1500, depth: 750, h3: 550, back: true, sizes: [['1400', 1400, 700], ['1500', 1500, 750], ['1700', 1700, 750]] },
+      { kind: '샤워부스', size: 900, depth: 900, h3: 2000 },
+      { kind: '신발장', size: 1000, depth: 380, h3: 1200, back: true },
+    ],
   };
+  // 가구는 높이 0(바닥)에 놓이고, 기호 비율은 깊이 ÷ 폭
+  ITEM_KINDS.furn.forEach((d) => { d.aspect = d.depth / d.size; d.height = 0; });
   const LINE_CATEGORIES = ['전선관', '배관', '덕트', '기타'];
   const COLORS = [
     ['#e03131', '빨강'], ['#c2255c', '자홍'], ['#e8590c', '주황'], ['#f08c00', '노랑'], ['#2f9e44', '초록'],
@@ -106,7 +129,7 @@
     COLORS,
 
     itemDef(kind) {
-      return [...ITEM_KINDS.elec, ...ITEM_KINDS.mech].find((d) => d.kind === kind) || null;
+      return [...ITEM_KINDS.elec, ...ITEM_KINDS.mech, ...ITEM_KINDS.furn].find((d) => d.kind === kind) || null;
     },
     /** 종류의 기본 속성값 (설치 높이, 구수·형식, 회로 수) */
     itemDefaults(def) {
@@ -117,6 +140,7 @@
     },
     /** 집계용 이름: '콘센트 2구 · 일반(접지)', '분전반 12회로' */
     itemLabel(it) {
+      if (it.category === 'furn') return `${it.kind} ${num(it.size)}×${num(it.depth)}`;
       const parts = [it.kind + (it.gang ? ` ${it.gang}` : '') + (it.circuits ? ` ${it.circuits}회로` : '')];
       if (it.variant) parts.push(it.variant);
       return parts.join(' · ');
@@ -201,8 +225,10 @@
       });
       if (!cur.elecKind) cur.elecKind = '콘센트';
       if (!cur.mechKind) cur.mechKind = '에어컨 실내기';
+      if (!cur.furnKind) cur.furnKind = '침대';
       if (!cur.zoneColor) cur.zoneColor = '#7048e8'; // 선택 표시(주황)·방 바닥(파랑)과 헷갈리지 않는 보라
       if (!cur.textSize) cur.textSize = '200';
+      if (!['clear', 'center', 'free'].includes(cur.dimMode)) cur.dimMode = 'clear';
     },
 
     /** 이번 변경에 들어 있는 요소 종류들 */
