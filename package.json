@@ -1,6 +1,6 @@
 {
   "name": "hyeonjang-domyeon",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "private": true,
   "description": "현장도면 · 물량 집계 (www/ 폴더의 웹앱을 Capacitor로 안드로이드 앱으로 감쌈)",
   "license": "GPL-3.0-or-later",

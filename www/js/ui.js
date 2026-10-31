@@ -428,7 +428,12 @@
           label: '치수', key: 'dimMode',
           list: () => DIM_MODES,
           text: (m) => m.name, sub: (m) => m.sub,
-          actions: [{ act: 'dims-outside', label: '바깥 치수 한 번에 넣기 (벽 중심)' }],
+          actions: [
+            { act: 'dims-outside-clear', label: '바깥 치수 한 번에 · 안목 (내벽에서 내벽까지)' },
+            { act: 'dims-outside', label: '바깥 치수 한 번에 · 벽 중심' },
+            { act: 'dims-rooms', label: '방마다 안목 한 번에 (가로·세로)' },
+            { act: 'wall-lengths', label: App.settings.showWallLengths ? '벽 길이 글자 숨기기' : '벽 길이 글자 보이기' },
+          ],
         };
       case 'text':
         return {
@@ -524,9 +529,23 @@
       } else if (e.target.closest('[data-act="edit"]')) {
         closeToolMenu();
         App.catalogUI.open(o.edit, App.current[o.key]);
-      } else if (e.target.closest('[data-act="dims-outside"]')) {
+      } else {
+        const act = e.target.closest('[data-act]');
+        const run = act && {
+          'dims-outside-clear': () => App.dims.outside('clear'),
+          'dims-outside': () => App.dims.outside('center'),
+          'dims-rooms': () => App.dims.rooms(),
+          'wall-lengths': () => {
+            App.settings.showWallLengths = !App.settings.showWallLengths;
+            App.saveSettings();
+            ui.emit('settings');
+            App.plan.requestRender();
+            toast(App.settings.showWallLengths ? '벽 길이 글자를 다시 보입니다.' : '벽 길이 글자를 숨겼습니다. 설정 → 화면에서도 바꿀 수 있습니다.');
+          },
+        }[act.dataset.act];
+        if (!run) return;
         closeToolMenu();
-        App.dims.outside();
+        run();
       }
     });
     document.addEventListener('pointerdown', (e) => {

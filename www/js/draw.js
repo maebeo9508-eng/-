@@ -118,7 +118,7 @@
     items.forEach((it) => itemShape(plan, it, markColor(it)));
 
     screenTransform(plan);
-    drawWallLabels(plan, walls);
+    if (App.settings.showWallLengths) drawWallLabels(plan, walls);
     drawRoomLabels(plan, rooms);
     drawZoneLabels(plan, zones);
     dims.forEach((d) => dimShape(plan, d, markColor(d)));

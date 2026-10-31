@@ -12,6 +12,7 @@
     gridSize: 100,
     showGrid: true,
     showRulers: false,    // 위·왼쪽 눈금자
+    showWallLengths: true, // 벽마다 중심선 길이 글자 (치수를 넣었으면 꺼서 깔끔하게)
     snapGrid: true,
     snapEnd: true,
     snapMid: true,

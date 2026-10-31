@@ -3,7 +3,9 @@
    - 안목: 빈 곳(방 안)을 누르면 그 자리에서 가로·세로로 양쪽 벽 면까지.
            벽을 누르면 누른 쪽 면을 따라 양쪽에 붙은 벽 면까지 (붙은 벽이 없으면 그 면 끝까지)
    - 벽 중심: 벽을 누르면 그 벽 중심선에서 이어진 벽 중심(또는 벽 끝)까지, 벽 바깥쪽에 표시
-   - 바깥 치수: 도면 네 바깥쪽에 벽 중심 사이 연속 치수와 전체 치수. 다시 넣으면 새로 맞춤 */
+   - 바깥 치수: 도면 네 바깥쪽에 연속 치수와 전체 치수. 안목(내벽에서 내벽까지, 벽 두께만큼 끊김)이나 벽 중심.
+     다시 넣으면 새로 맞춤
+   - 방마다 안목: 모든 방에 가로·세로 안목을 한 번에 */
 (function () {
   'use strict';
   const App = (window.App = window.App || {});
@@ -176,7 +178,9 @@
     { dir: { x: 1, y: 0 }, horiz: false },  // 오른쪽
   ];
 
-  function outsideSpecs(list) {
+  /** 바깥 치수 목록. mode 'clear': 방마다 내벽 면에서 내벽 면까지(벽 두께만큼 끊김) + 바깥 면 전체,
+      'center': 벽 중심 사이 + 중심 전체 */
+  function outsideSpecs(list, mode) {
     const isH = (w) => Math.abs(w.end.y - w.start.y) < 0.5;
     const isV = (w) => Math.abs(w.end.x - w.start.x) < 0.5;
     const box = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
@@ -195,54 +199,94 @@
         return rayHit(add(m, dir, w.thickness / 2 + 1), dir, list, w.id) === Infinity;
       }));
       if (!exposed.length) return;
-      const pos = [];
+      // 끊는 자리: 드러난 벽의 양 끝과 그 벽에 끝이 닿은 직각 방향 벽들 (중심 위치와 두께)
+      const stops = [];
+      const addStop = (pos, th) => {
+        const s0 = stops.find((x) => Math.abs(x.pos - pos) <= 1);
+        if (s0) s0.th = Math.max(s0.th, th);
+        else stops.push({ pos, th });
+      };
       exposed.forEach((w) => {
         const lo = Math.min(along(w.start), along(w.end)), hi = Math.max(along(w.start), along(w.end));
-        pos.push(lo, hi);
-        // 이 벽에 끝이 닿은 직각 방향 벽들의 중심 위치
+        addStop(lo, 0);
+        addStop(hi, 0);
         list.forEach((o) => {
           if (!(horiz ? isV(o) : isH(o))) return;
           [o.start, o.end].forEach((q) => {
-            if (Math.abs(across(q) - across(w.start)) <= 1 && along(q) >= lo - 1 && along(q) <= hi + 1) pos.push(along(q));
+            if (Math.abs(across(q) - across(w.start)) <= 1 && along(q) >= lo - 1 && along(q) <= hi + 1) addStop(along(q), o.thickness);
           });
         });
       });
-      pos.sort((x, y) => x - y);
-      const stops = pos.filter((v, i) => i === 0 || v - pos[i - 1] > 1);
+      stops.sort((x, y) => x.pos - y.pos);
       if (stops.length < 2) return;
       // 치수를 재는 점은 도면 바깥 테두리 위, 치수선은 그 바깥으로
       const edge = horiz ? (dir.y < 0 ? box.minY : box.maxY) : (dir.x < 0 ? box.minX : box.maxX);
       const pt = (v) => (horiz ? { x: v, y: edge } : { x: edge, y: v });
-      for (let i = 0; i + 1 < stops.length; i++) {
-        const a = pt(stops[i]), b = pt(stops[i + 1]);
-        specs.push({ start: a, end: b, offset: offsetToward(a, b, dir, gap) });
-      }
-      if (stops.length > 2) {
-        const a = pt(stops[0]), b = pt(stops[stops.length - 1]);
-        specs.push({ start: a, end: b, offset: offsetToward(a, b, dir, gap * 2) });
+      const push = (v0, v1, k) => {
+        if (v1 - v0 < 1) return;
+        const a = pt(v0), b = pt(v1);
+        specs.push({ start: a, end: b, offset: offsetToward(a, b, dir, gap * k) });
+      };
+      const first = stops[0], last = stops[stops.length - 1];
+      if (mode === 'clear') {
+        for (let i = 0; i + 1 < stops.length; i++) push(stops[i].pos + stops[i].th / 2, stops[i + 1].pos - stops[i + 1].th / 2, 1);
+        push(first.pos - first.th / 2, last.pos + last.th / 2, 2); // 바깥 면에서 바깥 면까지 전체
+      } else {
+        for (let i = 0; i + 1 < stops.length; i++) push(stops[i].pos, stops[i + 1].pos, 1);
+        if (stops.length > 2) push(first.pos, last.pos, 2);
       }
     });
     return specs;
   }
 
-  /** 바깥 치수를 (다시) 넣음. 전에 넣은 바깥 치수는 지우고 새로. 한 묶음으로 골라짐 */
-  function outside() {
+  /** 자동 치수 묶음을 (다시) 넣음: 같은 표시(auto)로 전에 넣은 것은 지우고 새로. 한 묶음으로 골라짐 */
+  function replaceAuto(auto, specs, label) {
+    const old = [...App.doc.all()].filter((e) => e.type === 'dim' && e.auto === auto).map((e) => e.id);
+    App.doc.begin(label);
+    old.forEach((id) => App.doc.remove(id));
+    const T = App.model.TYPES.dim;
+    specs.forEach((s) => App.doc.add({ ...T.create(s.start, s.end), offset: s.offset || 0, auto, group: `dims-${auto}` }));
+    App.doc.commit();
+    App.selection.prune();
+  }
+
+  /** 바깥 치수를 (다시) 넣음. mode 'clear'(안목, 내벽~내벽) | 'center'(벽 중심) */
+  function outside(mode = 'center') {
     const list = walls();
-    const specs = list.length ? outsideSpecs(list) : [];
+    const specs = list.length ? outsideSpecs(list, mode) : [];
     if (!specs.length) {
       App.ui.toast(list.length ? '가로·세로 벽이 없어 바깥 치수를 넣지 못했습니다.' : '벽을 먼저 그리세요. 바깥 치수는 벽을 기준으로 넣습니다.');
       return 0;
     }
-    const old = [...App.doc.all()].filter((e) => e.type === 'dim' && e.auto === AUTO).map((e) => e.id);
-    App.doc.begin('바깥 치수');
-    old.forEach((id) => App.doc.remove(id));
-    const T = App.model.TYPES.dim;
-    specs.forEach((s) => App.doc.add({ ...T.create(s.start, s.end), offset: s.offset, auto: AUTO, group: 'dims-outside' }));
-    App.doc.commit();
-    App.selection.prune();
-    App.ui.toast(`바깥 치수 ${specs.length}개를 넣었습니다. 벽을 고친 뒤 다시 누르면 새로 맞춥니다.`);
+    replaceAuto(AUTO, specs, mode === 'clear' ? '바깥 치수 (안목)' : '바깥 치수 (벽 중심)');
+    App.ui.toast(`바깥 치수(${mode === 'clear' ? '안목: 내벽에서 내벽까지' : '벽 중심'}) ${specs.length}개를 넣었습니다. 벽을 고친 뒤 다시 누르면 새로 맞춥니다.`);
     return specs.length;
   }
 
-  App.dims = { at, create, outside, rayHit };
+  /** 방마다 안목(가로·세로)을 한 번에. 방 안 한 점에서 양쪽 벽 면까지, 다시 넣으면 새로 맞춤 */
+  function rooms() {
+    const list = walls();
+    const rs = [...App.doc.all()].filter((e) => e.type === 'room' && App.layers.visible(e));
+    if (!list.length || !rs.length) {
+      App.ui.toast('방이 없습니다. 방 도구로 벽에 둘러싸인 곳을 눌러 방을 먼저 만드세요.');
+      return 0;
+    }
+    const scale = App.plan.view.scale;
+    const specs = [];
+    rs.forEach((r) => {
+      const xs = r.points.map((q) => q.x), ys = r.points.map((q) => q.y);
+      const minSide = Math.min(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
+      const shift = G.clamp(Math.max(40 / scale, minSide * 0.15), 60, 1500);
+      specs.push(...spaceSpans(G.interiorPoint(r.points), list, shift));
+    });
+    if (!specs.length) {
+      App.ui.toast('방 안에서 양쪽 벽을 찾지 못해 안목을 넣지 못했습니다.');
+      return 0;
+    }
+    replaceAuto('rooms', specs, '방 안목 치수');
+    App.ui.toast(`방 ${rs.length}곳에 안목 치수 ${specs.length}개를 넣었습니다. 다시 누르면 새로 맞춥니다.`);
+    return specs.length;
+  }
+
+  App.dims = { at, create, outside, rooms, rayHit };
 })();
