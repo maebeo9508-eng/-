@@ -13,8 +13,8 @@ G.Main = (function () {
     V.w = window.innerWidth;
     V.h = window.innerHeight;
     V.dpr = Math.min(2, window.devicePixelRatio || 1);
-    // 세로 화면에서는 가로 320 단위, 가로 화면에서는 세로 400 단위가 보이도록
-    V.scale = Math.min(V.w / 320, V.h / 400);
+    // 세로 화면에서는 가로 280 단위, 가로 화면에서는 세로 380 단위가 보이도록 (무기 휘두르는 모습이 잘 보이게 조금 가깝게)
+    V.scale = Math.min(V.w / 280, V.h / 380);
     V.vw = V.w / V.scale;
     V.vh = V.h / V.scale;
     canvas.width = Math.round(V.w * V.dpr);
@@ -29,9 +29,7 @@ G.Main = (function () {
     t += dt;
     G.Input.update();
     if (screen === 'run' && G.Run.st) {
-      // 배속: 한 프레임에 여러 번 나눠서 진행 (충돌이 빠지지 않게)
-      const steps = G.Run.st.speed || 1;
-      for (let i = 0; i < steps && G.Run.st; i++) G.Run.update(dt);
+      G.Run.update(dt);
       if (G.Run.st) G.Scene.drawRun(ctx, G.Run.st, t);
     } else {
       const panel = $('panel');
@@ -58,6 +56,21 @@ G.Main = (function () {
     G.Save.persist();
   }
 
+  // 함께하는 주인공마다 주 무기가 하나씩은 있도록 (예전 저장 포함)
+  function ensureHeroWeapons() {
+    const s = G.Save.data;
+    let added = false;
+    for (const k in s.comps.owned) {
+      const h = G.HEROES[k];
+      if (!h || s.inv.some((it) => it.slot === 'weapon' && it.wtype === h.weapon)) continue;
+      const w = G.Loot.makeItem('weapon', Math.max(1, Math.min(s.best, 100)), 0, { wtype: h.weapon });
+      w.isNew = false;
+      s.inv.push(w);
+      added = true;
+    }
+    if (added) G.Save.persist();
+  }
+
   function devBoost() {
     const s = G.Save.data;
     if (s.devDone) return;
@@ -65,11 +78,10 @@ G.Main = (function () {
     s.gold += 500000; s.gems += 5000; s.shards += 3000;
     s.checkpoint = Math.max(s.checkpoint, 90);
     s.best = Math.max(s.best, 90);
-    for (const k in G.COMPANIONS) s.comps.owned[k] = s.comps.owned[k] || 1;
+    for (const k in G.HEROES) s.comps.owned[k] = s.comps.owned[k] || 1;
     for (const k in G.PETS) s.pets.owned[k] = s.pets.owned[k] || 1;
     for (let i = 1; i <= 9; i++) s.cleared[i] = true;
     s.chapters = 12;
-    s.comps.team = ['gombang', 'tobi', 'pengpeng'];
     for (const sl of G.SLOTS) {
       const it = G.Loot.makeItem(sl, 60, 4);
       s.inv.push(it);
@@ -116,7 +128,8 @@ G.Main = (function () {
     ctx = canvas.getContext('2d');
     G.Save.load();
     newGame();
-    if (G.dev) devBoost();
+    ensureHeroWeapons();
+    if (G.dev) { devBoost(); ensureHeroWeapons(); }
     G.Assets.load();
     G.Input.init(canvas);
     G.UI.init();
@@ -124,14 +137,11 @@ G.Main = (function () {
     G.Input.onKey = (code) => {
       if (G.UI.onKey(code)) return;
       if (screen !== 'run' || !G.Run.st || G.UI.modalOpen()) return;
-      const st = G.Run.st;
       if (code === 'Space' || code === 'ShiftLeft') G.Player.dash();
-      else if (code === 'KeyQ' || code === 'KeyJ') G.Player.skill(0);
+      else if (code === 'KeyQ') G.Player.skill();
+      else if (code === 'KeyE') G.Player.ult();
       else if (code === 'KeyR') G.Player.potion();
       else if (code === 'KeyP') G.UI.pause();
-      else if (code === 'KeyT') G.Actions.toggleAuto();
-      else if (code === 'KeyF') G.Actions.toggleSpeed();
-      else if (/^Digit[1-4]$/.test(code)) { const u = G.HUD.units(st)[+code.slice(5) - 1]; if (u) G.Team.useUlt(u); }
     };
     window.addEventListener('resize', resize);
     document.addEventListener('visibilitychange', () => {
@@ -145,7 +155,7 @@ G.Main = (function () {
     requestAnimationFrame((n) => { last = n; loop(n); });
   }
 
-  return { boot, toCamp, startRun, startFromTitle, newGame, get screen() { return screen; } };
+  return { boot, toCamp, startRun, startFromTitle, newGame, ensureHeroWeapons, get screen() { return screen; } };
 })();
 
 G.Actions.titleStart = () => G.Main.startFromTitle();

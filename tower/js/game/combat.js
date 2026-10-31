@@ -12,12 +12,12 @@ G.Combat = (function () {
     const def = isBoss ? G.BOSSES[type] : G.MONSTERS[type];
     const S = G.S(st.floor);
     const elite = !!opts.elite;
-    const hpMul = (elite ? 5 : 1) * (opts.hpMul || 1) * (G.isEndless(st.floor) ? 1.25 : 1) * (st.teamHp || 1) * (isBoss ? st.teamBoss || 1 : 1);
+    const hpMul = (elite ? 5 : 1) * (opts.hpMul || 1) * (G.isEndless(st.floor) ? 1.25 : 1);
     const e = {
       id: U.uid(), type, def, name: def.name, boss: isBoss, elite,
       x, y, r: def.r * (elite ? 1.45 : 1) * (opts.small ? 0.75 : 1),
       maxHp: def.hp * S * hpMul * (opts.small ? 0.5 : 1),
-      atk: def.atk * S * 1.35 * (elite ? 1.35 : 1) * (st.teamAtk || 1),
+      atk: def.atk * S * 1.35 * (elite ? 1.35 : 1),
       spd: def.spd * (elite ? 1.05 : 1) * (1 + 0.025 * (G.stageOf(st.floor).id - 1)),
       ai: isBoss ? 'boss' : def.ai,
       look: def.look,
@@ -41,7 +41,7 @@ G.Combat = (function () {
   }
 
   // ── 플레이어 → 적 ──────────────────────────────────────
-  // o: { proc: 원소 효과 적용, skill: 스킬 피해, ally: 동료/펫 피해, color, noCrit, knock: [x,y,세기] }
+  // o: { proc: 원소 효과 적용, skill: 스킬 피해, ally: 펫·분신·포탑 피해, color, noCrit, knock: [x,y,세기] }
   function hitEnemy(e, dmg, o) {
     o = o || {};
     if (e.dead || e.burrowed || e.spawnT > 0 || e.invuln) return 0;
@@ -51,6 +51,7 @@ G.Combat = (function () {
     if (o.skill) d *= 1 + rs.skillDmg;
     if (o.ally) d *= 1 + rs.allyDmg;
     if (e.frozenT > 0) d *= 1.2;
+    if (rs.execute && e.hp < e.maxHp * 0.3) d *= 1 + rs.execute;
     let crit = false;
     if (!o.noCrit && Math.random() < rs.crit) { crit = true; d *= rs.critDmg; }
     e.hp -= d;
@@ -69,12 +70,14 @@ G.Combat = (function () {
       G.Sfx.play('hit');
     }
     st.gained.dmg += d;
-    // 궁극기 충전: 동료는 때릴수록 게이지가, 모찌는 때릴수록 쿨다운이 줄어듦
-    if (o.unit && o.unit.ult != null && !o.skill) o.unit.ult = Math.min(1, o.unit.ult + 0.012);
-    if (!o.ally && !o.skill && st.skillCd[0] > 0) st.skillCd[0] = Math.max(0, st.skillCd[0] - 0.04);
+    const p = st.player;
+    const mine = !o.ally && !o.skill && !o.chain;
+    // 필살기 충전: 직접 때릴수록 게이지가 차요
+    if (mine && !p.dead) p.ult = Math.min(1, p.ult + 0.02 * rs.ultRate * (G.HEROES[p.hero] ? G.HEROES[p.hero].ult.charge : 1));
     // 흡혈 (한 번에 최대 체력 3%까지)
-    if (!o.ally && rs.vamp > 0) heal(Math.min(st.player.maxHp * 0.03, d * rs.vamp), false);
+    if (!o.ally && rs.vamp > 0) heal(Math.min(p.maxHp * 0.03, d * rs.vamp), false);
     if (o.proc) procs(e, d, o);
+    if (mine) onHitFx(e, d, o, crit);
     if (e.hp <= 0) kill(e, o);
     return d;
   }
@@ -90,7 +93,7 @@ G.Combat = (function () {
       else e.burn.t = 3;
     }
     if (poison > 0 && Math.random() < poison) {
-      addPoison(e, u.doublePoison && o.spear ? 2 : 1);
+      addPoison(e, u.doublePoison && st.rs.wtype === 'spear' && o.melee ? 2 : 1);
     }
     if ((frost > 0 && Math.random() < frost) || (u.freezeHit && Math.random() < 0.15)) {
       e.slowT = 2;
@@ -99,6 +102,24 @@ G.Combat = (function () {
       if (!e.boss && e.freezeCd <= 0 && Math.random() < fr) freeze(e, 1.2);
     }
     if (shock > 0 && !o.chain && Math.random() < shock) chain(e, d * 0.6, 3);
+  }
+
+  // 주인공 특성·아티팩트·고유 장비의 "맞혔을 때" 효과
+  function onHitFx(e, d, o, crit) {
+    const st = R(), rs = st.rs, p = st.player;
+    if (rs.trait === 'smith' && Math.random() < 0.12) {
+      G.Fx.ring(e.x, e.y, 6, 46, '#ffd8a8', 0.25, 4);
+      blast(e.x, e.y, 46, rs.atk * 0.8, { color: '#ffd8a8', noCrit: true });
+    }
+    if (rs.fx.frostspike && !e.dead && !e.boss && e.freezeCd <= 0 && Math.random() < 0.12) freeze(e, 1);
+    if (rs.fx.vipertooth && !e.dead) addPoison(e, 1);
+    if (crit) {
+      if (rs.fx.critheal) heal(p.maxHp * 0.01, false);
+      if (rs.trait === 'moonlight' && Math.random() < 0.15) G.Run.addZone({ kind: 'circle', friendly: true, x: e.x, y: e.y, r: 40, warn: 0.35, dmg: rs.atk * 1.5, color: '#ffe66d', star: true });
+      if (rs.uniq.shadowStrike && rs.wtype === 'dagger' && o.melee) {
+        st.timers.push({ t: 0.1, fn: () => { if (!e.dead) { G.Fx.burst(e.x, e.y, '#4a3f5c', 6, 80, 3); hitEnemy(e, d * 0.6, { color: '#b9a6ff', noCrit: true, chain: true }); } } });
+      }
+    }
   }
 
   function addPoison(e, n) {
@@ -213,10 +234,11 @@ G.Combat = (function () {
     for (let i = 0; i < pieces; i++) G.Run.drop('exp', e.x, e.y, Math.ceil(expVal / pieces));
     // 골드
     if (Math.random() < (e.elite ? 1 : 0.42)) {
-      const g = Math.ceil((1 + st.floor * 0.25) * (e.elite ? 8 : 1) * (1 + rs.goldP));
+      const g = Math.ceil((1 + st.floor * 0.25) * (e.elite ? 8 : 1) * (1 + rs.goldP) * (rs.fx.greed ? 2 : 1));
       G.Run.drop('gold', e.x, e.y, g);
     }
     if (Math.random() < 0.025) G.Run.drop('heart', e.x, e.y, 0.12);
+    if (rs.trait === 'baker' && Math.random() < 0.1) G.Run.drop('heart', e.x, e.y, 0.08);
     // 장비/룬
     const luck = rs.luck;
     if (Math.random() < (e.elite ? 0.45 : 0.006) * (1 + luck)) {
@@ -226,8 +248,16 @@ G.Combat = (function () {
       G.Run.drop('rune', e.x, e.y, G.Loot.makeRune(null, G.Loot.runeGradeFor(st.floor)));
     }
     if (e.elite && Math.random() < 0.15) G.Run.drop('gem', e.x, e.y, U.randi(1, 2));
+    if (Math.random() < (e.elite ? 0.25 : 0.004) * (1 + luck * 0.5)) G.Run.drop('jewel', e.x, e.y, G.Loot.makeJewel(null, G.Loot.jewelGradeFor(st.floor)));
+    if (e.elite && Math.random() < 0.2) G.Run.drop('artifact', e.x, e.y, null);
 
-    if (rs.killheal > 0) G.Team.healAll(rs.killheal, false);
+    const p = st.player;
+    if (rs.killheal > 0) heal(p.maxHp * rs.killheal, false);
+    if (rs.uniq.reap && rs.wtype === 'scythe') heal(p.maxHp * 0.02, false);
+    if (rs.fx.fireheart) {
+      G.Fx.ring(e.x, e.y, 5, 46, '#ff6b4a', 0.25, 4);
+      blast(e.x, e.y, 46, rs.atk * 0.7, { color: '#ff9f6b', noCrit: true });
+    }
     if (rs.explode > 0) {
       G.Fx.ring(e.x, e.y, 5, 42 + rs.explode * 8, '#ffb347', 0.25, 4);
       blast(e.x, e.y, 40 + rs.explode * 8, rs.atk * (0.5 + 0.3 * rs.explode), { color: '#ffb347', noCrit: true });
@@ -270,6 +300,7 @@ G.Combat = (function () {
     const st = R();
     const p = st.player, rs = st.rs;
     if (p.dead || p.invuln > 0 || st.phase === 'clear' || st.phase === 'portal') return false;
+    if (src && rs.fx.thorns && !src.dead) hitEnemy(src, rs.atk, { color: '#8be36b', noCrit: true, chain: true });
     if (p.shieldT > 0) return false;
     if (Math.random() < rs.dodge) {
       G.Fx.text(p.x, p.y - 20, '회피!', '#7ed9c3', 12, { force: true });
@@ -285,7 +316,8 @@ G.Combat = (function () {
     }
     const S = G.S(st.floor);
     const red = Math.min(0.7, rs.def / (rs.def + 30 * S));
-    const d = raw * (1 - red) * (1 - rs.dmgRed) * (p.healBuffT > 0 ? 0.7 : 1);
+    const armor = rs.trait === 'yarnArmor' && p.hp < p.maxHp * 0.5 ? 0.85 : 1;
+    const d = raw * (1 - red) * (1 - rs.dmgRed) * (1 + (rs.dmgTaken || 0)) * armor * (p.healBuffT > 0 ? 0.7 : 1);
     p.hp -= d;
     p.flash = 0.15;
     p.invuln = 0.5;
@@ -300,8 +332,9 @@ G.Combat = (function () {
   }
 
   function heal(amt, show) {
-    const p = R().player;
+    const st = R(), p = st.player;
     if (p.dead || amt <= 0) return;
+    if (st.rs.trait === 'blessing') amt *= 1.3;
     const before = p.hp;
     p.hp = Math.min(p.maxHp, p.hp + amt);
     if (show && p.hp - before >= 1) {

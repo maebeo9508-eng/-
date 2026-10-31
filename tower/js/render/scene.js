@@ -47,7 +47,7 @@ G.Scene = (function () {
 
     const a = st.arena;
     if (a.ground) ctx.drawImage(a.ground, 0, 0, a.w, a.h);
-    G.World.drawWalls(ctx, a, st.stage);
+    G.World.drawWalls(ctx, a, st.stage, t);
 
     for (const pt of st.portals) drawPortal(ctx, pt, t);
     for (const z of st.zones) drawZone(ctx, z, t);
@@ -74,6 +74,7 @@ G.Scene = (function () {
     for (const b of st.eprojs) drawEProj(ctx, b, t);
     for (const b of st.bolts) drawBolt(ctx, b);
     G.Fx.draw(ctx);
+    drawLight(ctx, st, t);
     if (k > 1) {
       endPix(out, k);
       ctx = out;
@@ -95,9 +96,69 @@ G.Scene = (function () {
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, V.w, V.h);
     }
-    if (!st.auto) drawJoystick(ctx);
+    if (st.phase === 'portal' && !st.player.dead) drawPortalArrow(ctx, st, t);
+    drawJoystick(ctx);
     if (st.banner) drawBanner(ctx, st.banner);
     if (st.cutin) drawCutin(ctx, st.cutin);
+  }
+
+  // 던전의 어둠: 주인공 주변과 횃불·포탈만 밝게
+  function drawLight(ctx, st, t) {
+    const dark = st.stage.dark || 0;
+    if (dark <= 0) return;
+    const p = st.player, a = st.arena, V = G.View;
+    const x0 = st.cam.x - 40, y0 = st.cam.y - 40, w = V.vw + 80, h = V.vh + 80;
+    const flick = 1 + Math.sin(t * 9) * 0.015 + Math.sin(t * 23) * 0.01;
+    const g = ctx.createRadialGradient(p.x, p.y, 70 * flick, p.x, p.y, 300);
+    g.addColorStop(0, 'rgba(8,4,18,0)');
+    g.addColorStop(1, `rgba(8,4,18,${dark})`);
+    ctx.fillStyle = g;
+    ctx.fillRect(x0, y0, w, h);
+    // 따뜻한 횃불 빛
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const lc = st.stage.light || '#ffcf7a';
+    for (const tc of a.torches || []) {
+      const r = 70 + Math.sin(t * 7 + tc.x) * 4;
+      const lg = ctx.createRadialGradient(tc.x, tc.y, 4, tc.x, tc.y + 10, r);
+      lg.addColorStop(0, U.rgba(lc, 0.28));
+      lg.addColorStop(1, U.rgba(lc, 0));
+      ctx.fillStyle = lg;
+      ctx.fillRect(tc.x - r, tc.y - r, r * 2, r * 2 + 20);
+    }
+    for (const pt of st.portals) {
+      const col = G.PORTALS[pt.type].color;
+      const lg = ctx.createRadialGradient(pt.x, pt.y, 4, pt.x, pt.y, 80);
+      lg.addColorStop(0, U.rgba(col, 0.3 * pt.open));
+      lg.addColorStop(1, U.rgba(col, 0));
+      ctx.fillStyle = lg;
+      ctx.fillRect(pt.x - 80, pt.y - 80, 160, 160);
+    }
+    ctx.restore();
+  }
+
+  // 포탈이 화면 밖에 있으면 가장자리에 화살표로 알려 줘요
+  function drawPortalArrow(ctx, st, t) {
+    const V = G.View, p = st.player;
+    let best = null, bd = Infinity;
+    for (const pt of st.portals) { const d = U.dist(p.x, p.y, pt.x, pt.y); if (d < bd) { bd = d; best = pt; } }
+    if (!best || bd < 90) return;
+    const sx = (best.x - st.cam.x) * V.scale, sy = (best.y - st.cam.y) * V.scale;
+    const m = 44;
+    const onScreen = sx > m && sx < V.w - m && sy > m + 50 && sy < V.h - m;
+    const px = (p.x - st.cam.x) * V.scale, py = (p.y - st.cam.y) * V.scale;
+    const a = Math.atan2(sy - py, sx - px);
+    let ax, ay;
+    if (onScreen) { ax = px + Math.cos(a) * 46; ay = py + Math.sin(a) * 46; }
+    else { ax = U.clamp(sx, m, V.w - m); ay = U.clamp(sy, m + 60, V.h - m - 80); }
+    const bob = Math.sin(t * 6) * 3;
+    ctx.save();
+    ctx.translate(ax + Math.cos(a) * bob, ay + Math.sin(a) * bob);
+    ctx.rotate(a);
+    ctx.beginPath(); ctx.moveTo(14, 0); ctx.lineTo(-8, -10); ctx.lineTo(-3, 0); ctx.lineTo(-8, 10); ctx.closePath();
+    ctx.fillStyle = G.PORTALS[best.type].color; ctx.fill();
+    ctx.lineWidth = 3; ctx.strokeStyle = OL; ctx.stroke();
+    ctx.restore();
   }
 
   // 궁극기 컷인: 화면을 가로지르는 띠 + 초상화 + 기술 이름
@@ -164,8 +225,9 @@ G.Scene = (function () {
 
   // 쓰러진 모찌: 기절 동작 그림이 있으면 그것, 없으면 X눈 모찌
   function drawDownHero(ctx, p, t) {
-    if (G.Assets.drawEnt(ctx, 'hero', p, 'die', p.x, p.y + p.r, p.r * 2.6, p.face < 0, G.Assets.hasState('hero', 'die') ? 1 : 0.5, 0)) return;
-    A().creature(ctx, Object.assign({}, G.HERO_LOOK, { eyes: 'x', mouth: 'o' }), p.x, p.y, p.r, { t, alpha: 0.5, face: p.face });
+    const key = p.hero === 'mochi' ? 'hero' : p.hero;
+    if (G.Assets.drawEnt(ctx, key, p, 'die', p.x, p.y + p.r, p.r * 2.6, p.face < 0, G.Assets.hasState(key, 'die') ? 1 : 0.5, 0)) return;
+    A().creature(ctx, Object.assign({}, p.look, { eyes: 'x', mouth: 'o' }), p.x, p.y, p.r, { t, alpha: 0.5, face: p.face });
   }
 
   // 쓰러지는 동작을 끝까지 보여 준 뒤 사라지는 몬스터
@@ -306,7 +368,12 @@ G.Scene = (function () {
       ctx.globalAlpha = 0.75 * k;
       A().ell(ctx, z.x, z.y, z.r, z.r * 0.6);
       if (z.type === 'ink') { ctx.fillStyle = '#4b4482'; ctx.fill(); }
-      else {
+      else if (z.type === 'poison') {
+        ctx.fillStyle = '#7fcf4a'; ctx.fill();
+        A().ell(ctx, z.x, z.y, z.r * 0.55, z.r * 0.3);
+        ctx.fillStyle = '#c8f59a'; ctx.fill();
+        if (Math.random() < 0.04) G.Fx.burst(z.x + U.rand(-z.r, z.r) * 0.6, z.y, ['#9be36b', '#e6ffd0'], 1, 16, 2, { up: 30 });
+      } else {
         ctx.fillStyle = '#ff7b54'; ctx.fill();
         A().ell(ctx, z.x, z.y, z.r * 0.55, z.r * 0.3);
         ctx.fillStyle = '#ffd166'; ctx.fill();
@@ -370,6 +437,12 @@ G.Scene = (function () {
         const st = G.Run.st;
         const it = st.rs.weaponItem;
         A().weapon(ctx, 'boomerang', it ? G.THEMES[it.theme].color : '#a0785a', b.r * 2.4);
+        break;
+      }
+      case 'axe': {
+        ctx.rotate(b.t * 18);
+        const it = G.Run.st.rs.weaponItem;
+        A().weapon(ctx, 'axe', it ? G.THEMES[it.theme].color : '#c9ced8', b.r * 2.2);
         break;
       }
       case 'lightarrow': {
@@ -451,6 +524,19 @@ G.Scene = (function () {
         ctx.beginPath(); ctx.ellipse(0, 0, r * 1.7, r * 0.7, 0, 0, TAU);
         ctx.fillStyle = b.color; ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = OL; ctx.stroke();
         break;
+      case 'arrow':
+        ctx.rotate(Math.atan2(b.vy, b.vx));
+        ctx.lineWidth = 3.5; ctx.strokeStyle = OL;
+        ctx.beginPath(); ctx.moveTo(-r * 2.4, 0); ctx.lineTo(r * 1.4, 0); ctx.stroke();
+        ctx.lineWidth = 1.8; ctx.strokeStyle = b.color; ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(r * 2.4, 0); ctx.lineTo(r * 0.8, -r); ctx.lineTo(r * 0.8, r); ctx.closePath();
+        ctx.fillStyle = '#ff6b6b'; ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = OL; ctx.stroke();
+        break;
+      case 'rock':
+        ctx.rotate(b.rot);
+        ctx.beginPath(); ctx.moveTo(r, 0); ctx.lineTo(r * 0.3, -r); ctx.lineTo(-r * 0.8, -r * 0.6); ctx.lineTo(-r, r * 0.3); ctx.lineTo(-r * 0.2, r); ctx.lineTo(r * 0.7, r * 0.7); ctx.closePath();
+        ctx.fillStyle = b.color; ctx.fill(); ctx.lineWidth = 1.6; ctx.strokeStyle = OL; ctx.stroke();
+        break;
       default:
         ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU);
         ctx.fillStyle = b.color; ctx.fill();
@@ -502,8 +588,25 @@ G.Scene = (function () {
         break;
       case 'gem':
         ctx.beginPath(); ctx.moveTo(0, -7); ctx.lineTo(6, -2); ctx.lineTo(0, 7); ctx.lineTo(-6, -2); ctx.closePath();
-        ctx.fillStyle = '#ff8fd0'; ctx.fill(); ctx.lineWidth = 1.6; ctx.strokeStyle = OL; ctx.stroke();
+        ctx.fillStyle = '#7ee0ff'; ctx.fill(); ctx.lineWidth = 1.6; ctx.strokeStyle = OL; ctx.stroke();
         break;
+      case 'jewel': {
+        const col = G.GEMS[k.val.type].color;
+        ctx.beginPath(); ctx.arc(0, 0, 11, 0, TAU); ctx.fillStyle = U.rgba(col, 0.3); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(0, -8); ctx.lineTo(7, -2); ctx.lineTo(0, 8); ctx.lineTo(-7, -2); ctx.closePath();
+        ctx.fillStyle = col; ctx.fill(); ctx.lineWidth = 1.8; ctx.strokeStyle = OL; ctx.stroke();
+        ctx.fillStyle = 'rgba(255,255,255,0.75)'; ctx.fillRect(-2.5, -4, 2, 4);
+        break;
+      }
+      case 'artifact': {
+        const g = 0.5 + Math.sin(t * 5) * 0.5;
+        ctx.beginPath(); ctx.arc(0, 0, 13 + g * 2, 0, TAU); ctx.fillStyle = `rgba(255,214,102,${0.25 + g * 0.2})`; ctx.fill();
+        ctx.fillStyle = 'rgba(255,214,102,0.25)'; ctx.fillRect(-5, -60, 10, 60);
+        U.roundRect(ctx, -8, -8, 16, 16, 4); ctx.fillStyle = '#ffd166'; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = OL; ctx.stroke();
+        ctx.font = '12px Jua, sans-serif'; ctx.fillStyle = OL; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('?', 0, 1);
+        break;
+      }
       case 'item': {
         const col = G.RARITIES[k.val.rar].color;
         ctx.beginPath(); ctx.arc(0, 0, 13, 0, TAU); ctx.fillStyle = U.rgba(col, 0.3); ctx.fill();
@@ -560,13 +663,33 @@ G.Scene = (function () {
       }
       ctx.restore();
     } else if (o.kind === 'merchant') {
-      A().creature(ctx, G.COMPANIONS.neogul.look, o.x, o.y, 14, { t, moving: false, face: 1, seed: 1 });
+      A().creature(ctx, G.HEROES.neogul.look, o.x, o.y, 14, { t, moving: false, face: 1, seed: 1 });
       ctx.save();
       ctx.translate(o.x, o.y - 38);
       U.roundRect(ctx, -22, -10, 44, 18, 6);
       ctx.fillStyle = '#fffaf0'; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = OL; ctx.stroke();
       ctx.font = '11px Jua, sans-serif'; ctx.fillStyle = OL; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText('상점', 0, 0);
+      ctx.restore();
+    } else if (o.kind === 'altar') {
+      // 아티팩트 제단: 돌 받침 위에 떠 있는 유물
+      ctx.save();
+      ctx.translate(o.x, o.y);
+      A().ell(ctx, 0, 12, 26, 9); ctx.fillStyle = 'rgba(20,10,30,0.3)'; ctx.fill();
+      U.roundRect(ctx, -20, -4, 40, 16, 4); ctx.fillStyle = '#8f8aa8'; ctx.fill(); ctx.lineWidth = 2.5; ctx.strokeStyle = OL; ctx.stroke();
+      U.roundRect(ctx, -14, -16, 28, 14, 3); ctx.fillStyle = '#a9a4c0'; ctx.fill(); ctx.stroke();
+      if (!o.used) {
+        const y = -36 + Math.sin(t * 2.5) * 4;
+        const g = ctx.createRadialGradient(0, y, 2, 0, y, 30);
+        g.addColorStop(0, 'rgba(255,214,102,0.7)'); g.addColorStop(1, 'rgba(255,214,102,0)');
+        ctx.fillStyle = g; ctx.fillRect(-30, y - 30, 60, 60);
+        ctx.save(); ctx.translate(0, y); ctx.rotate(Math.sin(t * 1.5) * 0.2);
+        ctx.beginPath(); ctx.moveTo(0, -11); ctx.lineTo(9, 0); ctx.lineTo(0, 11); ctx.lineTo(-9, 0); ctx.closePath();
+        ctx.fillStyle = '#ffd166'; ctx.fill(); ctx.lineWidth = 2.5; ctx.stroke();
+        ctx.restore();
+        ctx.font = '11px Jua, sans-serif'; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = OL;
+        ctx.strokeText('아티팩트', 0, 26); ctx.fillStyle = '#ffd166'; ctx.fillText('아티팩트', 0, 26);
+      }
       ctx.restore();
     } else if (o.kind === 'shrine') {
       ctx.save();
@@ -585,7 +708,7 @@ G.Scene = (function () {
     const def = G.PORTALS[pt.type];
     ctx.save();
     ctx.translate(pt.x, pt.y);
-    const pulse = 1 + Math.sin(t * 3 + pt.t) * 0.05;
+    const pulse = (1 + Math.sin(t * 3 + pt.t) * 0.05) * (0.2 + 0.8 * (pt.open != null ? pt.open : 1));
     ctx.scale(pulse, pulse);
     A().ell(ctx, 0, 6, 28, 11);
     ctx.fillStyle = U.rgba(def.color, 0.35); ctx.fill();
@@ -658,7 +781,7 @@ G.Scene = (function () {
   }
 
   // ── 마을(야영지) ────────────────────────────────────────
-  // 탑 아래 야영지: 모닥불, 모찌, 펫, 동료, 구해낸 주민들
+  // 탑 아래 야영지: 모닥불, 고른 주인공, 펫, 차례를 기다리는 친구들
   const campStars = [];
   for (let i = 0; i < 70; i++) campStars.push({ x: Math.random(), y: Math.random() * 0.55, r: Math.random() * 1.4 + 0.4, p: Math.random() * 6 });
 
@@ -773,9 +896,10 @@ G.Scene = (function () {
     ctx.globalAlpha = 1;
 
     const r = 14 * u;
-    // 모찌
+    // 출전할 주인공
     const mx = fx - 46 * u;
-    if (!G.Assets.draw(ctx, 'hero', 'idle', t, mx, gy + r, r * 2.6, false)) A().creature(ctx, G.HERO_LOOK, mx, gy, r, { t, face: 1, seed: 0 });
+    const hk = G.HEROES[save.hero] ? save.hero : 'mochi';
+    if (!G.Assets.draw(ctx, hk === 'mochi' ? 'hero' : hk, 'idle', t, mx, gy + r, r * 2.6, false)) A().creature(ctx, G.HEROES[hk].look, mx, gy, r, { t, face: 1, seed: 0 });
     // 펫
     const pk = save.pets.active;
     if (pk && G.PETS[pk]) {
@@ -783,22 +907,23 @@ G.Scene = (function () {
       const hop = Math.abs(Math.sin(t * 3)) * 5 * u;
       if (!G.Assets.draw(ctx, pk, 'idle', t, px, py - hop + r * 0.6, r * 1.6, false)) A().creature(ctx, G.PETS[pk].look, px, py - hop, r * 0.6, { t, face: 1, seed: 1 });
     }
-    // 팀 동료: 모닥불 오른쪽과 앞쪽
-    const team = (save.comps.team || []).filter((k) => G.COMPANIONS[k]);
+    // 다른 주인공들은 모닥불 둘레에서 쉬고 있어요
+    const others = Object.keys(save.comps.owned).filter((k) => k !== hk && G.HEROES[k]);
     const spots = [[46, 0], [24, 26], [-14, 30]];
-    team.forEach((k, i) => {
-      const [dx, dy] = spots[i] || [60, 0];
-      const cx = fx + dx * u, cy = gy + dy * u;
-      if (!G.Assets.draw(ctx, k, 'idle', t + i, cx, cy + r * 0.9, r * 2.3, true)) A().creature(ctx, G.COMPANIONS[k].look, cx, cy, r * 0.9, { t: t + i, face: -1, seed: 2 + i });
-    });
-    // 팀에 없는 친구들은 뒤쪽에서 쉬고 있어요
-    const rescued = Object.keys(save.comps.owned).filter((k) => !team.includes(k) && G.COMPANIONS[k]);
-    rescued.forEach((k, i) => {
-      const side = i % 2 ? 1 : -1;
-      const x = fx + side * (90 + Math.floor(i / 2) * 34) * u;
+    others.forEach((k, i) => {
+      const key = k === 'mochi' ? 'hero' : k;
+      if (i < spots.length) {
+        const [dx, dy] = spots[i];
+        const cx = fx + dx * u, cy = gy + dy * u;
+        if (!G.Assets.draw(ctx, key, 'idle', t + i, cx, cy + r * 0.9, r * 2.3, true)) A().creature(ctx, G.HEROES[k].look, cx, cy, r * 0.9, { t: t + i, face: -1, seed: 2 + i });
+        return;
+      }
+      const j = i - spots.length;
+      const side = j % 2 ? 1 : -1;
+      const x = fx + side * (90 + Math.floor(j / 2) * 34) * u;
       const y = gy - 22 * u;
       if (x < 10 || x > W - 10) return;
-      A().creature(ctx, G.COMPANIONS[k].look, x, y, r * 0.8, { t: t + i, face: -side, seed: i });
+      A().creature(ctx, G.HEROES[k].look, x, y, r * 0.8, { t: t + i, face: -side, seed: i });
     });
     // 아직 잠든 마을 사람 Zzz
     if (!save.cleared[10]) {

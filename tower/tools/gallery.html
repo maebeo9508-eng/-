@@ -55,7 +55,7 @@ function roster() {
   const groups = [];
   groups.push(['주인공', [['hero', '모찌', G.HERO_LOOK, 11]]]);
   groups.push(['펫', Object.entries(G.PETS).map(([k, v]) => [k, v.name, v.look, 7])]);
-  groups.push(['동료', Object.entries(G.COMPANIONS).map(([k, v]) => [k, v.name, v.look, 11])]);
+  groups.push(['주인공 친구들', Object.entries(G.COMPANIONS).map(([k, v]) => [k, v.name, v.look, 11])]);
   for (const s of G.STAGES) {
     const list = s.monsters.map((k) => [k, G.MONSTERS[k].name, G.MONSTERS[k].look, G.MONSTERS[k].r]);
     const b = G.BOSSES[s.boss];

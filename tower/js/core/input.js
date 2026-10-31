@@ -1,6 +1,7 @@
 'use strict';
-// 터치 가상 조이스틱 + 키보드 입력.
-// 화면 아무 곳이나 누르면 그 자리에 조이스틱이 생깁니다 (버튼은 DOM 위에 있어 따로 처리).
+// 입력: 터치 가상 조이스틱 · 공격 버튼(누르고 있는 동안) · 키보드 · 마우스 조준
+//  - 휴대폰: 화면을 누른 자리에 조이스틱이 생겨요. 공격·대시·스킬 버튼은 DOM 위에 있어 따로 처리
+//  - PC: WASD/방향키 이동, 마우스 왼쪽 버튼(또는 J·K) 공격, 마우스 쪽을 조준
 G.Input = {
   mx: 0,
   my: 0,
@@ -8,11 +9,22 @@ G.Input = {
   keys: {},
   radius: 52,
   onKey: null,
+  attackBtn: false, // HUD 공격 버튼
+  mouse: { x: 0, y: 0, down: false, last: -99 },
+  mouseAim: false,
+  attack: false,
 
   init(canvas) {
-    const j = this.joy;
+    const j = this.joy, m = this.mouse;
     canvas.addEventListener('pointerdown', (e) => {
       G.Sfx.init();
+      if (e.pointerType === 'mouse') {
+        if (e.button === 0) m.down = true;
+        if (e.button === 2) G.Player.dash();
+        m.x = e.clientX; m.y = e.clientY; m.last = performance.now();
+        e.preventDefault();
+        return;
+      }
       if (j.active) return;
       j.active = true;
       j.id = e.pointerId;
@@ -20,7 +32,9 @@ G.Input = {
       j.oy = j.y = e.clientY;
       e.preventDefault();
     });
+    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     window.addEventListener('pointermove', (e) => {
+      if (e.pointerType === 'mouse') { m.x = e.clientX; m.y = e.clientY; m.last = performance.now(); }
       if (!j.active || e.pointerId !== j.id) return;
       j.x = e.clientX;
       j.y = e.clientY;
@@ -34,6 +48,7 @@ G.Input = {
       }
     });
     const end = (e) => {
+      if (e.pointerType === 'mouse' && e.button === 0) m.down = false;
       if (e.pointerId !== j.id) return;
       j.active = false;
       j.id = null;
@@ -47,13 +62,15 @@ G.Input = {
       if (this.onKey && !e.repeat) this.onKey(e.code);
     });
     window.addEventListener('keyup', (e) => { this.keys[e.code] = false; });
-    window.addEventListener('blur', () => { this.keys = {}; j.active = false; });
+    window.addEventListener('blur', () => { this.keys = {}; j.active = false; m.down = false; this.attackBtn = false; });
   },
 
   reset() {
     this.joy.active = false;
     this.joy.id = null;
     this.mx = this.my = 0;
+    this.attackBtn = false;
+    this.mouse.down = false;
   },
 
   update() {
@@ -77,5 +94,8 @@ G.Input = {
     if (len > 1) { x /= len; y /= len; }
     this.mx = x;
     this.my = y;
+    // 마우스를 최근 3초 안에 움직였으면 마우스 쪽을 조준
+    this.mouseAim = performance.now() - this.mouse.last < 3000;
+    this.attack = this.attackBtn || this.mouse.down || !!(k.KeyJ || k.KeyK);
   },
 };

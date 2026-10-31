@@ -23,7 +23,7 @@
     <h1>몽글<span>타워</span></h1>
   </div>
   <button class="btn big pulse" data-act="titleStart">터치해서 시작</button>
-  <div class="title-foot">탑다운 로그라이크 · 100층 + 끝없는 탑</div>
+  <div class="title-foot">던전 액션 로그라이크 · 100층 + 끝없는 탑</div>
 </div>
 
 <!-- 마을(야영지) -->
@@ -31,7 +31,7 @@
   <header class="camp-top">
     <div class="res">
       <span class="chip" title="골드">🪙 <b id="resGold">0</b></span>
-      <span class="chip" title="보석">💎 <b id="resGems">0</b></span>
+      <span class="chip" title="마석">💠 <b id="resGems">0</b></span>
       <span class="chip" title="별조각">⭐ <b id="resShards">0</b></span>
     </div>
     <div class="top-btns">
@@ -48,29 +48,35 @@
     <button data-act="tab" data-tab="climb" class="on"><i>🏰</i>출발</button>
     <button data-act="tab" data-tab="gear"><i>🎒</i>장비</button>
     <button data-act="tab" data-tab="grow"><i>✨</i>성장</button>
-    <button data-act="tab" data-tab="friends"><i>👥</i>팀</button>
+    <button data-act="tab" data-tab="friends"><i>🐾</i>캐릭터</button>
     <button data-act="tab" data-tab="shop"><i>🛒</i>상점</button>
   </nav>
 </div>
 
-<!-- 탑 안 HUD: 팀 전투 관전 -->
+<!-- 탑 안 HUD: 주인공 상태 + 오른쪽 아래 행동 버튼 -->
 <div id="hud" class="hidden">
   <div class="hud-top">
+    <div class="herobox">
+      <img id="heroFace" alt="">
+      <div class="hb">
+        <div class="hp"><div class="fill" id="hpFill"></div><span id="hpText">100</span></div>
+        <div class="xp"><div class="fill" id="expFill"></div><span id="hudLv">Lv 1</span></div>
+      </div>
+    </div>
+    <div class="grow"></div>
     <div class="chip floor" id="hudFloor">1층</div>
     <div class="chip" id="hudGold">🪙 0</div>
-    <div class="grow"></div>
-    <button class="pill on" id="btnAuto" data-act="toggleAuto" aria-label="자동 전투">AUTO</button>
-    <button class="pill" id="btnSpeed" data-act="toggleSpeed" aria-label="배속">▶ ×1</button>
     <button class="icon-btn" data-act="pause" aria-label="일시정지">⏸</button>
   </div>
-  <div class="exp"><div class="fill" id="expFill"></div><span id="hudLv">Lv 1</span></div>
   <div class="bossbar hidden" id="bossBar"><div class="name" id="bossName"></div><div class="bar"><div class="fill" id="bossFill"></div></div></div>
   <div class="hud-left" id="hudAbilities"></div>
-  <div class="hud-btns">
+  <div class="pad" id="actionPad">
+    <button class="act potion" id="btnPotion" data-hud="potion" aria-label="물약"><span class="ic">🧪</span><span class="cnt" id="potionCnt">3</span></button>
+    <button class="act skill" id="btnSkill" data-hud="skill" aria-label="스킬"><span class="ic" id="skillIc">🌀</span><span class="cd"></span></button>
+    <button class="act ult" id="btnUlt" data-hud="ult" aria-label="필살기"><span class="ring"></span><img id="ultFace" alt=""></button>
     <button class="act dash" id="btnDash" data-hud="dash" aria-label="대시"><span class="ic">💨</span><span class="cd"></span></button>
-    <button class="act potion" id="btnPotion" data-hud="potion" aria-label="팀 물약"><span class="ic">🧪</span><span class="cnt" id="potionCnt">3</span></button>
+    <button class="act attack" id="btnAttack" data-hud="attack" aria-label="공격"><span class="ic" id="atkIc">⚔️</span></button>
   </div>
-  <div class="teambar" id="teamBar"></div>
 </div>
 
 <div id="dialogue" class="hidden">
@@ -101,6 +107,7 @@
 <script src="js/data/items.js"></script>
 <script src="js/data/runes.js"></script>
 <script src="js/data/skills.js"></script>
+<script src="js/data/artifacts.js"></script>
 <script src="js/data/allies.js"></script>
 <script src="js/data/story.js"></script>
 <script src="js/data/novel.js"></script>
@@ -111,7 +118,7 @@
 <script src="js/game/ai.js"></script>
 <script src="js/game/bosses.js"></script>
 <script src="js/game/allies.js"></script>
-<script src="js/game/team.js"></script>
+<script src="js/game/heroes.js"></script>
 <script src="js/game/player.js"></script>
 <script src="js/game/run.js"></script>
 <script src="js/render/scene.js"></script>

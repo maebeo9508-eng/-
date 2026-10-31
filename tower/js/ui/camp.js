@@ -1,10 +1,10 @@
 'use strict';
-// 마을(탑 아래 야영지) 정비 화면: 출발 / 장비 / 성장(룬·특성·스킬) / 친구(펫·동료) / 상점
+// 마을(탑 아래 야영지) 정비 화면: 출발 / 장비(+보석) / 성장(룬·특성·스킬) / 캐릭터(주인공·펫) / 상점
 G.Camp = (function () {
   const U = G.U;
   const $ = (id) => document.getElementById(id);
   const S = () => G.Save.data;
-  const ui = { tab: 'climb', grow: 'rune', friends: 'team', filter: 'all', start: 1 };
+  const ui = { tab: 'climb', grow: 'rune', friends: 'hero', gear: 'items', filter: 'all', start: 1 };
   const GIFT_MS = 4 * 60 * 60 * 1000;
 
   function persist() { G.Save.persist(); refreshRes(); }
@@ -40,55 +40,100 @@ G.Camp = (function () {
     if (!floors.includes(ui.start)) ui.start = floors[floors.length - 1];
     const stage = G.stageOf(ui.start);
     const w = m.weaponItem;
+    const W = G.WEAPONS[m.wtype];
+    const h = G.HEROES[m.hero];
     const pet = s.pets.active && G.PETS[s.pets.active];
-    const team = s.comps.team.filter((k) => G.COMPANIONS[k]);
     const giftReady = Date.now() >= s.freeBoxAt;
     return `<div class="stack">
-      <div class="card">
-        <div class="power"><div class="lbl">팀 전투력</div><div class="num">${U.fmt(teamPower(s, m))}</div></div>
+      <button class="card herocard" data-act="tab" data-tab="friends" style="text-align:left">
+        <div class="row">
+          <img class="face" src="${G.Scene.portrait(h.look, m.hero === 'mochi' ? 'hero' : m.hero, 112)}" alt="">
+          <div class="grow">
+            <div class="nm">${h.name} <small>Lv ${s.comps.owned[m.hero] || 1} · ${h.role}</small></div>
+            <div class="muted">${W.icon} ${w ? U.esc(w.name) : `맨손 (${W.name})`}${m.favored ? ' <span class="badge">★ 주 무기</span>' : ''}</div>
+            <div class="muted">✨ ${h.trait.name} · ${h.ult.icon} ${h.ult.name}</div>
+          </div>
+          <span class="badge">바꾸기</span>
+        </div>
+        <div class="power"><div class="lbl">전투력</div><div class="num">${U.fmt(m.power)}</div></div>
         <div class="statgrid">
           <div>공격력<b>${U.fmt(m.atk)}</b></div>
           <div>체력<b>${U.fmt(m.maxHp)}</b></div>
           <div>방어력<b>${U.fmt(m.def)}</b></div>
           <div>공격 속도<b>×${m.aspd.toFixed(2)}</b></div>
           <div>치명타<b>${U.pct(m.crit)}</b></div>
-          <div>무기<b>${G.WEAPONS[m.wtype].name}</b></div>
+          <div>펫<b>${pet ? pet.name : '없음'}</b></div>
         </div>
-      </div>
+      </button>
       <div class="card">
         <div class="sec-title">출발할 층 <small>최고 기록 ${s.best}층</small></div>
         <div class="floors">${floors.map((f) => `<button class="${f === ui.start ? 'on' : ''}" data-act="startFloor" data-f="${f}">${f}층</button>`).join('')}</div>
-        <div class="muted" style="margin-top:8px">${stage.name} · ${stage.sub}${s.checkpoint < 10 ? ' — 10층 보스를 물리치면 다음 스테이지부터 출발할 수 있어요' : ''}</div>
+        <div class="muted" style="margin-top:8px">${stage.name} · ${stage.sub}${s.checkpoint < 10 ? ' — 10층 보스를 물리치면 다음 던전부터 출발할 수 있어요' : ''}</div>
       </div>
       <button class="btn climb-btn" data-act="climb">🏰 ${ui.start}층부터 오르기!</button>
-      <button class="card" data-act="tab" data-tab="friends" style="text-align:left">
-        <div class="loadout">
-          <div class="slotmini"><img src="${G.Scene.portrait(G.HERO_LOOK, 'hero', 96)}" alt=""></div>
-          ${[0, 1, 2].map((i) => team[i] ? `<div class="slotmini"><img src="${G.Scene.portrait(G.COMPANIONS[team[i]].look, team[i], 96)}" alt=""></div>` : '<div class="slotmini">＋</div>').join('')}
-          <div class="slotmini">${pet ? `<img src="${G.Scene.portrait(pet.look, s.pets.active, 96)}" alt="">` : '·'}</div>
-        </div>
-        <div class="muted" style="text-align:center;margin-top:6px">모찌 · 동료 3 · 펫 — 눌러서 팀 편성 · 무기 ${w ? U.esc(w.name) : '맨발'}</div>
-      </button>
       ${giftReady ? `<button class="card gift row" data-act="gift" style="text-align:left"><span style="font-size:30px;font-family:var(--emoji)">🎁</span><span class="grow">무료 선물이 도착했어요! <span class="muted">눌러서 받기</span></span></button>` : ''}
     </div>`;
-  }
-
-  // 팀 전투력 (화면 표시용 어림값)
-  function teamPower(s, m) {
-    let k = 1;
-    for (const key of s.comps.team) {
-      const d = G.COMPANIONS[key];
-      if (!d) continue;
-      const lv = s.comps.owned[key] || 1;
-      k += (0.25 * d.atkMul * d.rate + 0.12 * d.hpMul) * (1 + 0.12 * (lv - 1));
-    }
-    return Math.round(m.power * k);
   }
 
   // ── 장비 ───────────────────────────────────────────────
   function equippedIds() { return new Set(Object.values(S().eq).filter(Boolean)); }
 
   function renderGear() {
+    const sub = `<div class="subtabs">
+      ${[['items', '🎒 장비'], ['jewels', '💎 보석']].map(([k, n]) => `<button class="${ui.gear === k ? 'on' : ''}" data-act="sub" data-k="gear" data-v="${k}">${n}</button>`).join('')}
+    </div>`;
+    return sub + (ui.gear === 'jewels' ? renderJewels() : renderItems());
+  }
+
+  function jewelHTML(j, attrs) {
+    const g = G.GEMS[j.type];
+    return `<button class="rune jewel" style="background:${g.color}" ${attrs || ''}>◆<span class="g">${j.grade}</span></button>`;
+  }
+
+  function socketedIds() {
+    const set = new Set();
+    for (const it of S().inv) for (const id of it.sockets || []) if (id) set.add(id);
+    return set;
+  }
+
+  function renderJewels() {
+    const s = S();
+    const used = socketedIds();
+    const groups = {};
+    for (const j of s.jewels) {
+      if (used.has(j.id)) continue;
+      const k = j.type + ':' + j.grade;
+      groups[k] = groups[k] || { type: j.type, grade: j.grade, n: 0 };
+      groups[k].n++;
+    }
+    const list = Object.values(groups).sort((a, b) => b.grade - a.grade || a.type.localeCompare(b.type));
+    // 장착 장비에 낀 보석 효과
+    const eff = {};
+    for (const slot of G.SLOTS) {
+      const it = G.Stats.findItem(s, s.eq[slot]);
+      for (const jid of (it && it.sockets) || []) {
+        const j = jid && s.jewels.find((x) => x.id === jid);
+        if (j) { const g = G.GEMS[j.type]; eff[g.stat] = (eff[g.stat] || 0) + g.vals[j.grade - 1]; }
+      }
+    }
+    const effHTML = Object.keys(eff).map((k) => `<span>${G.STAT_INFO[k].name} <b>${G.UI.fmtStat(k, eff[k])}</b></span>`).join('') || '<span>장착 장비에 낀 보석이 없어요</span>';
+    return `<div class="card">
+        <div class="sec-title">보석 효과 <small>장착한 장비의 홈에 낀 보석</small></div>
+        <div class="stats-line">${effHTML}</div>
+        <div class="muted" style="margin-top:8px">보석은 치명타·공격 속도·이동 속도 같은 <b>보조 능력치</b>를 올려요. 장비를 눌러 빈 홈(◇)에 끼워요. 등급이 높은 장비일수록 홈이 많아요.</div>
+      </div>
+      <div class="sec-title" style="margin-top:14px">보석 가방 <small>같은 보석 3개 → 한 등급 위로!</small></div>
+      <div class="btnrow" style="margin:0 0 10px"><button class="btn lilac small" data-act="jewelMerge">✨ 모두 합성하기</button></div>
+      <div class="runelist">${list.map((g) => {
+        const d = G.GEMS[g.type];
+        return `<div class="runecard">
+          <span class="rune jewel" style="background:${d.color}">◆<span class="g">${g.grade}</span></span>
+          <span class="info"><b>${G.GEM_GRADE_NAMES[g.grade - 1]} ${d.name} ×${g.n}</b>${G.STAT_INFO[d.stat].name} ${G.UI.fmtStat(d.stat, d.vals[g.grade - 1])}</span>
+        </div>`;
+      }).join('') || '<div class="muted">보석은 엘리트·보스·보물 상자, 상점에서 얻어요.</div>'}</div>`;
+  }
+
+  function renderItems() {
     const s = S();
     const eqIds = equippedIds();
     const m = G.Stats.meta(s);
@@ -121,7 +166,12 @@ G.Camp = (function () {
       const cur = G.Stats.findItem(s, s.eq[item.slot]);
       const up = G.Loot.upgradeCost(item);
       const canUp = item.upg < G.Loot.MAX_UPG;
+      const socks = (item.sockets || []).map((jid, i) => {
+        const j = jid && s.jewels.find((x) => x.id === jid);
+        return j ? jewelHTML(j, `data-act="unsocket" data-i="${i}" title="빼기"`) : `<button class="rune empty-sock" data-act="socket" data-i="${i}">◇</button>`;
+      }).join('');
       return `<div class="card">${G.UI.itemCardHTML(item, isEq ? null : cur)}</div>
+        ${socks ? `<div class="card"><div class="sec-title">보석 홈 <small>빈 홈을 눌러 끼우고, 보석을 누르면 빼요</small></div><div class="runeslots">${socks}</div></div>` : ''}
         <div class="btnrow">
           <button class="btn ${isEq ? 'white' : 'pink'}" data-act="toggleEquip">${isEq ? '해제' : '장착'}</button>
           <button class="btn ${canUp && s.gold >= up ? 'butter' : 'off'}" data-act="upgrade">${canUp ? `강화 +${item.upg + 1}<span class="cost">🪙${U.fmt(up)}</span>` : '최대 강화'}</button>
@@ -152,10 +202,35 @@ G.Camp = (function () {
         G.UI.updateModal(html());
       },
       lock() { item.locked = !item.locked; persist(); render(); G.UI.updateModal(html()); },
+      socket(el) {
+        const i = +el.dataset.i;
+        const used = socketedIds();
+        const free = s.jewels.filter((j) => !used.has(j.id)).sort((a, b) => b.grade - a.grade);
+        if (!free.length) { deny('끼울 보석이 없어요'); return; }
+        // 보석 고르기: 종류·등급별로 하나씩
+        const seen = new Set();
+        const opts = free.filter((j) => { const k = j.type + j.grade; if (seen.has(k)) return false; seen.add(k); return true; });
+        G.UI.updateModal(`<h2>보석 끼우기</h2><div class="sub">${U.esc(item.name)}의 ${i + 1}번째 홈</div>
+          <div class="runelist">${opts.map((j) => { const g = G.GEMS[j.type]; return `<button class="runecard" data-act="pickJewel" data-id="${j.id}" data-i="${i}">${jewelHTML(j).replace('<button', '<span').replace('</button>', '</span>')}<span class="info"><b>${G.GEM_GRADE_NAMES[j.grade - 1]} ${g.name}</b>${G.STAT_INFO[g.stat].name} ${G.UI.fmtStat(g.stat, g.vals[j.grade - 1])}</span></button>`; }).join('')}</div>
+          <div class="btnrow"><button class="btn white" data-act="back">돌아가기</button></div>`);
+      },
+      pickJewel(el) {
+        item.sockets[+el.dataset.i] = el.dataset.id;
+        G.Sfx.play('upgrade');
+        persist(); render();
+        G.UI.updateModal(html());
+      },
+      unsocket(el) {
+        item.sockets[+el.dataset.i] = null;
+        G.Sfx.play('pop');
+        persist(); render();
+        G.UI.updateModal(html());
+      },
+      back() { G.UI.updateModal(html()); },
       salvage() {
         if (s.eq[item.slot] === item.id || item.locked) { deny('장착 중이거나 잠긴 장비예요'); return; }
         const v = G.Loot.salvageValue(item);
-        s.inv.splice(s.inv.indexOf(item), 1);
+        s.inv.splice(s.inv.indexOf(item), 1); // 낀 보석은 가방으로 돌아와요 (보석 목록은 그대로)
         s.gold += v;
         G.Sfx.play('coin');
         G.UI.toast(`분해 완료 +🪙${U.fmt(v)}`);
@@ -285,19 +360,19 @@ G.Camp = (function () {
 
   function renderSkills() {
     const s = S();
-    return `<div class="muted" style="margin-bottom:8px">슬롯 1은 모찌의 <b>궁극기</b> (팀 카드를 눌러 발동, AUTO면 알아서), 슬롯 2는 <b>보조 스킬</b> (쿨다운마다 자동 사용)이에요.</div>
+    return `<div class="muted" style="margin-bottom:8px">스킬 하나를 장착해서 탑 안에서 <b>스킬 버튼</b>(PC: Q)으로 써요. 주인공마다 따로 있는 <b>필살기</b>는 캐릭터 탭에서 볼 수 있어요.</div>
       <div class="cards">${Object.keys(G.ACTIVE_SKILLS).map((k) => {
         const d = G.ACTIVE_SKILLS[k];
         const owned = s.skills.owned.includes(k);
         const lv = s.skills.lv[k] || 1;
-        const slot = s.skills.eq.indexOf(k);
+        const slot = s.skills.eq[0] === k ? 0 : -1;
         const upCost = G.skillUpCost(lv);
         return `<div class="ucard ${slot >= 0 ? 'active' : ''} ${owned ? '' : 'locked'}">
           <div class="face">${G.Assets.icon('icon_skill_' + k) ? `<img src="${G.Assets.icon('icon_skill_' + k).src}" alt="">` : d.icon}</div>
-          <div class="body"><div class="nm">${d.name} ${owned ? `<small>Lv ${lv}</small>` : ''} ${slot >= 0 ? `<span class="badge">슬롯 ${slot + 1}</span>` : ''}</div>
+          <div class="body"><div class="nm">${d.name} ${owned ? `<small>Lv ${lv}</small>` : ''} ${slot >= 0 ? '<span class="badge">장착 중</span>' : ''}</div>
             <div class="ds">${skillDesc(k, lv)} <br>쿨다운 ${(d.cd * (1 - 0.04 * (lv - 1))).toFixed(1)}초</div></div>
           <div class="acts">${owned ? `
-            <div class="row"><button class="btn small ${slot === 0 ? 'mint' : 'white'}" data-act="skillEquip" data-k="${k}" data-i="0">1</button><button class="btn small ${slot === 1 ? 'mint' : 'white'}" data-act="skillEquip" data-k="${k}" data-i="1">2</button></div>
+            ${slot === 0 ? '' : `<button class="btn small mint" data-act="skillEquip" data-k="${k}">장착</button>`}
             ${lv < G.SKILL_MAX_LV ? `<button class="btn small ${s.shards >= upCost ? 'butter' : 'off'}" data-act="skillUp" data-k="${k}">강화 ⭐${upCost}</button>` : '<span class="badge">MAX</span>'}`
             : `<button class="btn small ${s.shards >= d.cost ? 'pink' : 'off'}" data-act="skillLearn" data-k="${k}">배우기 ⭐${d.cost}</button>`}
           </div>
@@ -305,12 +380,12 @@ G.Camp = (function () {
       }).join('')}</div>`;
   }
 
-  // ── 친구: 펫 / 동료 ────────────────────────────────────
+  // ── 캐릭터: 주인공 / 펫 ────────────────────────────────
   function renderFriends() {
     const sub = `<div class="subtabs">
-      ${[['team', '👥 팀 편성'], ['pet', '🐥 펫']].map(([k, n]) => `<button class="${ui.friends === k ? 'on' : ''}" data-act="sub" data-k="friends" data-v="${k}">${n}</button>`).join('')}
+      ${[['hero', '🐾 주인공'], ['pet', '🐥 펫']].map(([k, n]) => `<button class="${ui.friends === k ? 'on' : ''}" data-act="sub" data-k="friends" data-v="${k}">${n}</button>`).join('')}
     </div>`;
-    return sub + (ui.friends === 'pet' ? renderPets() : renderComps());
+    return sub + (ui.friends === 'pet' ? renderPets() : renderHeroes());
   }
 
   function passiveText(def, lv) {
@@ -338,47 +413,51 @@ G.Camp = (function () {
     }).join('')}</div>`;
   }
 
-  function renderComps() {
+  // 능력치 막대 (보통 = 1.0)
+  function statBar(label, v) {
+    const pct = Math.round(U.clamp((v - 0.6) / 0.9, 0.05, 1) * 100);
+    return `<div class="sbar"><span>${label}</span><i><b style="width:${pct}%"></b></i></div>`;
+  }
+
+  function renderHeroes() {
     const s = S();
-    const m = G.Stats.meta(s);
-    const team = s.comps.team;
-    const roleOf = (d) => d.role.split(' · ')[1] || d.role;
-    const slot = (i) => {
-      const k = team[i];
-      if (!k || !G.COMPANIONS[k]) return '<div class="fslot empty">＋<br>빈 자리</div>';
-      const d = G.COMPANIONS[k];
-      return `<button class="fslot" data-act="teamToggle" data-k="${k}"><img src="${G.Scene.portrait(d.look, k, 112)}" alt=""><span>${d.name}</span><span class="role">${d.pos === 'front' ? '앞줄' : '뒷줄'} · ${roleOf(d)}</span></button>`;
-    };
-    const fronts = team.filter((k) => G.COMPANIONS[k] && G.COMPANIONS[k].pos === 'front').length;
-    const hasHeal = team.some((k) => G.COMPANIONS[k] && G.COMPANIONS[k].ai === 'healer');
-    const tip = !fronts ? '앞에서 막아 줄 탱커가 없어요. 뭉치나 곰방을 넣어 보세요!' : !hasHeal ? '회복 담당이 있으면 훨씬 오래 버텨요.' : '앞줄과 회복이 갖춰진 좋은 팀이에요!';
-    return `<div class="card">
-        <div class="sec-title">팀 편성 <small>팀 전투력 ${U.fmt(teamPower(s, m))}</small></div>
-        <div class="formation">
-          <div class="fslot"><span class="lead">리더</span><img src="${G.Scene.portrait(G.HERO_LOOK, 'hero', 112)}" alt=""><span>모찌</span><span class="role">${G.WEAPONS[m.wtype].name}</span></div>
-          ${slot(0)}${slot(1)}${slot(2)}
-        </div>
-        <div class="muted" style="margin-top:8px">${tip} 동료의 체력·공격력은 모찌의 장비를 바탕으로 정해져요.</div>
-      </div>
-      <div class="sec-title" style="margin-top:14px">동료 <small>눌러서 편성 / 빼기</small></div>
-      <div class="cards">${Object.keys(G.COMPANIONS).map((k) => {
-        const d = G.COMPANIONS[k];
+    return `<div class="muted" style="margin-bottom:8px">탑에 오를 주인공을 골라요. 주인공마다 능력치·고유 특성·필살기가 다르고, <b>★ 주 무기</b>를 들면 피해가 20% 늘어나요. 보스에게 갇힌 친구를 구하면 새 주인공이 생겨요.</div>
+      <div class="cards">${Object.keys(G.HEROES).map((k) => {
+        const d = G.HEROES[k];
         const lv = s.comps.owned[k];
         const owned = lv != null;
-        const inTeam = team.includes(k);
-        const cost = G.compUpCost(lv || 1);
+        const active = s.hero === k;
+        const cost = G.heroUpCost(lv || 1);
         const stage = G.STAGES.find((x) => x.villager === k);
-        return `<div class="ucard ${inTeam ? 'active' : ''} ${owned ? '' : 'locked'}">
-          <div class="face"><img src="${G.Scene.portrait(d.look, k, 128, { dim: !owned })}" alt=""></div>
-          <div class="body"><div class="nm">${owned ? d.name : '???'} <small>${d.role}</small> ${owned ? `<small>Lv ${lv}/${G.COMP_MAX_LV}</small>` : ''}</div>
-            <div class="ds">${owned ? d.desc : `${stage ? stage.id * 10 : '?'}층 「${stage ? stage.name : ''}」의 보스를 물리치면 합류해요`}</div>
-            ${owned ? `<div class="ult">${d.ult.icon} <b>${d.ult.name}</b> · ${d.ult.desc}</div>` : ''}</div>
+        const W = G.WEAPONS[d.weapon];
+        const key = k === 'mochi' ? 'hero' : k;
+        return `<div class="ucard hero ${active ? 'active' : ''} ${owned ? '' : 'locked'}">
+          <div class="face"><img src="${G.Scene.portrait(d.look, key, 128, { dim: !owned })}" alt=""></div>
+          <div class="body"><div class="nm">${owned ? d.name : '???'} <small>${d.role}</small> ${owned ? `<small>Lv ${lv}/${G.HERO_MAX_LV}</small>` : ''}</div>
+            ${owned ? `<div class="ds">${d.desc}</div>
+            <div class="ds">★ 주 무기 <b>${W.icon} ${W.name}</b> — ${W.desc}</div>
+            <div class="sbars">${statBar('체력', d.stats.hp)}${statBar('공격', d.stats.atk)}${statBar('방어', d.stats.def)}${statBar('이동', d.stats.move)}</div>
+            <div class="ult">✨ <b>${d.trait.name}</b> · ${d.trait.desc}</div>
+            <div class="ult">${d.ult.icon} <b>${d.ult.name}</b> · ${d.ult.desc}</div>`
+            : `<div class="ds">${stage ? stage.id * 10 : '?'}층 「${stage ? stage.name : ''}」의 보스를 물리치면 구할 수 있어요</div>`}</div>
           ${owned ? `<div class="acts">
-            <button class="btn small ${inTeam ? 'white' : 'mint'}" data-act="teamToggle" data-k="${k}">${inTeam ? '빼기' : '편성'}</button>
-            ${lv < G.COMP_MAX_LV ? `<button class="btn small ${s.gold >= cost ? 'butter' : 'off'}" data-act="compUp" data-k="${k}">🪙${U.fmt(cost)}</button>` : '<span class="badge">MAX</span>'}
+            ${active ? '<span class="badge">출전 중</span>' : `<button class="btn small mint" data-act="heroPick" data-k="${k}">선택</button>`}
+            ${lv < G.HERO_MAX_LV ? `<button class="btn small ${s.gold >= cost ? 'butter' : 'off'}" data-act="heroUp" data-k="${k}">🪙${U.fmt(cost)}</button>` : '<span class="badge">MAX</span>'}
           </div>` : ''}
         </div>`;
       }).join('')}</div>`;
+  }
+
+  // 주인공을 바꾸면, 지금 무기가 주 무기가 아닐 때 가방에서 가장 좋은 주 무기를 들어요
+  function pickHero(k) {
+    const s = S();
+    s.hero = k;
+    const h = G.HEROES[k];
+    const cur = G.Stats.findItem(s, s.eq.weapon);
+    if (!cur || cur.wtype !== h.weapon) {
+      const best = s.inv.filter((it) => it.slot === 'weapon' && it.wtype === h.weapon).sort((a, b) => G.Loot.itemPower(b) - G.Loot.itemPower(a))[0];
+      if (best) { s.eq.weapon = best.id; G.UI.toast(`${h.name}의 주 무기 「${U.esc(best.name)}」 장착!`); }
+    }
   }
 
   // ── 상점 ───────────────────────────────────────────────
@@ -393,6 +472,7 @@ G.Camp = (function () {
       { id: 'box10', icon: '🧳', name: '장비 상자 ×10', desc: `Lv${lvl} 장비 10개 (1개 덤)`, cur: 'gold', cost: box * 9 },
       { id: 'goldbox', icon: '💝', name: '반짝 장비 상자', desc: '희귀 등급 이상 보장', cur: 'gems', cost: 30 },
       { id: 'rune', icon: '🔮', name: '룬 주머니', desc: '무작위 룬 3개', cur: 'gold', cost: rune },
+      { id: 'jewel', icon: '💎', name: '보석 주머니', desc: '무작위 보석 3개', cur: 'gold', cost: rune },
       { id: 'egg', icon: '🥚', name: '펫 알', desc: '새 펫 또는 펫 레벨업', cur: 'gems', cost: 40 },
       { id: 'potion', icon: '🧪', name: '물약 강화', desc: s.potionLv >= 10 ? '최대 강화' : `물약 회복량 ${30 + s.potionLv * 4}% → ${34 + s.potionLv * 4}%`, cur: 'gold', cost: s.potionLv >= 10 ? 0 : pot, max: s.potionLv >= 10 },
       { id: 'shards', icon: '⭐', name: '별조각 꾸러미', desc: '별조각 10개', cur: 'gems', cost: 25 },
@@ -413,7 +493,7 @@ G.Camp = (function () {
         const have = it.cur === 'gold' ? s.gold : s.gems;
         const ok = !it.max && have >= it.cost;
         return `<div class="shopitem"><div class="ic">${it.icon}</div><div class="nm">${it.name}</div><div class="ds">${it.desc}</div>
-          <button class="btn small ${ok ? 'mint' : 'off'}" data-act="shopBuy" data-id="${it.id}">${it.max ? 'MAX' : `${it.cur === 'gold' ? '🪙' : '💎'} ${U.fmt(it.cost)}`}</button></div>`;
+          <button class="btn small ${ok ? 'mint' : 'off'}" data-act="shopBuy" data-id="${it.id}">${it.max ? 'MAX' : `${it.cur === 'gold' ? '🪙' : '💠'} ${U.fmt(it.cost)}`}</button></div>`;
       }).join('')}</div>
     </div>`;
   }
@@ -423,7 +503,7 @@ G.Camp = (function () {
     const it = shopList().find((x) => x.id === id);
     if (!it || it.max) return;
     const key = it.cur;
-    if (s[key] < it.cost) { deny(key === 'gold' ? '골드가 부족해요' : '보석이 부족해요'); return; }
+    if (s[key] < it.cost) { deny(key === 'gold' ? '골드가 부족해요' : '마석이 부족해요'); return; }
     const lvl = Math.max(1, s.best);
     let got = [];
     switch (id) {
@@ -435,6 +515,13 @@ G.Camp = (function () {
         for (let i = 0; i < 3; i++) rs.push(G.Loot.makeRune(null, G.Loot.runeGradeFor(lvl)));
         s.runes.push(...rs);
         G.UI.toast('룬 획득! ' + rs.map((r) => G.RUNE_TYPES[r.type].icon + G.RUNE_GRADE_NAMES[r.grade - 1]).join(' '));
+        break;
+      }
+      case 'jewel': {
+        const js = [];
+        for (let i = 0; i < 3; i++) js.push(G.Loot.makeJewel(null, G.Loot.jewelGradeFor(lvl)));
+        s.jewels.push(...js);
+        G.UI.toast('보석 획득! ' + js.map((j) => `<b style="color:${G.GEMS[j.type].color}">◆</b>${G.GEMS[j.type].name}`).join(' '));
         break;
       }
       case 'egg': {
@@ -479,7 +566,7 @@ G.Camp = (function () {
     s.gems += 5;
     s.freeBoxAt = Date.now() + GIFT_MS;
     G.Sfx.play('chest');
-    G.UI.toast(`🎁 선물! 🪙${U.fmt(gold)} 💎5`, 'big');
+    G.UI.toast(`🎁 선물! 🪙${U.fmt(gold)} 💠5`, 'big');
     persist(); render();
   }
 
@@ -540,9 +627,7 @@ G.Camp = (function () {
       <div class="setting"><span>진동</span><button class="toggle ${s.settings.vibe ? 'on' : ''}" data-act="tog" data-k="vibe" aria-label="진동"></button></div>
       <div class="setting"><span>도트 감성 화면<br><span class="muted">끄면 매끈한 그림으로 보여요</span></span><button class="toggle ${s.settings.pixel !== false ? 'on' : ''}" data-act="tog" data-k="pixel" aria-label="도트 감성 화면"></button></div>
       <div class="setting"><span>피해 숫자 표시</span><button class="toggle ${s.settings.dmgText ? 'on' : ''}" data-act="tog" data-k="dmgText" aria-label="피해 숫자"></button></div>
-      <div class="setting"><span>AUTO 전투로 시작<br><span class="muted">끄면 모찌를 직접 조종해요</span></span><button class="toggle ${s.settings.auto !== false ? 'on' : ''}" data-act="tog" data-k="auto" aria-label="AUTO 전투"></button></div>
-      <div class="setting"><span>자동 진행<br><span class="muted">문·능력·장비를 알아서 골라요</span></span><button class="toggle ${s.settings.autoProgress ? 'on' : ''}" data-act="tog" data-k="autoProgress" aria-label="자동 진행"></button></div>
-      <div class="setting"><span>조작</span><span class="muted">AUTO: 구경하다가 반짝이는 팀 카드를 눌러 궁극기<br>수동: 화면을 끌어 이동 · 자동 공격<br>PC: WASD 이동, Space 대시, 1~4 궁극기, R 물약, T AUTO, F 배속, Esc 일시정지</span></div>
+      <div class="setting"><span>조작</span><span class="muted">휴대폰: 화면을 끌어 이동 · ⚔️ 버튼을 누르고 있으면 연속 공격(가까운 적 자동 조준) · 💨 대시 · 스킬 · 필살기<br>PC: WASD 이동 · 마우스 왼쪽 버튼(또는 J) 공격 · 마우스로 조준 · Space/오른쪽 버튼 대시 · Q 스킬 · E 필살기 · R 물약 · Esc 일시정지</span></div>
       <div class="setting"><span>기록</span><span class="muted">탑 ${s.stats.runs}회 · 처치 ${U.fmt(s.stats.kills)} · 보스 ${s.stats.bosses}</span></div>
       <div class="btnrow"><button class="btn white small" data-act="reset">${confirmReset ? '정말로 모든 기록을 지울까요? 한 번 더 누르세요' : '🗑️ 처음부터 다시 하기'}</button></div>
       <div class="btnrow"><button class="btn mint" data-act="close">닫기</button></div>`;
@@ -586,7 +671,7 @@ G.Camp = (function () {
       const s = S(), i = +el.dataset.i;
       if (i !== s.runeSlotsOpen) { G.UI.toast('앞 슬롯부터 열어야 해요'); return; }
       const cost = G.RUNE_SLOT_COST[i];
-      if (s.gems < cost) { deny('보석이 부족해요'); return; }
+      if (s.gems < cost) { deny('마석이 부족해요'); return; }
       s.gems -= cost;
       s.runeSlotsOpen++;
       G.Sfx.play('upgrade');
@@ -671,11 +756,48 @@ G.Camp = (function () {
       persist(); render();
     },
     skillEquip(el) {
-      const s = S(), k = el.dataset.k, i = +el.dataset.i;
-      const other = s.skills.eq.indexOf(k);
-      if (other === i) return;
-      if (other >= 0) s.skills.eq[other] = s.skills.eq[i];
-      s.skills.eq[i] = k;
+      const s = S();
+      s.skills.eq = [el.dataset.k];
+      G.Sfx.play('pop');
+      persist(); render();
+    },
+    jewelMerge() {
+      const s = S();
+      const used = socketedIds();
+      let merged = 0, again = true;
+      while (again) {
+        again = false;
+        const groups = {};
+        for (const j of s.jewels) {
+          if (used.has(j.id) || j.grade >= 5) continue;
+          (groups[j.type + ':' + j.grade] = groups[j.type + ':' + j.grade] || []).push(j);
+        }
+        for (const k in groups) {
+          const g = groups[k];
+          while (g.length >= 3) {
+            const three = g.splice(0, 3);
+            const ids = new Set(three.map((x) => x.id));
+            s.jewels = s.jewels.filter((x) => !ids.has(x.id));
+            s.jewels.push(G.Loot.makeJewel(three[0].type, three[0].grade + 1));
+            merged++;
+            again = true;
+          }
+        }
+      }
+      if (!merged) { G.UI.toast('합성할 보석이 없어요 (같은 보석 3개 필요)'); return; }
+      G.Sfx.play('legend');
+      G.UI.toast(`✨ 보석 ${merged}번 합성 성공!`, 'big');
+      persist(); render();
+    },
+    heroPick(el) { pickHero(el.dataset.k); G.Sfx.play('pop'); persist(); render(); },
+    heroUp(el) {
+      const s = S(), k = el.dataset.k, lv = s.comps.owned[k];
+      const c = G.heroUpCost(lv);
+      if (lv >= G.HERO_MAX_LV) return;
+      if (s.gold < c) { deny('골드가 부족해요'); return; }
+      s.gold -= c;
+      s.comps.owned[k] = lv + 1;
+      G.Sfx.play('upgrade');
       persist(); render();
     },
     petActive(el) { S().pets.active = el.dataset.k; G.Sfx.play('pop'); persist(); render(); },
@@ -686,25 +808,6 @@ G.Camp = (function () {
       if (s.gold < c) { deny('골드가 부족해요'); return; }
       s.gold -= c;
       s.pets.owned[k] = lv + 1;
-      G.Sfx.play('upgrade');
-      persist(); render();
-    },
-    teamToggle(el) {
-      const s = S(), k = el.dataset.k;
-      const i = s.comps.team.indexOf(k);
-      if (i >= 0) s.comps.team.splice(i, 1);
-      else if (s.comps.team.length >= G.TEAM_SLOTS) { deny('자리가 꽉 찼어요. 팀에 있는 친구를 눌러 빼 주세요'); return; }
-      else s.comps.team.push(k);
-      G.Sfx.play('pop');
-      persist(); render();
-    },
-    compUp(el) {
-      const s = S(), k = el.dataset.k, lv = s.comps.owned[k];
-      const c = G.compUpCost(lv);
-      if (lv >= G.COMP_MAX_LV) return;
-      if (s.gold < c) { deny('골드가 부족해요'); return; }
-      s.gold -= c;
-      s.comps.owned[k] = lv + 1;
       G.Sfx.play('upgrade');
       persist(); render();
     },

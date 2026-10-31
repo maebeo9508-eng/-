@@ -5,27 +5,9 @@ G.AI = (function () {
   const C = () => G.Combat;
   const R = () => G.Run.st;
 
-  // 노릴 팀원 고르기: 도발 중인 탱커가 우선, 아니면 가장 가까운 팀원 (0.6초마다 다시 고름)
-  function target(e) {
-    const st = R();
-    const s = e.s;
-    const cur = s.tg;
-    const valid = cur && (cur === st.player ? !cur.dead : !cur.down && st.allies.includes(cur));
-    if (valid && st.time < (s.tgUntil || 0)) return cur;
-    let best = null, bd = Infinity;
-    for (const t of st.taunters || []) {
-      const d = U.dist(e.x, e.y, t.x, t.y);
-      if (d < (t.tauntT > 0 ? 600 : 160) && d < bd) { bd = d; best = t; }
-    }
-    if (!best) {
-      for (const u of G.Team.members(st)) {
-        const d = U.dist2(e.x, e.y, u.x, u.y);
-        if (d < bd) { bd = d; best = u; }
-      }
-    }
-    s.tg = best || st.player;
-    s.tgUntil = st.time + 0.6;
-    return s.tg;
+  // 노리는 대상: 늘 주인공
+  function target() {
+    return R().player;
   }
 
   function steer(e, tx, ty, spd, dt, fly) {
@@ -148,7 +130,7 @@ G.AI = (function () {
           s.jump = null; e.hop = 0; e.squash = 0.3;
           G.Fx.burst(e.x, e.y + e.r * 0.8, '#ffffff', 6, 70, 3);
           G.Fx.ring(e.x, e.y + e.r * 0.5, 4, e.r + 26, 'rgba(255,255,255,0.8)', 0.25, 3);
-          for (const u of G.Team.members(R())) if (U.dist(e.x, e.y, u.x, u.y) < e.r + 26 + u.r) G.Run.hurtUnit(u, e.atk);
+          { const u = R().player; if (!u.dead && U.dist(e.x, e.y, u.x, u.y) < e.r + 26 + u.r) C().damagePlayer(e.atk, e); }
           e.cd = U.rand(1.0, 1.6);
         }
         return;
@@ -276,7 +258,7 @@ G.AI = (function () {
           G.Fx.ring(e.x, e.y, 5, def.radius, '#ffb347', 0.3, 5);
           G.Fx.shake(4);
           G.Sfx.play('boom');
-          for (const u of G.Team.members(R())) if (U.dist(e.x, e.y, u.x, u.y) < def.radius + u.r) G.Run.hurtUnit(u, e.atk);
+          { const u = R().player; if (!u.dead && U.dist(e.x, e.y, u.x, u.y) < def.radius + u.r) C().damagePlayer(e.atk); }
           if (def.ring) C().ring(e.x, e.y, def.ring, def.proj, e.atk * 0.6, 0);
           e.exp *= 0.5;
           C().kill(e, { self: true });
@@ -296,7 +278,7 @@ G.AI = (function () {
       s.trail = (s.trail || 0) - dt;
       if (s.trail <= 0) {
         s.trail = 0.4;
-        G.Run.addHazard(e.x, e.y + e.r * 0.4, 16, 2.6, e.atk * 0.5, e.def.trail === 'ink' ? 'ink' : 'fire');
+        G.Run.addHazard(e.x, e.y + e.r * 0.4, 16, 2.6, e.atk * 0.5, e.def.trail || 'fire');
       }
     },
 

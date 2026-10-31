@@ -26,8 +26,11 @@
 
 | 항목 | 규칙 |
 |---|---|
-| 키워드 | **귀여운 동물 친구들 + 도트 감성** (세피리아처럼 작은 동물들이 탑을 오르는 느낌) · 동글동글 · 말랑말랑 |
-| 동물 | 모든 캐릭터는 동물이거나 동물 특징(귀·꼬리·부리)을 가져요. 슬라임은 고양이 귀 젤리, 쿠키 병정은 진저 쿠키 곰, 깃펜 기사는 오리 기사처럼. 다른 게임의 캐릭터를 따라 그리지 않도록 프롬프트에 게임·캐릭터 이름은 넣지 않기 |
+| 키워드 | **귀여운 동물 주인공 + 판타지 던전 몬스터 + 도트 감성** (세피리아처럼 작은 동물들이 던전 탑을 오르는 느낌) · 동글동글 · 말랑말랑 |
+| 주인공 | 12명 모두 귀여운 동물(고양이·털실 인형·곰·토끼·너구리·펭귄·다람쥐·여우). **빈손으로** 그리기 — 들고 있는 무기는 게임이 휘두르는 모습까지 따로 그려요 |
+| 몬스터 | 해골·고블린·박쥐·슬라임·거미·오크·미믹·가고일 같은 판타지 몬스터를 동글동글 귀엽게. 몬스터의 무기(단검·뼈 칼·도끼·지팡이)는 그림에 함께 그려도 돼요 |
+| 배경 | 던전: 이끼 낀 돌바닥, 납골당, 동굴, 얼음 동굴, 용암 갱도, 서고, 오크 요새, 가라앉은 신전, 수정 첨탑, 악몽의 왕좌 |
+| 주의 | 다른 게임의 캐릭터를 따라 그리지 않도록 프롬프트에 게임·캐릭터 이름은 넣지 않기 |
 | 몸 | 머리와 몸이 하나로 이어진 **동그란 덩어리**. 팔다리는 아주 짧거나 생략 |
 | 외곽선 | 두껍고 균일한 **자두색 `#3B2A4D`** (검정 금지). 캐릭터 높이의 약 5~6% |
 | 채색 | 파스텔 단색 + 아래쪽 그림자 1단 + 왼쪽 위 하얀 광택 1개 (그라데이션·질감 금지) |
@@ -35,7 +38,7 @@
 | 시점 | 살짝 위에서 내려다본 3/4 탑다운. 정면을 보되 **오른쪽으로 살짝 돌아선** 자세 |
 | 배경 | **마젠타 `#FF00FF` 단색** (가져오기 도구가 가장자리부터 지워요. 투명 배경도 OK) |
 | 방향 | 캐릭터는 **오른쪽을 바라보게**. 왼쪽은 게임이 자동으로 뒤집음 |
-| 무기 | 주인공·동료는 **빈손**으로 그리기 (게임이 장착 무기를 따로 그려 줌) |
+| 무기 | 주인공 12명은 **빈손**으로 그리기 (게임이 장착 무기와 휘두르는 궤적을 따로 그려 줌) |
 | 금지 | 사실적 털, 얇은 선, 검정 외곽선, 3D 렌더 느낌, 긴 팔다리 애니 체형, 글자, 바닥 그림자, 배경 |
 
 ### 팔레트
@@ -142,13 +145,13 @@ window.ASSET_MANIFEST = {
 | `walk` | 6 | 12 | ○ | 통통 튀기. 1 착지(납작) → 2 웅크림 → 3 뛰어오름(길쭉) → 4 최고점 → 5 내려옴 → 6 착지 직전 |
 | `attack` | 4 | 16 | × | 1 몸을 뒤로 젖힘 → 2 앞으로 확 내밂 → 3 최대로 내민 자세(눈 질끈) → 4 원래대로 |
 | `hurt` | 2 | 10 | × | 1 움찔(눈 > <, 몸 납작) → 2 원래대로 |
-| `ult` | 8 | 14 | × | 궁극기 (주인공·동료). 몸을 웅크렸다가 크게 펼치는 큰 동작. 없으면 `attack` 사용 |
+| `ult` | 8 | 14 | × | 필살기 (주인공). 몸을 웅크렸다가 크게 펼치는 큰 동작. 없으면 `attack` 사용 |
 | `cast` | 6 | 10 | × | 보스가 기술을 시작할 때. 앞발을 들고 힘을 모았다가 풀기. 없으면 `attack` 사용 |
-| `die` | 6 | 10 | × | 기절. 비틀 → 쓰러짐 → 머리 위 별. 몬스터는 끝까지 재생하고 사라지고, 동료·모찌는 마지막 프레임으로 누워 있어요 |
+| `die` | 6 | 10 | × | 기절. 비틀 → 쓰러짐 → 머리 위 별. 몬스터는 끝까지 재생하고 사라지고, 주인공은 마지막 프레임으로 누워 있어요 |
 
 게임이 동작을 거는 순간: 공격할 때 `attack`, 맞을 때 `hurt`(공격 중에는 끊지 않음), 궁극기·스킬에 `ult`, 보스 패턴 시작에 `cast`, 보스 내려찍기 착지에 `attack`, 쓰러질 때 `die`.
 
-- 원본 크기는 자유 (가져오기 도구가 게임 크기로 줄여요: 주인공·동료 48px, 몬스터 40px, 펫 32px, 보스 112px). 모든 프레임에서 **발밑 위치 동일**하면 가장 좋아요
+- 원본 크기는 자유 (가져오기 도구가 게임 크기로 줄여요: 주인공 48px, 몬스터 40px, 펫 32px, 보스 112px). 모든 프레임에서 **발밑 위치 동일**하면 가장 좋아요
 - 몬스터는 `walk` 하나(4프레임)만 있어도 충분. 보스는 `idle` + `attack`
 - 떠다니는 몬스터(꿀벌·유령·박쥐 등)는 walk 대신 "위아래로 둥실" 4프레임
 - 공격 이펙트(칼바람, 레이저, 탄환)는 게임이 그리므로 **캐릭터 몸 동작만** 그리기
@@ -157,120 +160,11 @@ window.ASSET_MANIFEST = {
 
 ## 5. 에셋 키 목록과 캐릭터 설명
 
-설명 칸의 영문을 그대로 `<캐릭터 설명>` 자리에 넣으세요.
+주인공 12명·펫 8마리·몬스터 40종·보스 10명·마을 사람의 **키와 영어 설명은 [`ASSET_PLAN.md`](ASSET_PLAN.md) 의 "캐릭터 디자인" 표**에 있어요 (원본: `tower/tools/build-asset-plan.js`의 `D` 표). 게임 데이터가 바뀌면 `node tower/tools/build-asset-plan.js` 로 다시 만들어요.
 
-### 5.1 주인공 · 이야기 인물
-
-| 키 | 이름 | 필요한 동작 | 캐릭터 설명 (영문) |
-|---|---|---|---|
-| `hero` | 모찌 | idle · walk · attack · hurt | Mochi: a small round white cat (#FFFAF3) with pink inner ears, a short curled tail, wearing a red knitted scarf (#FF6B6B) whose ends flutter behind; big sparkly eyes, ω mouth, pink blush; empty paws, no weapon |
-| `grandma` | 솜솜 할머니 | (대화 초상화만) | Grandma Somsom: an old round gray-lilac cat (#DDD6E8) with round golden glasses, gentle sleepy eyes, a lilac knitted shawl with white dots |
-| `lumi` | 루미 | (대화 초상화만) | Lumi: a chubby five-pointed pale-yellow star (#FFF3B0) with a soft golden glow, cute face with a small "o" mouth, floating |
-
-### 5.2 펫 (8)
-
-| 키 | 이름 | 캐릭터 설명 (영문) |
-|---|---|---|
-| `chick` | 삐약이 | Piyaki: a tiny round yellow chick (#FFE066) with an orange beak, wearing half of a cracked white eggshell on its head like a hat |
-| `slimey` | 말랑이 | Mallangi: a small translucent mint-blue slime (#9FE6F0), dome shaped, happy closed eyes (^ ^), glossy highlight |
-| `ppoyong` | 뽀용 | Ppoyong: a tiny pink baby dragon (#FF9FB0) with a butter-yellow belly, small cream horns, little wings and a short tail, floating |
-| `boo` | 부우 | Boo: a small white ghost (#F2F0FF) with a wavy bottom edge, happy closed eyes and a small "o" mouth, floating |
-| `hoot` | 부엉 | Hoot: a round brown owl (#B08968) with a cream belly, small ear tufts, huge round eyes with white sclera, orange beak |
-| `twinkle` | 반짝이 | Twinkle: a chubby baby star (#FFF3B0) with a soft inner glow and a cute ω face |
-| `oink` | 꿀꿀이 | Oink: a round pink piglet (#FFC2D1) with small folded ears and a big pink snout |
-| `nyang` | 냥냥이 | Nyang: a round orange kitten (#FFB26B) with darker orange spots and a curled tail |
-
-### 5.3 동료 (11)
-
-털실 인형 셋은 프롬프트에 `made of soft knitted wool yarn with visible knit stitches and button eyes, like a handmade plush doll` 를 꼭 넣으세요.
-
-| 키 | 이름 | 캐릭터 설명 (영문) |
-|---|---|---|
-| `mungchi` | 뭉치 | Mungchi: a round sky-blue knitted wool teddy bear doll (#9FC5E8) with visible knit stitches, black button eyes, a yellow bandana, empty paws |
-| `bopul` | 보풀 | Bopul: a round pink knitted wool bunny doll (#F6C1D0) with long ears, visible knit stitches, button eyes and a mint ribbon bow |
-| `poksin` | 폭신 | Poksin: a round cream knitted wool sheep doll (#FFF6E8) with fluffy white wool puffs on its head, small droopy ears, button eyes and a gentle smile |
-| `gombang` | 곰방 | Gombang: a big round brown bear blacksmith (#C08B5C) with a light tan belly, round ears and a red bandana tied on his forehead, empty paws |
-| `toseul` | 토슬 | Toseul: a round white-pink bunny baker (#FFF0F5) with long ears and a puffy white chef hat, happy closed eyes |
-| `neogul` | 너굴 | Neogul: a round gray raccoon merchant (#A39E9E) with a dark eye-mask band and a striped bushy tail |
-| `pengpeng` | 펭펭 | Pengpeng: a tall egg-shaped navy penguin priest (#4A5878) with a white belly, orange beak and a floating golden halo |
-| `tobi` | 토비 | Tobi: a round light-blue bunny apprentice mage (#D4E8FF) with long ears and a blue pointed wizard hat with a yellow band |
-| `daram` | 다람 | Daram: a round orange squirrel clockmaker (#E0954F) with a cream belly, a huge fluffy tail and brass goggles on his forehead |
-| `yeoul` | 여울 | Yeoul: a round orange fox archer (#FF9A4D) with a white belly, tall ears with dark tips, a fluffy tail with a white tip and a teal feather in her fur, empty paws |
-| `luna` | 루나 | Luna: a round lavender-white moon rabbit (#F3F0FF) with long ears (lilac inside), sleepy eyes and a yellow crescent-moon hairpin |
-
-### 5.4 몬스터 (40) — 필요한 동작: `walk` 4프레임
-
-| 키 | 이름 | 캐릭터 설명 (영문) |
-|---|---|---|
-| **1. 새싹 정원** | | |
-| `slime` | 말랑 슬라임 | a translucent green dome-shaped slime (#86E3A0) with a glossy highlight, cute eyes, ω mouth |
-| `mushroom` | 버섯돌이 | a round cream body (#FFF1D6) under a big red mushroom cap (#FF7B7B) with white spots, small dot eyes, gentle smile |
-| `bee` | 붕붕 꿀벌 | a round flying bee (#FFD166) with dark plum stripes, two antennae, small white translucent wings, surprised "o" mouth |
-| `sprout` | 새싹 꼬마 | an egg-shaped light-brown seed creature (#C9A27A) with a cream belly and two green leaves sprouting on top, happy closed eyes |
-| **2. 달콤 과자숲** | | |
-| `cookie` | 진저 쿠키 병정 | a rounded-square gingerbread cookie (#D99058) with white zigzag icing and pink candy buttons, button eyes |
-| `macaron` | 마카롱 박쥐 | a round sky-blue macaron (#A8DCFF) with a cream filling stripe across the middle, pink bat wings, a tiny fang |
-| `cottonghost` | 솜사탕 유령 | a fluffy pink cotton-candy ghost (#FFC6E5) with rainbow sprinkles, happy closed eyes, floating |
-| `gummybear` | 말랑 곰젤리 | a translucent strawberry-pink round gummy bear (#FF7B9C) with small round ears |
-| **3. 모래시계 사막** | | |
-| `cactus` | 선인장 꿍 | a tall oval green cactus (#6CC56F) with tiny cream needles and a pink bow on top, dot eyes |
-| `scorpion` | 모래 전갈 | a wide oval sandy-orange scorpion (#E7A85F) with two claws and a curled tail with a dark stinger, angry brows |
-| `mummycat` | 미라냥 | a round cream cat (#F2EAD3) wrapped in loose bandages, cat ears, glowing green eyes |
-| `dustspirit` | 모래바람 정령 | a sandy yellow ghost (#EFCF8F) with a wavy bottom, sleepy eyes, floating |
-| **4. 눈꽃 설원** | | |
-| `snowman` | 꼬마 눈사람 | a round white snowman with a pink knitted beanie with a pompom, a carrot nose and dot eyes |
-| `babypenguin` | 아기 펭귄 | a tall egg-shaped navy penguin chick (#4A5878) with a white belly and an orange beak |
-| `icewisp` | 얼음 정령 | a chubby five-pointed star made of ice (#A5ECFF) with a soft glow and a happy face, floating |
-| `snowbunny` | 눈토끼 | a round snow-white bunny with pale-blue inner ears |
-| **5. 보글 화산** | | |
-| `fireimp` | 불씨 도깨비 | a round red-orange imp (#FF7B54) with small cream horns and a flame on its head, angry brows, wide grin |
-| `lavasnail` | 용암 달팽이 | a wide peach snail body (#FFB36B) carrying a red spiral shell (#FF5E5B), sleepy eyes |
-| `firebat` | 화산 박쥐 | a round dark plum bat (#7A4B6B) with darker wings, glowing amber eyes, little fangs, floating |
-| `magmaslime` | 마그마 슬라임 | a translucent red-orange slime (#FF6B5B) with glowing yellow lava cracks, angry brows |
-| **6. 유령 도서관** | | |
-| `flybook` | 날아다니는 책 | a purple hardcover book (#7B5EA7) with cream pages visible on one side and a grinning face on the cover, floating |
-| `candleghost` | 촛불 유령 | a white ghost (#F6F0FF) with a small lit candle on its head, sleepy eyes, floating |
-| `inkslime` | 잉크 슬라임 | a translucent indigo ink slime (#5A5694) with a surprised "o" mouth |
-| `quillknight` | 깃펜 기사 | a tall oval cream body wearing a lilac knight helmet with a teal plume, holding nothing, a teal quill feather stuck in the helmet |
-| **7. 태엽 장난감 공장** | | |
-| `windupsoldier` | 태엽 병정 | a tall oval red toy soldier (#EF5F7F) with a tall navy busby hat with a gold band and a golden wind-up key on its back, button eyes |
-| `jackbox` | 깜짝상자 | a yellow toy box (#FFD166) with a grinning face and a blue ribbon bow |
-| `toytank` | 장난감 탱크 | a green toy-block tank (#8FC97A) with a small cannon on top and dot eyes |
-| `robo` | 꼬마 로봇 | a rounded-square silver-blue robot (#B8C4D9) with two antennae tipped with red balls, glowing cyan eyes, zigzag mouth, no blush |
-| **8. 물방울 수족관** | | |
-| `jellyfish` | 말랑 해파리 | a translucent pink jellyfish (#FFB3E6) with a wavy skirt and a happy face, floating |
-| `puffer` | 빵빵 복어 | a round yellow puffer fish (#FFE066) covered with darker yellow spikes, cute "o" mouth |
-| `angler` | 반짝 아귀 | an oval navy-blue anglerfish (#4F6D9A) with fins and a glowing yellow lure on a stalk, little fangs |
-| `crab` | 꽃게 장군 | a wide red crab (#FF6B6B) with two big round claws and a smile |
-| **9. 별빛 천문대** | | |
-| `shootingstar` | 별똥별 | a chubby yellow star (#FFE66D) with a happy face, floating |
-| `moonbunny` | 달토끼 | a round lavender-white rabbit (#F3F0FF) with pink inner ears and a crescent-moon hairpin |
-| `nebula` | 성운 정령 | a periwinkle ghost (#9D8DF1) sprinkled with tiny stars and glowing pale-yellow eyes, floating |
-| `clockbird` | 뻐꾸기 시계새 | a round golden bird (#D9B45A) with a clock face on its belly, small white wings and an orange beak |
-| **10. 꿈의 정점** | | |
-| `nightslime` | 악몽 슬라임 | a translucent dark purple slime (#5B4A8A) with glowing magenta eyes and one tiny fang |
-| `nightbat` | 악몽 박쥐 | a round very dark purple bat (#3E335C) with glowing magenta eyes, floating |
-| `shadowknight` | 그림자 기사 | a tall dark purple knight (#4B3D70) wearing a dark helmet with a violet plume, glowing lilac eyes, no mouth |
-| `nightmareeye` | 악몽의 눈 | a round dark body with one huge eye (magenta iris), small bat wings, floating |
-
-### 5.5 보스 (10) — 필요한 동작: `idle` 4 + `attack` 4, 프레임 512
-
-보스 프롬프트에는 `Large boss character, more detailed accessories but same simple style` 를 덧붙이세요.
-
-| 키 | 이름 | 캐릭터 설명 (영문) |
-|---|---|---|
-| `puddingking` | 푸딩 임금님 | a giant wobbly custard pudding slime (#FFD480) with dripping caramel on top (#A0522D), a golden crown, a big grin |
-| `cakegolem` | 생크림 대장 | a three-layer cake golem: a rounded-square white cream body with pink frosting drips and rainbow sprinkles, a lit candle and a cherry on top, angry brows, grin |
-| `sphinx` | 냥크스 | a round golden cat (#F4C95D) wearing a blue-and-gold striped pharaoh headdress with a red gem, glowing cyan eyes |
-| `yeti` | 털복숭이 설왕 | a big round white yeti (#F4F8FF) with a pale-blue belly, two icy horns, a small crown, angry brows and fangs |
-| `ignis` | 꼬마 화염룡 이그니스 | a round red dragon (#FF6B5B) with a yellow belly, cream horns, red wings and tail, angry brows, fangs |
-| `libra` | 책벌레 마녀 리브라 | a round lilac witch (#C7A6F0) with round golden glasses and a tall dark purple witch hat with a teal band, floating pages around |
-| `teddymachine` | 테디 머신 | a giant round brown teddy bear (#C49A6C) with a tan belly, stitched patches, button eyes and a big wind-up key on its back |
-| `octoking` | 왕문어 꾸물 | a round pink octopus (#E56B9F) with darker spots, six wiggly tentacles and a navy captain hat with a gold emblem |
-| `chronoowl` | 시간의 부엉이 크로노 | a round purple-gray owl (#7D6B94) with a light belly showing a clock face, ear tufts, huge eyes and a golden monocle |
-| `nightmare` | 악몽왕 | a large dark navy-purple star (#3A2B5C) sprinkled with tiny stars, glowing magenta eyes, a wide grin and a golden crown |
-
-> 악몽왕 2페이즈(루미)는 게임이 기본 그림으로 바꿔 그립니다. PNG를 쓰고 싶다면 `lumi` 를 먼저 만들어 두세요.
+- 주인공 키: 모찌는 `hero`, 나머지는 `mungchi`·`bopul`·`poksin`·`gombang`·`toseul`·`neogul`·`pengpeng`·`tobi`·`daram`·`yeoul`·`luna`
+- 주인공은 빈손으로 그리기 (무기는 게임이 그려요). 몬스터·보스는 무기를 들고 있어도 돼요
+- 설명 칸의 영문을 그대로 `<캐릭터 설명>` 자리에 넣으세요
 
 ---
 
@@ -321,46 +215,9 @@ camera fixed, character centered, flat pure green (#00FF00) background, same 2D 
 
 ## 7. 배경 타일 · 장애물
 
-### 7.1 바닥 타일 — 키 `tile_1` ~ `tile_10`
-
-```
-[STYLE 생략 가능] Seamless tileable square ground texture for a cute top-down mobile game,
-flat pastel colors, very subtle pattern, low contrast so characters stand out, no objects, no shadows, 512x512.
-Theme: <테마>
-```
-
-| 키 | 테마 |
-|---|---|
-| `tile_1` | soft light-green grass with tiny white and pink flowers |
-| `tile_2` | pastel pink frosting floor with scattered rainbow sprinkles |
-| `tile_3` | pale golden sand with a few tiny pebbles |
-| `tile_4` | soft white snow with faint blue snowflake marks |
-| `tile_5` | warm peach volcanic ground with thin orange glowing cracks |
-| `tile_6` | lilac library carpet with faint scattered paper pages |
-| `tile_7` | mint toy-factory floor with faint bolts and nuts |
-| `tile_8` | light aqua sea floor with faint bubbles |
-| `tile_9` | deep periwinkle night floor with tiny stars |
-| `tile_10` | dark dreamy purple floor with faint pink stars |
-
-### 7.2 장애물 — 키 `obs_<종류>`
-
-`[STYLE]` + `A single cute obstacle prop for a top-down game, seen from a 3/4 top-down view, sitting on the ground, transparent background: <설명>`
-
-| 키 | 설명 | 키 | 설명 |
-|---|---|---|---|
-| `obs_bush` | round green bush with pink berries | `obs_rock` | round lavender-gray boulder |
-| `obs_flower` | one giant pink flower with a yellow center | `obs_lollipop` | big pink swirl lollipop on a stick |
-| `obs_candycane` | red-and-white candy cane | `obs_cupcake` | cupcake with cream and a cherry |
-| `obs_cactus` | green cactus with two arms and a pink flower | `obs_sandrock` | sandy rounded rock |
-| `obs_pillar` | broken cream stone column | `obs_snowrock` | gray rock with a snow cap |
-| `obs_pine` | snowy pine tree | `obs_icecrystal` | cluster of light-blue ice crystals |
-| `obs_lavarock` | dark rock with glowing orange cracks | `obs_vent` | tiny volcano cone with a flame |
-| `obs_bookshelf` | short wooden bookshelf with colorful books | `obs_candelabra` | golden three-candle candelabra |
-| `obs_crystal` | cluster of lilac crystals | `obs_gear` | big golden gear standing upright |
-| `obs_crate` | wooden crate | `obs_blocks` | stacked A-B-C toy blocks |
-| `obs_coral` | pink branching coral | `obs_shell` | big pink scallop shell |
-| `obs_telescope` | blue telescope on a wooden tripod | `obs_shadowcrystal` | dark purple glowing crystals |
-| `obs_darkpillar` | dark purple stone column | | |
+- 바닥 타일 `tile_1` ~ `tile_10`, 장애물 `obs_<종류>` 의 프롬프트도 [`ASSET_PLAN.md`](ASSET_PLAN.md) 에 있어요
+- 바닥은 이음매 없는(seamless) 정사각 타일, 캐릭터가 잘 보이도록 **대비를 낮게**. 던전별: 이끼 돌바닥 · 납골당 판석 · 동굴 흙 · 얼음 · 용암 바위 · 서고 나무 바닥 · 요새 판자 · 신전 판석 · 수정 타일 · 흑요석
+- 장애물 종류: 나무통 `barrel` · 상자 `crate` · 바위 `rock` · 부서진 기둥 `brokenpillar` · 묘비 `tombstone` · 관 `coffin` · 뼈 더미 `bonepile` · 촛대 `candelabra` · 석순 `stalagmite` · 거미줄 `web` · 빛나는 버섯 `glowshroom` · 얼음 수정 `icecrystal` · 눈 바위 `snowrock` · 용암 바위 `lavarock` · 광차 `minecart` · 용암 구멍 `vent` · 책장 `bookshelf` · 수정 `crystal` · 바리케이드 `barricade` · 화로 `brazier` · 산호 `coral` · 석상 `statue` · 조개 `shell` · 기둥 `pillar` · 그림자 수정 `shadowcrystal` · 어둠 기둥 `darkpillar`
 
 ---
 
@@ -400,8 +257,8 @@ Object: <설명>
 |---|---|
 | `ui_logo` (타이틀 로고) | `Cute bubbly Korean game logo text "몽글타워", chunky rounded letters, white and butter-yellow fill with thick dark plum outline, a tiny white cat peeking over the letters, small stars around, transparent background` |
 | 앱 아이콘 | `App icon, rounded square, deep night-purple background with a glowing pink star at the top, a cute round white cat with a red scarf holding a small lantern in the center, thick plum outline, pastel, no text` |
-| 키 아트 (스토어 대표 이미지) | `Key art for a cute mobile roguelike: a tall dark tower rising into fluffy clouds under a starry night, a small white cat with a red scarf and a lantern at the bottom, cute monsters (slime, mushroom, bee, cookie soldier) peeking from the sides, companions (bear, bunny chef, raccoon, penguin priest) behind the cat, warm campfire glow, pastel chibi style with thick plum outlines, vertical 9:16` |
-| 스토어 스크린샷 배너 문구 | "한 손으로 피하고, 자동으로 싸워요" · "10층마다 새로운 꿈의 세계" · "구해 낸 친구들이 동료가 돼요" · "고양이 모찌의 백 층 이야기" |
+| 키 아트 (스토어 대표 이미지) | `Key art for a cute dungeon action roguelike: a tall dark tower rising into clouds under a starry night, a small white cat with a red scarf swinging a sword with a white slash trail, cute fantasy monsters (green goblin, round skeleton, cave bat, slime) around it, animal heroes (knitted bear with a greatsword, raccoon with daggers, fox archer) behind, torch-lit stone floor, chibi pixel style with thick plum outlines, vertical 9:16` |
+| 스토어 스크린샷 배너 문구 | "무기마다 휘두르는 맛이 달라요" · "10층마다 새로운 던전" · "구해 낸 친구가 새 주인공이 돼요" · "고양이 모찌의 백 층 이야기" |
 
 짧은 홍보 영상은 Gemini 동영상 생성에 키 아트를 첨부하고 `slow camera tilt up the tower, stars twinkling, the cat looks up, gentle bouncy motion` 처럼 요청하면 좋습니다.
 
@@ -411,8 +268,8 @@ Object: <설명>
 
 - [ ] `style_ref.png` 확정 (모찌)
 - [ ] 모찌 idle · walk · attack · hurt
-- [ ] 삐약이, 뭉치·보풀·폭신 (첫 펫·첫 팀)
-- [ ] 1스테이지 몬스터 4종 + 푸딩 임금님
+- [ ] 삐약이, 뭉치·보풀·폭신 (첫 펫·처음 고를 수 있는 주인공)
+- [ ] 1스테이지 몬스터 4종 + 고블린 대장 그롬
 - [ ] 스킬 아이콘 8종
 - [ ] 바닥 타일 `tile_1`, 장애물 3종
 - [ ] 나머지 스테이지를 하나씩 (스테이지 단위로 같은 대화에서 작업)

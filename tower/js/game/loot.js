@@ -1,5 +1,5 @@
 'use strict';
-// 장비·룬 생성과 가격 계산
+// 장비·룬·보석·아티팩트 생성과 가격 계산
 G.Loot = (function () {
   const U = G.U;
   const FLAT = { atk: 1, hp: 1, def: 1 };
@@ -64,7 +64,10 @@ G.Loot = (function () {
       if (cands.length) uniq = U.pick(cands);
     }
     if (slot === 'weapon') {
-      item.wtype = uniq ? uniq.wtype : opts.wtype || U.pick(Object.keys(G.WEAPONS));
+      // 지금 주인공의 주 무기가 조금 더 잘 나와요
+      const hero = G.Save.data && G.HEROES[G.Save.data.hero];
+      const fav = hero && Math.random() < 0.3 ? hero.weapon : null;
+      item.wtype = uniq ? uniq.wtype : opts.wtype || fav || U.pick(Object.keys(G.WEAPONS));
     } else {
       item.variant = opts.variant != null ? opts.variant : U.randi(0, 3);
     }
@@ -76,6 +79,7 @@ G.Loot = (function () {
     const q = 0.55 + rar * 0.17;
     for (const a of picks) item.affixes.push({ stat: a.stat, val: +(U.rand(a.min, a.max) * q).toFixed(4) });
     if (uniq) { item.uniq = uniq.id; }
+    item.sockets = new Array(G.GEM_SOCKETS[rar] || 0).fill(null);
     item.name = itemName(item);
     return item;
   }
@@ -131,6 +135,24 @@ G.Loot = (function () {
     return 1;
   }
 
+  // 보석
+  function makeJewel(type, grade) {
+    return { id: U.uid(), type: type || U.pick(Object.keys(G.GEMS)), grade: grade || 1 };
+  }
+  function jewelGradeFor(floor) {
+    const r = Math.random();
+    if (floor >= 70 && r < 0.12) return 3;
+    if (floor >= 30 && r < 0.3) return 2;
+    return 1;
+  }
+
+  // 아티팩트 n개 고르기 (이미 가진 건 빼고, 행운이 높을수록 좋은 등급)
+  function artifactChoices(n, luck, owned, minRar) {
+    const have = new Set(owned || []);
+    const pool = G.ARTIFACTS.filter((a) => !have.has(a.id) && a.rar >= (minRar || 0));
+    return U.weightedN(pool, n, (a) => G.ART_RARITY[a.rar].w * (1 + a.rar * (luck || 0) * 0.6));
+  }
+
   function addItemToSave(item) {
     const s = G.Save.data;
     s.inv.push(item);
@@ -138,6 +160,6 @@ G.Loot = (function () {
 
   return {
     rollRarity, makeItem, randomItem, itemStats, itemPower, upgradeCost, salvageValue,
-    makeRune, runeGradeFor, addItemToSave, themeIdx, MAX_UPG, FLAT,
+    makeRune, runeGradeFor, makeJewel, jewelGradeFor, artifactChoices, addItemToSave, themeIdx, MAX_UPG, FLAT,
   };
 })();

@@ -61,7 +61,7 @@ G.UI = (function () {
 
   function speaker(key) {
     if (key === 'narrator') return { name: '', look: null };
-    const c = G.CHARACTERS[key] || G.COMPANIONS[key] || G.PETS[key] || G.BOSSES[key];
+    const c = G.CHARACTERS[key] || G.HEROES[key] || G.PETS[key] || G.BOSSES[key];
     if (key === 'chick') return { name: '삐약이', look: G.PETS.chick.look };
     return c ? { name: c.name, look: c.look } : { name: key, look: null };
   }
@@ -176,8 +176,16 @@ G.UI = (function () {
       lines.push(`<li><span>${G.STAT_INFO[k].name}</span><span>${fmtStat(k, st[k])}${diff}</span></li>`);
     }
     for (const a of item.affixes) lines.push(`<li class="affix"><span>✦ ${G.STAT_INFO[a.stat].name}</span><span>${fmtStat(a.stat, a.val)}</span></li>`);
+    const save = G.Save.data;
+    for (const jid of item.sockets || []) {
+      const j = jid && save.jewels.find((x) => x.id === jid);
+      if (j) { const g = G.GEMS[j.type]; lines.push(`<li class="affix"><span><b style="color:${g.color}">◆</b> ${g.name}</span><span>${G.STAT_INFO[g.stat].name} ${fmtStat(g.stat, g.vals[j.grade - 1])}</span></li>`); }
+    }
+    const holes = (item.sockets || []).length;
     const u = item.uniq && G.UNIQUES.find((x) => x.id === item.uniq);
-    const sub = item.slot === 'weapon' ? `${G.WEAPONS[item.wtype].name} · ${G.WEAPONS[item.wtype].desc}` : G.SLOT_NAMES[item.slot];
+    const hero = G.HEROES[save.hero];
+    const fav = item.slot === 'weapon' && hero && hero.weapon === item.wtype ? ` <span class="badge">★ ${U.esc(hero.name)}의 주 무기</span>` : '';
+    const sub = item.slot === 'weapon' ? `${G.WEAPONS[item.wtype].icon} ${G.WEAPONS[item.wtype].name} · ${G.WEAPONS[item.wtype].desc}${fav}` : G.SLOT_NAMES[item.slot];
     const pw = G.Loot.itemPower(item), cpw = cmp && cmp.id !== item.id ? G.Loot.itemPower(cmp) : null;
     const pdiff = cpw != null ? ` <span class="${pw >= cpw ? 'up' : 'down'}">(${pw >= cpw ? '+' : ''}${U.fmt(pw - cpw)})</span>` : '';
     return `<div class="item-head">
@@ -192,6 +200,7 @@ G.UI = (function () {
         <li><span>전투력</span><span>${U.fmt(pw)}${pdiff}</span></li>
         ${lines.join('')}
       </ul>
+      ${holes ? `<div class="sockets">${(item.sockets || []).map((jid) => { const j = jid && save.jewels.find((x) => x.id === jid); return j ? `<span class="sock" style="background:${G.GEMS[j.type].color}">◆</span>` : '<span class="sock empty"></span>'; }).join('')}<span class="muted">보석 홈 ${holes}개</span></div>` : ''}
       ${u ? `<div class="uniq">🌟 <b>${U.esc(u.name)}</b> — ${U.esc(u.desc)}</div>` : ''}
       ${cmp && cmp.id !== item.id ? `<div class="muted" style="margin-top:6px">비교: 장착 중인 ${U.esc(cmp.name)}</div>` : ''}`;
   }
@@ -263,20 +272,25 @@ G.UI = (function () {
 
   // ── 탑 속 상점 ─────────────────────────────────────────
   function makeRunShop(st) {
-    const base = Math.ceil(20 + st.floor * 6);
-    return [
+    const off = (st.rs.trait === 'merchant' ? 0.8 : 1) * (st.rs.fx.greed ? 0.85 : 1);
+    const base = Math.ceil((20 + st.floor * 6) * off);
+    const list = [
       { id: 'heal', icon: '🍲', name: '따끈한 수프', desc: '체력 50% 회복', cost: base },
       { id: 'potion', icon: '🧪', name: '물약 +1', desc: '물약을 하나 더', cost: Math.ceil(base * 0.8) },
       { id: 'ability', icon: '🎲', name: '능력 뽑기', desc: '능력 하나를 골라요', cost: Math.ceil(base * 2.2) },
       { id: 'item', icon: '🎁', name: '수상한 보따리', desc: '희귀 이상 장비 1개', cost: Math.ceil(base * 3) },
+      { id: 'jewel', icon: '💎', name: '보석 주머니', desc: '무작위 보석 1개', cost: Math.ceil(base * 1.8) },
     ];
+    const art = G.Loot.artifactChoices(1, st.rs.luck, st.arts)[0];
+    if (art) list.push({ id: 'artifact', art: art.id, icon: art.icon, name: art.name, desc: art.desc, cost: Math.ceil(base * (3 + art.rar * 1.5)), rar: art.rar });
+    return list;
   }
 
   function runShop(st, prop) {
     const save = G.Save.data;
     const html = () => `<h2>🦝 너굴 상점</h2><div class="sub">"어서 와, 꼬마 기사! 보유 골드 🪙 ${U.fmt(save.gold)}"</div>
-      <div class="shopgrid">${prop.stock.map((s, i) => `<div class="shopitem">
-        <div class="ic">${s.icon}</div><div class="nm">${s.name}</div><div class="ds">${s.desc}</div>
+      <div class="shopgrid">${prop.stock.map((s, i) => `<div class="shopitem${s.art ? ' artifact' : ''}">
+        <div class="ic">${s.icon}</div><div class="nm" ${s.art ? `style="color:${G.ART_RARITY[s.rar].color}"` : ''}>${s.name}</div><div class="ds">${s.desc}</div>
         <button class="btn small ${s.sold || save.gold < s.cost ? 'off' : 'mint'}" data-act="buy" data-i="${i}" ${s.sold ? 'disabled' : ''}>${s.sold ? '판매 완료' : `🪙 ${U.fmt(s.cost)}`}</button>
       </div>`).join('')}</div>
       <div class="btnrow"><button class="btn white" data-act="leave">떠나기</button></div>`;
@@ -297,6 +311,13 @@ G.UI = (function () {
           st.gained.items.push(it);
           lootPopup(it, true);
         }
+        if (s.id === 'jewel') {
+          const j = G.Loot.makeJewel(null, G.Loot.jewelGradeFor(st.floor + 10));
+          save.jewels.push(j);
+          st.gained.jewels.push(j);
+          toast(`<b style="color:${G.GEMS[j.type].color}">◆</b> ${G.GEM_GRADE_NAMES[j.grade - 1]} ${G.GEMS[j.type].name} 획득!`);
+        }
+        if (s.id === 'artifact') G.Run.grantArtifact(s.art);
         G.Save.persist();
         updateModal(html());
       },
@@ -304,33 +325,20 @@ G.UI = (function () {
     }, { dismiss: true });
   }
 
-  // ── 문 선택 (AUTO 관전 중) ─────────────────────────────
-  const DOOR_DESC = {
-    battle: '평범한 전투 · 클리어하면 골드',
-    danger: '적이 더 많고 엘리트 등장 · 희귀 장비 상자',
-    treasure: '전투 없이 보물 상자',
-    rest: '팀 체력 40% 회복 · 쓰러진 친구 부활 · 물약 +1',
-    shop: '너굴 상점에서 수프·물약·능력·장비',
-    shrine: '희귀한 능력이 잘 나오는 축복',
-    home: '여기까지! 전리품을 챙겨 마을로',
-  };
-
-  function doorChoice(st, cb) {
-    const hp = Math.round(G.Team.hpRatio(st) * 100);
-    const html = `<h2>다음 문을 골라요</h2><div class="sub">${st.floor + 1}층으로 · 팀 체력 ${hp}%</div>
-      <div class="choices">${st.portals.map((pt, i) => {
-        const d = G.PORTALS[pt.type];
-        const desc = pt.type === 'boss' ? `${G.BOSSES[G.stageOf(st.floor + 1).boss].name} · ${G.BOSSES[G.stageOf(st.floor + 1).boss].title}` : DOOR_DESC[pt.type];
-        return `<button class="choice door ${pt.type}" data-act="door" data-i="${i}">
-          <div class="ic" style="background:${d.color}">${d.icon}</div>
-          <div class="grow"><div class="nm">${d.name}</div><div class="ds">${desc}</div></div>
-        </button>`;
-      }).join('')}</div>`;
+  // ── 아티팩트 고르기 (보물 방 제단 · 보스 제단) ──────────
+  function artifactChoice(st, choices, cb) {
+    G.Sfx.play('legend');
+    const html = `<h2>🏺 아티팩트 제단</h2><div class="sub">이번 탑에서만 함께하는 유물을 하나 골라요</div>
+      <div class="choices">${choices.map((a, i) => `<button class="choice art" data-act="pick" data-i="${i}" style="--rc:${G.ART_RARITY[a.rar].color}">
+        <div class="ic">${a.icon}</div>
+        <div class="grow"><div class="nm" style="color:${G.ART_RARITY[a.rar].color}">${a.name} <span class="badge">${G.ART_RARITY[a.rar].name}</span></div>
+        <div class="ds">${a.desc}</div></div>
+      </button>`).join('')}</div>`;
     openModal(html, {
-      door(el) {
-        const pt = st.portals[+el.dataset.i];
+      pick(el) {
+        const a = choices[+el.dataset.i];
         closeModal();
-        cb(pt);
+        cb(a);
       },
     });
   }
@@ -343,13 +351,16 @@ G.UI = (function () {
       const a = G.ABILITIES.find((x) => x.id === id);
       return `<span class="chip" style="font-size:13px">${a.icon} ${a.name} ${st.abilities[id]}</span>`;
     }).join(' ');
+    const arts = st.arts.map((id) => {
+      const a = G.artifactDef(id);
+      return `<div class="artline"><span class="ic">${a.icon}</span><b style="color:${G.ART_RARITY[a.rar].color}">${a.name}</b> <span class="muted">${a.desc}</span></div>`;
+    }).join('');
+    const p = st.player, h = G.HEROES[p.hero];
     const sound = G.Save.data.settings.sound;
     openModal(`<h2>잠깐 쉬어요</h2><div class="sub">${st.floor}층 · ${U.esc(st.stage.name)} · Lv ${st.lv}</div>
-      <div class="card"><div class="muted" style="margin-bottom:6px">이번 탑에서 얻은 능력</div><div class="row wrap">${abil || '<span class="muted">아직 없어요</span>'}</div></div>
-      <div class="card" style="margin-top:10px"><div class="muted" style="margin-bottom:6px">팀</div><div class="row wrap">${G.HUD.units(st).map((u) => {
-        const isP = u === st.player, down = isP ? u.dead : u.down;
-        return `<span class="chip" style="font-size:13px;${down ? 'opacity:.5' : ''}">${isP ? '모찌' : U.esc(u.def.name)} ${down ? '기절' : Math.round((u.hp / u.maxHp) * 100) + '%'}</span>`;
-      }).join(' ')}</div></div>
+      <div class="card"><div class="muted" style="margin-bottom:6px">${U.esc(h.name)} · ${st.rs.weapon.icon} ${st.rs.weapon.name} · 체력 ${Math.round((p.hp / p.maxHp) * 100)}%</div>
+        <div class="muted" style="margin-bottom:6px">아티팩트 ${st.arts.length}개</div>${arts || '<div class="muted">보물 방의 제단이나 보스를 물리치면 얻어요</div>'}</div>
+      <div class="card" style="margin-top:10px"><div class="muted" style="margin-bottom:6px">이번 탑에서 얻은 능력</div><div class="row wrap">${abil || '<span class="muted">아직 없어요</span>'}</div></div>
       <div class="card" style="margin-top:10px"><div class="stats-line">
         <span>처치 <b>${st.gained.kills}</b></span><span>골드 <b>${st.gained.gold >= 0 ? '+' : ''}${U.fmt(st.gained.gold)}</b></span><span>장비 <b>${st.gained.items.length}</b></span><span>물약 <b>${st.potions}</b></span><span>부활 <b>${st.revives}</b></span>
       </div></div>
@@ -372,17 +383,17 @@ G.UI = (function () {
   function result(st, reason) {
     const save = G.Save.data;
     const g = st.gained;
-    const title = reason === 'dead' ? '팀이 모두 쓰러졌어요…' : reason === 'return' ? '무사히 귀환!' : '마을로 돌아왔어요';
-    const line = reason === 'dead' ? U.pick(G.STORY.death) : '등불이 반짝이며 모찌를 야영지로 데려다주었어요.';
+    const title = reason === 'dead' ? '쓰러졌어요…' : reason === 'return' ? '무사히 귀환!' : '마을로 돌아왔어요';
+    const line = reason === 'dead' ? U.pick(G.STORY.death) : '등불이 반짝이며 야영지로 데려다주었어요.';
     const items = g.items.slice(0, 30).map((it) => slotHTML(it)).join('');
-    const runes = g.runes.length ? `<div class="muted" style="text-align:center;margin-top:6px">룬 ${g.runes.length}개 획득</div>` : '';
+    const runes = g.runes.length || g.jewels.length ? `<div class="muted" style="text-align:center;margin-top:6px">${g.runes.length ? `룬 ${g.runes.length}개` : ''}${g.runes.length && g.jewels.length ? ' · ' : ''}${g.jewels.length ? `보석 ${g.jewels.length}개` : ''} 획득</div>` : '';
     const best = st.floor >= save.best ? '<div class="toast big" style="animation:none;margin:0 auto 8px;display:table">🏆 최고 기록!</div>' : '';
     openModal(`<h2>${title}</h2><div class="sub">${line}</div>${best}
       <div class="result-grid">
         <div>도달한 층<b>${st.floor}층</b></div>
         <div>쓰러뜨린 적<b>${g.kills}</b></div>
         <div>골드<b>🪙 ${g.gold >= 0 ? '+' : ''}${U.fmt(g.gold)}</b></div>
-        <div>보석 · 별조각<b>💎${g.gems} ⭐${g.shards}</b></div>
+        <div>마석 · 별조각<b>💠${g.gems} ⭐${g.shards}</b></div>
       </div>
       ${items ? `<div class="muted" style="text-align:center;margin-bottom:6px">새 장비 ${g.items.length}개</div><div class="lootrow">${items}</div>` : ''}
       ${runes}
@@ -423,7 +434,7 @@ G.UI = (function () {
 
   return {
     init, onKey, openModal, updateModal, closeModal, modalOpen, dialogue, advance, toast, fade,
-    slotHTML, itemCardHTML, fmtStat, levelUp, lootPopup, makeRunShop, runShop, pause, result, doorChoice,
+    slotHTML, itemCardHTML, fmtStat, levelUp, lootPopup, makeRunShop, runShop, pause, result, artifactChoice,
     get dialogueOpen() { return dlg.open; },
   };
 })();
