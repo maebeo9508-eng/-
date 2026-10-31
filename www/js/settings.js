@@ -6,7 +6,7 @@
   const $ = (sel) => document.querySelector(sel);
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-  const APP_VERSION = '1.2.0'; // sw.js의 VERSION과 같이 올림
+  const APP_VERSION = '1.2.1'; // sw.js의 VERSION과 같이 올림
   const LENGTHS = {
     gridSize: { label: '격자 간격', min: 1, max: 10000 },
     dimTextSize: { label: '치수 글자 크기', min: 10, max: 5000 },

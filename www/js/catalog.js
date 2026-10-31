@@ -38,6 +38,9 @@
     ['line', { name: '배수 배관 50A', category: '배관', color: '#2f9e44', size: 60, runHeight: 0 }],
     ['line', { name: '덕트 Ø100', category: '덕트', color: '#0c8599', size: 100, runHeight: null }],
     ['line', { name: '덕트 Ø150', category: '덕트', color: '#0c8599', size: 150, runHeight: null }],
+    // 마감재: 방 속성에서 벽 마감·바닥 마감으로 고름. from: 벽 마감을 시작하는 높이(바닥에서), unitW×unitL: 한 장 크기(0이면 면적만)
+    ['finish', { name: '아트보드', target: 'wall', from: 800, unitW: 1220, unitL: 2440, loss: 0 }],
+    ['finish', { name: '데코타일', target: 'floor', from: 0, unitW: 450, unitL: 450, loss: 0 }],
   ];
 
   /* 전기·설비 아이템 종류
@@ -242,6 +245,10 @@
       return parts.join(' · ');
     },
     describePreset(p) {
+      if (p.kind === 'finish') {
+        const unit = p.unitW > 0 && p.unitL > 0 ? ` · 한 장 ${num(p.unitW)}×${num(p.unitL)}` : ' · 면적만';
+        return p.target === 'wall' ? `벽 · 바닥에서 ${num(p.from || 0)} 위로 천장까지${unit}` : `바닥 (안목)${unit}`;
+      }
       if (p.kind === 'line') {
         const run = p.runHeight == null ? '천장' : p.runHeight === 0 ? '바닥' : `높이 ${num(p.runHeight)}`;
         return `${p.category} · ${p.category === '덕트' ? `폭 ${num(p.size)}` : catalog.colorName(p.color)} · ${run}`;
@@ -251,6 +258,14 @@
       }
       const size = `${num(p.width)}×${num(p.height)}`;
       return p.kind === 'window' ? `${p.style} ${size} · 하단 ${num(p.sill)}` : `${p.style} ${size}`;
+    },
+
+    /** 기본 마감재 목록 (예전에 만든 도면에 마감재가 없으면 넣음) */
+    defaultFinishes() {
+      return DEFAULT_PRESETS.filter(([kind]) => kind === 'finish').map(([kind, p]) => App.model.TYPES.preset.create(kind, p));
+    },
+    finishes(target) {
+      return catalog.presets('finish').filter((p) => !target || p.target === target);
     },
 
     /** 도구가 쓸 '지금 고른' 벽 종류·프리셋이 없어졌으면 목록의 첫 항목으로 */

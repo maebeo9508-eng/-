@@ -195,30 +195,72 @@
   /** 방 안목 다각형: 벽이 놓인 변은 그 벽 두께의 반만큼 방 안쪽으로 옮긴 다각형 (바닥재·걸레받이 기준).
       벽이 없는 변은 그대로 */
   function clearPolygon(r) {
+    return clearEdges(r).map((e) => e.a);
+  }
+
+  /** 방 경계의 변마다 안목 변: { a, b(안목 끝점), len(안목 길이), p0, p1(중심선 끝점), dir, walls(그 변에 놓인 벽) } */
+  function clearEdges(r) {
     const pts = r.points;
     const n = pts.length;
-    if (n < 3) return pts.slice();
+    if (n < 3) return [];
     const walls = r.wallIds.map((id) => App.doc.get(id)).filter((w) => w && w.type === 'wall');
     const inward = G().signedArea(pts) > 0 ? 1 : -1;
     const lines = pts.map((a, i) => {
       const b = pts[(i + 1) % n];
       const dir = G().unit(sub(b, a));
       const nrm = G().perp(dir);
+      const len = G().dist(a, b);
       let half = 0;
+      const on = [];
       walls.forEach((w) => {
         if (Math.abs(dot(sub(w.start, a), nrm)) > 1 || Math.abs(dot(sub(w.end, a), nrm)) > 1) return; // 같은 직선 위만
-        const len = G().dist(a, b);
         const s0 = Math.min(dot(sub(w.start, a), dir), dot(sub(w.end, a), dir));
         const s1 = Math.max(dot(sub(w.start, a), dir), dot(sub(w.end, a), dir));
-        if (Math.min(len, s1) - Math.max(0, s0) > 0.5) half = Math.max(half, w.thickness / 2);
+        if (Math.min(len, s1) - Math.max(0, s0) > 0.5) {
+          half = Math.max(half, w.thickness / 2);
+          on.push(w);
+        }
       });
       const k = half * inward;
-      return { p: { x: a.x + nrm.x * k, y: a.y + nrm.y * k }, dir };
+      return { p: { x: a.x + nrm.x * k, y: a.y + nrm.y * k }, dir, p0: a, p1: b, len, walls: on };
     });
-    return lines.map((l, i) => {
-      const prev = lines[(i + n - 1) % n];
+    const corner = (i) => {
+      const l = lines[i], prev = lines[(i + n - 1) % n];
       return G().lineIntersect(prev.p, prev.dir, l.p, l.dir) || l.p; // 일직선으로 이어진 변이면 그 점
+    };
+    const corners = lines.map((_, i) => corner(i));
+    return lines.map((l, i) => {
+      const a = corners[i], b = corners[(i + 1) % n];
+      return { a, b, len: G().dist(a, b), p0: l.p0, p1: l.p1, dir: l.dir, walls: l.walls };
     });
+  }
+
+  /** 방 벽 마감 면적: 벽이 있는 변의 안목 길이 × (천장 높이 − 시작 높이), 문·창문은 그 높이 범위에 걸친 만큼 뺌 */
+  function wallFinishArea(r, from) {
+    let area = 0;
+    clearEdges(r).forEach((e) => {
+      if (!e.walls.length) return;
+      const top = Math.min(r.ceilingHeight || App.settings.ceilingHeight, Math.max(...e.walls.map((w) => w.height)));
+      if (top - from <= 0) return;
+      let a = e.len * (top - from);
+      const span = G().dist(e.p0, e.p1);
+      e.walls.forEach((w) => openingsOf(w.id).forEach((o) => {
+        const g = App.model.openingGeom(o);
+        if (!g) return;
+        const s = dot(sub(g.center, e.p0), e.dir);
+        if (s < -0.5 || s > span + 0.5) return;
+        const bottom = o.type === 'window' ? Math.max(0, o.sill || 0) : 0;
+        a -= g.half * 2 * Math.max(0, Math.min(bottom + o.height, top) - Math.max(bottom, from));
+      }));
+      area += Math.max(0, a);
+    });
+    return area;
+  }
+
+  /** 마감재 한 장 수: (면적 × (1 + 로스%)) ÷ 한 장 면적, 올림. 한 장 크기가 없으면 null */
+  function finishSheets(p, area) {
+    const unit = (p.unitW || 0) * (p.unitL || 0);
+    return unit > 0 && area > 0 ? Math.ceil((area * (1 + (p.loss || 0) / 100)) / unit - EPS) : null;
   }
 
   /** 방이 벽의 어느 쪽에 있는지: 벽 방향의 왼쪽(+1) / 오른쪽(-1) */
@@ -280,6 +322,8 @@
     ceilingAt,
     roomEdges,
     clearPolygon,
+    clearEdges,
+    finishSheets,
     openingRoom,
     lineRooms,
 
@@ -317,11 +361,21 @@
         boards.set(spec, (boards.get(spec) || 0) + (gross - cut) * layers);
       });
       const clearPerimeter = App.geom.perimeter(clear);
+      const clearArea = Math.abs(App.geom.signedArea(clear));
+      // 마감재: 방에 고른 벽 마감·바닥 마감
+      const finishes = [];
+      [r.floorFinishId, r.wallFinishId].forEach((id) => {
+        const p = id && App.doc.get(id);
+        if (!p || p.type !== 'preset' || p.kind !== 'finish') return;
+        const area = p.target === 'wall' ? wallFinishArea(r, p.from || 0) : clearArea;
+        finishes.push({ id: p.id, name: p.name, target: p.target, from: p.from || 0, area, sheets: finishSheets(p, area), preset: p });
+      });
       return {
+        finishes,
         floor,
         ceiling: r.ceilingArea != null ? r.ceilingArea : floor,
         perimeter: App.geom.perimeter(r.points),
-        clearArea: Math.abs(App.geom.signedArea(clear)), // 안목 바닥 면적 (벽 면 안쪽)
+        clearArea,                                        // 안목 바닥 면적 (벽 면 안쪽)
         clearPerimeter,                                   // 안목 둘레 = 천장 몰딩 길이
         baseboard: Math.max(0, clearPerimeter - doorWidth), // 걸레받이: 안목 둘레에서 문 폭을 뺌
         doorWidth,

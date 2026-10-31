@@ -419,9 +419,32 @@
         ${numberField('wallHeight')}
       </div>
       ${numberField('ceilingArea')}
+      ${finishRows(qs)}
       ${commonFields(single)}
       ${deleteButton('방')}
       <p class="props-meta">방을 지워도 벽은 남습니다.</p>`;
+  }
+
+  /** 방 마감재: 벽 마감·바닥 마감 고르기와 그 물량 */
+  function finishRows(qs) {
+    const opt = (list) => [['', '없음'], ...list.map((p) => [p.id, `${p.name} · ${App.catalog.describePreset(p)}`])];
+    const edit = '<button type="button" class="btn" data-act="edit-finish">편집</button>';
+    const byId = new Map();
+    qs.forEach((q) => q.finishes.forEach((f) => {
+      const cur = byId.get(f.id) || { ...f, area: 0 };
+      cur.area += f.area;
+      byId.set(f.id, cur);
+    }));
+    return `
+      <div class="field-group-label">마감재</div>
+      ${selectField('f-wallFinish', '벽 마감', opt(App.catalog.finishes('wall')), commonText((r) => r.wallFinishId || ''), edit)}
+      ${selectField('f-floorFinish', '바닥 마감', opt(App.catalog.finishes('floor')), commonText((r) => r.floorFinishId || ''))}
+      ${byId.size ? `<div class="stats">${[...byId.values()].map((f) => {
+        const sheets = App.measure.finishSheets(f.preset, f.area);
+        return stat(f.name, `${App.units.formatArea(f.area)}${sheets != null ? ` · ${sheets.toLocaleString('ko-KR')}장` : ''}`,
+          f.target === 'wall' ? `바닥에서 ${App.units.formatLength(f.from)} 위로 천장까지 · 문·창문 뺌` : '안목 바닥 면적');
+      }).join('')}</div>` : ''}
+      ${els.length === 1 ? '<button type="button" class="btn" data-act="finish-all">이 마감을 모든 방에 똑같이</button>' : ''}`;
   }
 
   function presetSelect(kind) {
@@ -992,6 +1015,11 @@
         apply(`${o.label} 변경`, () => ({ [key]: r.value }));
         return;
       }
+      if (id === 'f-wallFinish' || id === 'f-floorFinish') {
+        const key = id === 'f-wallFinish' ? 'wallFinishId' : 'floorFinishId';
+        if (t.value !== '' || commonText((r) => r[key] || '') !== null) apply(id === 'f-wallFinish' ? '벽 마감 변경' : '바닥 마감 변경', () => ({ [key]: t.value || null }));
+        return;
+      }
       if (id === 'f-furnSize') {
         const [w, d] = t.value.split('x').map(Number);
         if (w > 0 && d > 0) apply('규격 변경', () => ({ size: w, depth: d }));
@@ -1127,6 +1155,14 @@
         case 'rotate': App.actions.rotateSelection(); break;
         case 'detach': apply('벽에서 떼기', (it) => (it.wallId ? { wallId: null, t: null, side: null } : {})); break;
         case 'gap-dims-edge': App.dims.clearanceDims(els[0], 'edge'); break;
+        case 'edit-finish': App.catalogUI.open('finish', commonText((r) => r.wallFinishId) || commonText((r) => r.floorFinishId)); break;
+        case 'finish-all': {
+          const { wallFinishId = null, floorFinishId = null } = els[0];
+          const rooms = [...App.doc.all()].filter((e) => e.type === 'room');
+          App.doc.transact('마감 모든 방에', () => rooms.forEach((r) => App.doc.update(r.id, { wallFinishId, floorFinishId })));
+          App.ui.toast(`방 ${rooms.length}곳에 같은 마감을 넣었습니다.`);
+          break;
+        }
         case 'gap-dims-center': App.dims.clearanceDims(els[0], 'center'); break;
         case 'group': App.actions.groupSelection(); break;
         case 'calibrate': App.underlay.calibrate(els[0].id); break;

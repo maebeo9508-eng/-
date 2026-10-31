@@ -218,7 +218,7 @@
   function collector(hidden) {
     const polylines = [];
     const texts = [];
-    const stats = { lines: 0, texts: 0, skipped: {}, truncated: false, hiddenLayers: [...hidden], hiddenSkipped: 0 };
+    const stats = { lines: 0, texts: 0, skipped: {}, truncated: false, hiddenLayers: [...hidden], hiddenSkipped: 0, paperSkipped: 0, xrefs: [], source: 'model' };
     let points = 0;
     return {
       polylines, texts, stats,
@@ -266,14 +266,16 @@
     const insunits = parseInt(vars.$INSUNITS || '0', 10) || 0;
     const hidden = opts.includeHidden ? new Set() : hiddenLayers(sections, opts.ignoreOff);
 
-    // 블록: 이름 → { base, ents }
+    // 블록: 이름 → { base, ents }. 외부 참조(XREF) 블록은 내용이 다른 파일에 있음
     const blocks = new Map();
+    const xrefs = [];
     let curBlock = null;
     (sections.BLOCKS || []).forEach((e) => {
       if (e.type === 'BLOCK') {
         const g = getter(e);
         curBlock = { name: g.s(2), base: [g.n(10), g.n(20)], ents: [] };
         blocks.set(curBlock.name, curBlock);
+        if (g.n(70, 0) & 4) xrefs.push(g.s(1) || g.s(2));
       } else if (e.type === 'ENDBLK') {
         curBlock = null;
       } else if (curBlock) {
@@ -282,6 +284,7 @@
     });
 
     const { polylines, texts, stats, skip, addPoly, addText } = collector(hidden);
+    stats.xrefs = xrefs;
 
     /** 개체 목록을 변환 m으로 그림. 폴리라인은 뒤따르는 VERTEX를 함께 읽음 */
     function walk(ents, m0, depth) {
@@ -289,7 +292,10 @@
       for (let k = 0; k < ents.length; k++) {
         const e = ents[k];
         const g = getter(e);
-        if (g.n(67, 0) === 1) continue; // 도면 배치(paper space)
+        if (g.n(67, 0) === 1 && !opts.includePaper) { // 도면 배치(paper space)
+          if (depth === 0) stats.paperSkipped++;
+          continue;
+        }
         if (hidden.has(g.s(8, '0'))) {
           stats.hiddenSkipped++;
           continue;
@@ -386,7 +392,7 @@
           case 'INSERT':
           case 'DIMENSION': {
             const b = blocks.get(g.s(2));
-            if (!b) break;
+            if (!b) { skip('없는 블록'); break; }
             if (depth >= MAX_DEPTH) { skip('블록 겹침'); break; }
             if (e.type === 'DIMENSION') {
               walk(b.ents, m, depth + 1); // 치수 블록은 이미 도면 좌표
@@ -420,6 +426,20 @@
       }
     }
     walk(sections.ENTITIES, I, 0);
+    // 모형 공간 개체가 ENTITIES가 아니라 *Model_Space 블록에만 적힌 파일도 있음. 배치를 고르면 *Paper_Space도
+    const fromBlock = (re, source) => {
+      if (polylines.length || texts.length) return;
+      const b = [...blocks.values()].find((x) => re.test(x.name || ''));
+      if (b && b.ents.length) {
+        walk(b.ents, I, 0);
+        if (polylines.length || texts.length) stats.source = source;
+      }
+    };
+    fromBlock(/^\*model_space$/i, 'modelBlock');
+    if (opts.includePaper) {
+      if (polylines.length || texts.length) stats.source = 'paper';
+      else fromBlock(/^\*paper_space/i, 'paper');
+    }
 
     return { polylines, texts, insunits, units: UNITS[insunits] || UNITS[0], stats };
   }

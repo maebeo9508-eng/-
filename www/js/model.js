@@ -242,6 +242,7 @@
           seed: G.interiorPoint(points),
           ceilingHeight: App.settings.ceilingHeight,
           ceilingArea: null, // 천장 면적(mm²). null이면 바닥 면적과 같음
+          wallFinishId: null, floorFinishId: null, // 마감재 (아트보드·데코타일 등)
           wallHeight: App.settings.wallHeight,
           issue: null,
         };

@@ -105,10 +105,31 @@
       },
       blank: () => ({ name: '새 선 종류', category: '배관', color: '#1c7ed6', size: 20, runHeight: 0 }),
     },
+    finish: {
+      tab: '마감재',
+      addLabel: '마감재',
+      fields: [
+        { key: 'name', label: '이름', kind: 'text', note: '방 속성의 ‘벽 마감’·‘바닥 마감’에서 고르면 그 방 면적으로 물량을 셉니다.' },
+        { key: 'target', label: '붙는 곳', kind: 'select', options: () => [['wall', '벽 (방 안쪽 면)'], ['floor', '바닥 (안목 면적)']] },
+        { key: 'from', label: '바닥에서 빼는 높이', kind: 'mm', min: 0, max: 10000, show: (p) => p.target === 'wall',
+          note: '이 높이 위로 천장까지 붙는 것으로 셉니다. 문·창문은 이 높이 위에 걸친 만큼 뺍니다. (예: 아트보드 800, 도배 0)' },
+        { key: 'unitW', label: '한 장 폭', kind: 'mm', min: 0, max: 10000, group: '한 장 크기', note: '0이면 장 수 없이 면적만 셉니다.' },
+        { key: 'unitL', label: '한 장 길이', kind: 'mm', min: 0, max: 10000 },
+        { key: 'loss', label: '로스', kind: 'pct' },
+      ],
+      list: () => App.catalog.presets('finish'),
+      describe: (p) => App.catalog.describePreset(p),
+      usage: (p) => {
+        let n = 0;
+        for (const el of App.doc.all()) if (el.type === 'room' && (el.wallFinishId === p.id || el.floorFinishId === p.id)) n++;
+        return n ? `방 ${n}곳` : '';
+      },
+      blank: () => ({ name: '새 마감재', target: 'wall', from: 0, unitW: 0, unitL: 0, loss: 0 }),
+    },
   };
 
   // 바꾸면 보이는 칸이 달라지는 값: 이 값이 바뀔 때만 항목을 다시 그림
-  const STRUCTURAL = new Set(['frameKind', 'boardFace', 'boardBack', 'shape']);
+  const STRUCTURAL = new Set(['frameKind', 'boardFace', 'boardBack', 'shape', 'target']);
 
   let kind = 'wallType';
   const openIds = new Set();

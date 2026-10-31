@@ -28,6 +28,26 @@
     maxX: Math.max(...pts.map((p) => p.x)), maxY: Math.max(...pts.map((p) => p.y)),
   });
 
+  /** 마감재 합계: 같은 마감재끼리 면적을 더한 뒤 장 수 (로스 반영, 올림) */
+  function finishTotals(rooms) {
+    const map = new Map();
+    rooms.forEach((r) => r.q.finishes.forEach((f) => {
+      const cur = map.get(f.id) || { ...f, area: 0, rooms: 0 };
+      cur.area += f.area;
+      cur.rooms++;
+      map.set(f.id, cur);
+    }));
+    return [...map.values()].map((f) => ({ ...f, sheets: App.measure.finishSheets(f.preset, f.area) }));
+  }
+  /** 마감재 한 줄: 장 수가 있으면 장 수, 없으면 면적 */
+  function finishRow(f, cat, extraNote = '') {
+    const basis = f.target === 'wall' ? `바닥에서 ${num(f.from)} 위 · 문·창문 뺌` : '안목 바닥';
+    const unit = f.preset.unitW > 0 && f.preset.unitL > 0 ? ` · ${num(f.preset.unitW)}×${num(f.preset.unitL)} 기준${f.preset.loss ? `, 로스 ${num(f.preset.loss)}%` : ''}` : '';
+    return f.sheets != null
+      ? row(f.name, V.count(f.sheets, '장'), `${App.units.formatArea(f.area)} · ${basis}${unit}${extraNote}`, '', cat)
+      : row(f.name, V.area(f.area), `${basis}${extraNote}`, '', cat);
+  }
+
   /** 도면 전체를 세어 기록 목록으로: { sec, group, key, room(id 또는 null), qty } */
   function compute() {
     // 설정에 따라 숨긴 레이어의 것은 집계에서 뺌
@@ -78,6 +98,7 @@
         issues: rooms.filter((r) => r.issue).length,
       },
       materials: M.materials(walls),
+      finishes: finishTotals(rooms),
       zones: of('zone').map((z) => ({ name: z.name, area: App.model.TYPES.zone.area(z) })),
     };
   }
@@ -152,6 +173,7 @@
     if (arch.length) blocks.push({ title: '건축', rows: arch });
     const mat = materialRows(s.materials);
     if (mat.length) blocks.push({ title: '벽 자재', sub: '본·장 수는 전체 길이·면적을 더한 뒤 올림', rows: mat });
+    if (s.finishes.length) blocks.push({ title: '마감재', sub: '방 속성에서 고른 벽·바닥 마감. 장 수는 면적을 더한 뒤 올림', rows: s.finishes.map((f) => finishRow(f, '', ` · 방 ${f.rooms}곳`)) });
     sections().forEach((sec) => {
       const recs = s.records.filter((r) => r.sec === sec.id);
       if (!recs.length) return;
@@ -192,6 +214,7 @@
         row('둘레', V.length(q.perimeter), '벽 중심 기준', '', '면적'),
         row('걸레받이', V.length(q.baseboard), q.doorWidth ? `안목 둘레 ${App.units.formatLength(q.clearPerimeter)} − 문 ${App.units.formatLength(q.doorWidth)}` : '안목 둘레', '', '면적'),
         row('천장 몰딩', V.length(q.clearPerimeter), '안목 둘레', '', '면적'),
+        ...q.finishes.map((f) => finishRow(f, '마감재')),
         ...roomItems(r.id),
       ];
       blocks.push({ title: r.name, sub: r.issue ? '경계 확인 필요' : '', warn: !!r.issue, rows });
@@ -206,6 +229,7 @@
       tot.push(row('천장 면적', V.area(s.arch.ceiling), '', '', '면적'));
       tot.push(row('걸레받이', V.length(s.arch.baseboard), '안목 둘레 − 문 폭', '', '면적'));
       tot.push(row('천장 몰딩', V.length(s.arch.molding), '안목 둘레', '', '면적'));
+      s.finishes.forEach((f) => tot.push(finishRow(f, '마감재', ` · 방 ${f.rooms}곳`)));
       tot.push(row('벽 면적 (방 쪽)', V.area(s.arch.roomWall), '칸막이 벽은 양쪽 방에 한 면씩', '', '면적'));
     }
     secs.forEach((sec) => {

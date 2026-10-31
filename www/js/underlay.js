@@ -407,7 +407,7 @@
     App.ui.busy(ext === 'dwg' ? 'DWG 도면을 읽는 중… 처음 한 번은 몇 초 걸릴 수 있습니다.' : '도면을 읽는 중…');
     await new Promise((r) => setTimeout(r, 30)); // 안내가 먼저 보이게
     // reparse(옵션): 꺼진 레이어 포함 여부를 바꿔 다시 만들 때 파일을 다시 읽지 않음
-    let parsed, reparse;
+    let parsed, reparse, fallback = '';
     try {
       let buffer = await file.arrayBuffer();
       if (ext === 'dwg') {
@@ -417,8 +417,20 @@
       }
       const text = App.dxf.decode(buffer);
       // DWG에서 바꾼 DXF는 켜진 레이어도 '꺼짐'으로 적혀 나오는 경우가 있어 얼린 레이어만 숨김
-      reparse = (opts) => trimOutliers(App.dxf.parse(text, { ...opts, ignoreOff: ext === 'dwg' }));
+      const extra = {};
+      reparse = (opts) => trimOutliers(App.dxf.parse(text, { ...extra, ...opts, ignoreOff: ext === 'dwg' }));
       parsed = reparse();
+      // 아무것도 없으면: 얼린 레이어 → 배치(종이) 공간 순서로 더 찾아봄
+      const has = (p) => p.polylines.length || p.texts.length;
+      if (!has(parsed) && parsed.stats.hiddenSkipped) {
+        const p2 = reparse({ includeHidden: true });
+        if (has(p2)) { extra.includeHidden = true; parsed = p2; fallback = 'hidden'; }
+      }
+      for (const opts of [{ includePaper: true }, { includePaper: true, includeHidden: true }]) {
+        if (has(parsed)) break;
+        const p3 = reparse(opts);
+        if (has(p3)) { Object.assign(extra, opts); parsed = p3; fallback = 'paper'; }
+      }
     } catch (e) {
       App.ui.busy(false);
       if (e.message === 'NO_WORKER') return dwgHelp(file.name);
@@ -432,7 +444,20 @@
     }
     App.ui.busy(false);
     if (!parsed.polylines.length && !parsed.texts.length) {
-      await App.ui.dialog({ title: '그릴 내용이 없습니다', html: '<p>이 도면에는 모형 공간에 선이나 글자가 없습니다. 도면이 배치(종이) 공간에만 있거나 3D 개체만 있을 수 있습니다.</p>' });
+      // 왜 비었는지 알려 주고 캐드에서 할 일을 안내
+      const s = parsed.stats;
+      const reasons = [];
+      if (s.xrefs.length) {
+        reasons.push(`<p>이 도면은 다른 도면 파일을 <b>외부 참조(XREF)</b>로 불러와 보여 주는 파일입니다: <b>${esc(s.xrefs.slice(0, 3).join(', '))}${s.xrefs.length > 3 ? ' …' : ''}</b>. 그 내용은 이 파일 안에 들어 있지 않습니다.</p>
+          <p class="dialog-note">캐드에서 외부 참조를 <b>결합(BIND)</b>한 뒤 저장해서 다시 열어 주세요. (명령: XREF → 결합)</p>`);
+      }
+      const unread = Object.entries(s.skipped).filter(([t]) => t !== '없는 블록').map(([t, n]) => `${t} ${n.toLocaleString('ko-KR')}개`).join(', ');
+      if (unread) {
+        reasons.push(`<p>밑그림으로 읽을 수 없는 개체만 있습니다: ${esc(unread)}. 3D 객체나 건축 전용(AEC) 객체일 수 있습니다.</p>
+          <p class="dialog-note">캐드에서 전체를 <b>분해(EXPLODE)</b>한 뒤 저장하거나, ‘다른 이름으로 저장’에서 DXF로 저장해 다시 열어 보세요.</p>`);
+      }
+      if (!reasons.length) reasons.push('<p>모형 공간과 배치(종이) 공간 모두에서 선이나 글자를 찾지 못했습니다.</p><p class="dialog-note">캐드에서 ‘다른 이름으로 저장’ → DXF(또는 2013 형식 DWG)로 저장해 다시 열어 보세요.</p>');
+      await App.ui.dialog({ title: '그릴 내용을 찾지 못했습니다', html: reasons.join('') });
       return false;
     }
     const known = parsed.insunits !== 0 && UNIT_CHOICES.some(([f]) => f === parsed.units.mm);
@@ -463,7 +488,9 @@
           </label>` : ''}
         ${skipped ? `<p class="props-meta">건너뛴 것: ${esc(skipped)} (빗금·3D 등은 밑그림에 넣지 않음)</p>` : ''}
         ${parsed.stats.outliers ? `<p class="props-meta">도면에서 멀리 떨어진 엉뚱한 선·글자 ${parsed.stats.outliers}개는 뺐습니다. (화면 맞춤이 너무 작아지는 것을 막음)</p>` : ''}
-        ${parsed.stats.truncated ? '<p class="dialog-note is-warn">도면이 너무 커서 일부만 불러왔습니다.</p>' : ''}`,
+        ${parsed.stats.truncated ? '<p class="dialog-note is-warn">도면이 너무 커서 일부만 불러왔습니다.</p>' : ''}
+        ${fallback === 'hidden' ? '<p class="dialog-note is-warn">선이 모두 캐드에서 얼린(숨긴) 레이어에 있어서 함께 불러왔습니다.</p>' : ''}
+        ${fallback === 'paper' ? '<p class="dialog-note is-warn">모형 공간이 비어 있어 <b>배치(종이) 공간</b>의 선을 불러왔습니다. 종이 축척이라 실제 크기와 다를 수 있으니, 불러온 뒤 ‘두 점으로 길이 맞추기’로 맞추세요.</p>' : ''}`,
       actions: [{ id: 'cancel', label: '취소' }, { id: 'ok', label: '불러오기', primary: true }],
       onOpen(body) {
         body.querySelector('#d-unit').addEventListener('change', (e) => {

@@ -75,6 +75,8 @@
     const dropped = data.elements.length - elements.length;
     // 벽 종류·프리셋 목록이 없으면 기본 목록을 넣음
     if (!elements.some((e) => e.type === 'wallType')) elements.push(...App.catalog.defaultElements());
+    // 마감재(아트보드·데코타일 등)가 생기기 전에 만든 도면에는 기본 마감재를 넣음
+    else if (!elements.some((e) => e.type === 'preset' && e.kind === 'finish')) elements.push(...App.catalog.defaultFinishes());
     // (dataVersion 1 이후 구조가 바뀌면 여기서 옛 데이터를 고침)
     return { ...data, elements, dropped, newer: version > App.model.DATA_VERSION };
   }
