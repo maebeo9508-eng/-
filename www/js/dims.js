@@ -288,5 +288,42 @@
     return specs.length;
   }
 
-  App.dims = { at, create, outside, rooms, rayHit };
+  /* ── 벽까지 거리: 기호·가구·기둥에서 위·아래·왼쪽·오른쪽 벽 면까지 ── */
+  const DIRS4 = [['left', { x: -1, y: 0 }], ['right', { x: 1, y: 0 }], ['up', { x: 0, y: -1 }], ['down', { x: 0, y: 1 }]];
+
+  /** { left: { edge, center, dir, ext }, ... }: edge는 가장자리에서, center는 가운데에서 벽 면까지 (벽이 없는 방향은 빠짐) */
+  function clearance(el) {
+    const T = App.model.TYPES[el.type];
+    if (!T || !T.extent) return null;
+    const list = walls();
+    const out = {};
+    DIRS4.forEach(([key, dir]) => {
+      const center = rayHit({ x: el.x, y: el.y }, dir, list);
+      if (center >= REACH) return;
+      const ext = T.extent(el, dir);
+      out[key] = { edge: center - ext, center, dir, ext };
+    });
+    return out;
+  }
+
+  /** 벽까지 치수를 넣음. basis 'edge'(가장자리에서) | 'center'(가운데에서). 한 묶음 */
+  function clearanceDims(el, basis = 'edge') {
+    const c = clearance(el) || {};
+    const specs = Object.values(c).map((k) => ({
+      start: { x: el.x + k.dir.x * (basis === 'center' ? 0 : k.ext), y: el.y + k.dir.y * (basis === 'center' ? 0 : k.ext) },
+      end: { x: el.x + k.dir.x * k.center, y: el.y + k.dir.y * k.center },
+    })).filter((s) => G.dist(s.start, s.end) >= 1).map((s) => {
+      const [a, b] = ordered(s.start, s.end);
+      return { start: a, end: b, offset: 0 };
+    });
+    if (!specs.length) {
+      App.ui.toast('둘레에 벽이 없거나 벽에 붙어 있어 넣을 치수가 없습니다.');
+      return 0;
+    }
+    addDims(specs, '벽까지 치수', { group: `gap-${el.id}-${basis}` });
+    App.ui.toast(`벽까지 치수 ${specs.length}개를 넣었습니다 (${basis === 'center' ? '가운데' : '가장자리'}에서).`);
+    return specs.length;
+  }
+
+  App.dims = { at, create, outside, rooms, rayHit, clearance, clearanceDims };
 })();

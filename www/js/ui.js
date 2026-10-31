@@ -188,9 +188,27 @@
   /* ── 캔버스 위 버튼: 스냅 켜고 끄기, 그리기 끝내기 ── */
   function bindCanvasControls() {
     const bar = $('#snapbar');
-    const sync = () => bar.querySelectorAll('[data-snap]').forEach((b) => {
-      b.setAttribute('aria-pressed', String(!!App.settings[b.dataset.snap]));
+    const wrap = $('#snapWrap');
+    const toggle = $('#btnSnap');
+    const sync = () => {
+      bar.querySelectorAll('[data-snap]').forEach((b) => b.setAttribute('aria-pressed', String(!!App.settings[b.dataset.snap])));
+      const shown = [...bar.querySelectorAll('[data-snap]')].filter((b) => !b.hidden);
+      $('#snapCount').textContent = `${shown.filter((b) => App.settings[b.dataset.snap]).length}/${shown.length}`;
+    };
+    // 휴대폰: '스냅'을 누르면 체크 목록이 열리고, 바깥을 누르면 닫힘
+    const setOpen = (open) => {
+      wrap.classList.toggle('is-open', open);
+      toggle.setAttribute('aria-expanded', String(open));
+    };
+    toggle.addEventListener('click', () => setOpen(!wrap.classList.contains('is-open')));
+    document.addEventListener('pointerdown', (e) => {
+      if (wrap.classList.contains('is-open') && !e.target.closest('#snapWrap')) setOpen(false);
     });
+    ui.closeSnap = () => {
+      if (!wrap.classList.contains('is-open')) return false;
+      setOpen(false);
+      return true;
+    };
     bar.addEventListener('click', (e) => {
       const b = e.target.closest('[data-snap]');
       if (!b) return;
@@ -208,9 +226,10 @@
     ui.on('settings', sync); // 설정 화면에서 바꾼 것도 반영
 
     // 특정 도구에서만 의미 있는 버튼 (예: '늘리기'는 선택 도구에서만)
-    ui.on('tool', (id) => bar.querySelectorAll('[data-only]').forEach((b) => {
-      b.hidden = b.dataset.only !== id;
-    }));
+    ui.on('tool', (id) => {
+      bar.querySelectorAll('[data-only]').forEach((b) => { b.hidden = b.dataset.only !== id; });
+      sync();
+    });
 
     $('#btnFinish').addEventListener('click', () => App.tools.finish());
     ui.on('toolstate', (tool) => {
@@ -297,6 +316,7 @@
       return true;
     }
     if (App.view3d && App.view3d.close()) return true;
+    if (ui.closeSnap && ui.closeSnap()) return true;
     if (!$('#settingsModal').hidden) {
       App.settingsUI.close();
       return true;

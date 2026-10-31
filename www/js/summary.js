@@ -70,6 +70,9 @@
         wallOverlap: wallQ.reduce((s, q) => s + q.overlap, 0),
         wallArea: wallQ.reduce((s, q) => s + q.area, 0),
         floor: rooms.reduce((s, r) => s + r.q.floor, 0),
+        clearFloor: rooms.reduce((s, r) => s + r.q.clearArea, 0),
+        baseboard: rooms.reduce((s, r) => s + r.q.baseboard, 0),
+        molding: rooms.reduce((s, r) => s + r.q.clearPerimeter, 0),
         ceiling: rooms.reduce((s, r) => s + r.q.ceiling, 0),
         roomWall: rooms.reduce((s, r) => s + r.q.wallArea, 0),
         issues: rooms.filter((r) => r.issue).length,
@@ -140,8 +143,11 @@
       arch.push(row('벽 면적 합계 (한 면)', V.area(a.wallArea), '문·창문 뺌'));
     }
     if (s.rooms.length) {
-      arch.push(row('바닥 면적 합계', V.area(a.floor), `방 ${s.rooms.length}개${a.issues ? ` · 경계 확인 필요 ${a.issues}개` : ''}`));
+      arch.push(row('바닥 면적 합계', V.area(a.floor), `방 ${s.rooms.length}개 · 벽 중심 기준${a.issues ? ` · 경계 확인 필요 ${a.issues}개` : ''}`));
+      arch.push(row('바닥 면적 합계 (안목)', V.area(a.clearFloor), '벽 면 안쪽 · 바닥재 기준'));
       arch.push(row('천장 면적 합계', V.area(a.ceiling)));
+      arch.push(row('걸레받이 합계', V.length(a.baseboard), '안목 둘레 − 문 폭'));
+      arch.push(row('천장 몰딩 합계', V.length(a.molding), '안목 둘레'));
     }
     if (arch.length) blocks.push({ title: '건축', rows: arch });
     const mat = materialRows(s.materials);
@@ -178,11 +184,14 @@
     s.rooms.forEach((r) => {
       const q = r.q;
       const rows = [
-        row('바닥 면적', V.area(q.floor), '', '', '면적'),
+        row('바닥 면적', V.area(q.floor), '벽 중심 기준', '', '면적'),
+        row('바닥 면적 (안목)', V.area(q.clearArea), '벽 면 안쪽', '', '면적'),
         row('천장 면적', V.area(q.ceiling), q.ceiling !== q.floor ? '직접 입력' : '', '', '면적'),
         row('벽 면적 (방 쪽)', V.area(q.wallArea), q.openingArea ? `문·창문 ${App.units.formatArea(q.openingArea)} 뺌` : '', '', '면적'),
         ...q.boards.map((b) => row(`${b.spec} (방 쪽)`, V.area(b.area), '겹 수 반영', '', '면적')),
-        row('둘레', V.length(q.perimeter), '', '', '면적'),
+        row('둘레', V.length(q.perimeter), '벽 중심 기준', '', '면적'),
+        row('걸레받이', V.length(q.baseboard), q.doorWidth ? `안목 둘레 ${App.units.formatLength(q.clearPerimeter)} − 문 ${App.units.formatLength(q.doorWidth)}` : '안목 둘레', '', '면적'),
+        row('천장 몰딩', V.length(q.clearPerimeter), '안목 둘레', '', '면적'),
         ...roomItems(r.id),
       ];
       blocks.push({ title: r.name, sub: r.issue ? '경계 확인 필요' : '', warn: !!r.issue, rows });
@@ -192,8 +201,11 @@
     // 총계: 모든 방의 면적 합과 항목 묶음별 합
     const tot = [];
     if (s.rooms.length) {
-      tot.push(row('바닥 면적', V.area(s.arch.floor), `방 ${s.rooms.length}개`, '', '면적'));
+      tot.push(row('바닥 면적', V.area(s.arch.floor), `방 ${s.rooms.length}개 · 벽 중심 기준`, '', '면적'));
+      tot.push(row('바닥 면적 (안목)', V.area(s.arch.clearFloor), '벽 면 안쪽', '', '면적'));
       tot.push(row('천장 면적', V.area(s.arch.ceiling), '', '', '면적'));
+      tot.push(row('걸레받이', V.length(s.arch.baseboard), '안목 둘레 − 문 폭', '', '면적'));
+      tot.push(row('천장 몰딩', V.length(s.arch.molding), '안목 둘레', '', '면적'));
       tot.push(row('벽 면적 (방 쪽)', V.area(s.arch.roomWall), '칸막이 벽은 양쪽 방에 한 면씩', '', '면적'));
     }
     secs.forEach((sec) => {

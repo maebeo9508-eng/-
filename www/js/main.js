@@ -13,6 +13,7 @@
     showGrid: true,
     showRulers: false,    // 위·왼쪽 눈금자
     showWallLengths: true, // 벽마다 중심선 길이 글자 (치수를 넣었으면 꺼서 깔끔하게)
+    showDistances: true,   // 기호·가구·기둥을 고르거나 옮길 때 벽까지 거리
     snapGrid: true,
     snapEnd: true,
     snapMid: true,

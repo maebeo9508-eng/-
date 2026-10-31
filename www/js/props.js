@@ -54,6 +54,28 @@
     },
   };
 
+  /* 벽까지 거리 칸: 가장자리에서 그 방향 벽 면까지. 고치면 그만큼 떨어지게 옮김 (벽에 붙은 기호는 벽을 따라) */
+  const GAPS = [['gapLeft', 'left', '← 왼쪽 벽까지'], ['gapRight', 'right', '→ 오른쪽 벽까지'], ['gapUp', 'up', '↑ 위쪽 벽까지'], ['gapDown', 'down', '↓ 아래쪽 벽까지']];
+  function movedPatch(el, dx, dy) {
+    const w = el.type === 'item' && el.wallId && App.doc.get(el.wallId);
+    if (w) {
+      const L = G.dist(w.start, w.end);
+      const t = ((el.x + dx - w.start.x) * (w.end.x - w.start.x) + (el.y + dy - w.start.y) * (w.end.y - w.start.y)) / (L * L);
+      return { t: G.clamp(t, 0, 1) };
+    }
+    return { x: el.x + dx, y: el.y + dy };
+  }
+  const gapFields = () => Object.fromEntries(GAPS.map(([key, dir, label]) => [key, {
+    label, min: 0, max: 1000000,
+    get: (el) => { const c = App.dims.clearance(el); return c && c[dir] ? c[dir].edge : null; },
+    set: (el, v) => {
+      const c = App.dims.clearance(el);
+      if (!c || !c[dir]) return {};
+      const k = c[dir], move = k.edge - v;
+      return movedPatch(el, k.dir.x * move, k.dir.y * move);
+    },
+  }]));
+
   const FIELDS = {
     wall: {
       length: {
@@ -108,6 +130,7 @@
       },
       x: { label: 'X', min: -COORD_LIMIT, max: COORD_LIMIT, get: (it) => it.x, set: (it, v) => ({ x: v }) },
       y: { label: 'Y', min: -COORD_LIMIT, max: COORD_LIMIT, get: (it) => it.y, set: (it, v) => ({ y: v }) },
+      ...gapFields(),
     },
     line: {
       length: {
@@ -151,6 +174,7 @@
       depth: { label: '깊이', min: 50, max: 5000, get: (c) => c.depth, set: (c, v) => ({ depth: v }) },
       x: { label: 'X', min: -COORD_LIMIT, max: COORD_LIMIT, get: (c) => c.x, set: (c, v) => ({ x: v }) },
       y: { label: 'Y', min: -COORD_LIMIT, max: COORD_LIMIT, get: (c) => c.y, set: (c, v) => ({ y: v }) },
+      ...gapFields(),
     },
   };
 
@@ -381,11 +405,14 @@
           <div class="field-box"><input id="f-name" type="text" maxlength="${NAME_MAX}" enterkeyhint="done" autocomplete="off" value="${esc(r.name)}"></div>
         </div>` : ''}
       <div class="stats">
-        ${stat(single ? '바닥 면적' : '바닥 면적 합계', App.units.formatArea(area))}
+        ${stat(single ? '바닥 면적' : '바닥 면적 합계', App.units.formatArea(area), '벽 중심 기준')}
+        ${stat('바닥 면적 (안목)', App.units.formatArea(total('clearArea')), '벽 면 안쪽 · 바닥재 기준')}
         ${stat(single ? '천장 면적' : '천장 면적 합계', App.units.formatArea(total('ceiling')), els.some((e) => e.ceilingArea != null) ? '직접 입력' : '바닥과 같음')}
         ${stat('벽 면적 (방 쪽)', App.units.formatArea(total('wallArea')), total('openingArea') ? `문·창문 ${App.units.formatArea(total('openingArea'))} 뺌` : '')}
         ${[...boards].map(([spec, a]) => stat(`${spec} (방 쪽)`, App.units.formatArea(a), '겹 수 반영')).join('')}
-        ${single ? stat('둘레', App.units.formatLength(G.perimeter(r.points))) : ''}
+        ${single ? stat('둘레', App.units.formatLength(G.perimeter(r.points)), '벽 중심 기준') : ''}
+        ${stat('걸레받이', App.units.formatLength(total('baseboard')), total('doorWidth') ? `안목 둘레 − 문 폭 ${App.units.formatLength(total('doorWidth'))}` : '안목 둘레')}
+        ${stat('천장 몰딩', App.units.formatLength(total('clearPerimeter')), '안목 둘레')}
       </div>
       <div class="field-grid">
         ${numberField('ceilingHeight')}
@@ -455,6 +482,8 @@
         ${circle ? '' : numberField('depth')}
       </div>
       ${single ? `<div class="field-group-label">가운데 위치</div><div class="field-grid">${numberField('x')}${numberField('y')}</div>` : ''}
+      ${gapRows()}
+      ${pairRows()}
       ${commonFields(single)}
       ${deleteButton('기둥')}`;
   }
@@ -493,6 +522,53 @@
     return kind ? App.catalog.itemDef(kind) : null;
   };
 
+  /** 실제 크기로 그리는 것(가구·시스템 에어컨·점검구 등): 규격 고르기와 폭·깊이 */
+  function sizeRows(def) {
+    const sizeKey = commonText((e) => `${e.size}x${e.depth}`);
+    const sizes = def && def.sizes ? def.sizes.map(([name, w, d]) => [`${w}x${d}`, `${name} · ${w}×${d}`]) : [];
+    const custom = sizeKey !== null && !sizes.some(([v]) => v === sizeKey);
+    return `
+      ${sizes.length ? selectField('f-furnSize', '규격', custom ? [[sizeKey, '직접 넣은 크기'], ...sizes] : sizes, sizeKey) : ''}
+      <div class="field-grid">
+        ${numberField('size', '폭')}
+        ${numberField('depth')}
+      </div>`;
+  }
+
+  /** 하나만 골랐을 때: 네 방향 벽까지 거리 (가장자리 기준, 숫자를 넣으면 옮김)와 벽까지 치수 넣기 */
+  function gapRows() {
+    if (els.length !== 1) return '';
+    const c = App.dims.clearance(els[0]);
+    const keys = c ? GAPS.filter(([, dir]) => c[dir]) : [];
+    if (!keys.length) return '';
+    return `
+      <div class="field-group-label">벽까지 거리 (가장자리에서 벽 면까지)</div>
+      <div class="field-grid">${keys.map(([key]) => numberField(key)).join('')}</div>
+      <p class="props-meta">가운데에서: ${keys.map(([, dir, label]) => `${label.split(' ')[0]} ${esc(App.units.formatLength(c[dir].center))}`).join(' · ')}. 숫자를 넣으면 벽에서 그만큼 떨어지게 옮깁니다.</p>
+      <div class="btn-row">
+        <button type="button" class="btn" data-act="gap-dims-edge">벽까지 치수 넣기</button>
+        <button type="button" class="btn" data-act="gap-dims-center">가운데에서 치수 넣기</button>
+      </div>`;
+  }
+
+  /** 기호·가구·기둥 두 개를 골랐을 때: 둘 사이 거리 */
+  function pairRows() {
+    if (els.length !== 2) return '';
+    const [a, b] = els;
+    const Ta = App.model.TYPES[a.type], Tb = App.model.TYPES[b.type];
+    if (!Ta.extent || !Tb.extent) return '';
+    const X = { x: 1, y: 0 }, Y = { x: 0, y: 1 };
+    const dx = Math.abs(b.x - a.x), dy = Math.abs(b.y - a.y);
+    const gx = dx - Ta.extent(a, X) - Tb.extent(b, X), gy = dy - Ta.extent(a, Y) - Tb.extent(b, Y);
+    const L = (v) => App.units.formatLength(v);
+    return `
+      <div class="field-group-label">고른 두 개 사이</div>
+      <div class="stats">
+        ${stat('가운데 사이', `가로 ${L(dx)} · 세로 ${L(dy)}`, `곧은 거리 ${L(Math.hypot(dx, dy))}`)}
+        ${stat('가장자리 사이', `가로 ${gx > 0.5 ? L(gx) : '-'} · 세로 ${gy > 0.5 ? L(gy) : '-'}`, '나란히 있는 방향만')}
+      </div>`;
+  }
+
   /** 가구: 종류, 규격, 폭·깊이, 회전, 위치 */
   function furnForm() {
     const single = els.length === 1;
@@ -500,20 +576,15 @@
     const def = kind ? App.catalog.itemDef(kind) : null;
     const counts = {};
     els.forEach((e) => { const k = App.catalog.itemLabel(e); counts[k] = (counts[k] || 0) + 1; });
-    const sizeKey = commonText((e) => `${e.size}x${e.depth}`);
-    const sizes = def && def.sizes ? def.sizes.map(([name, w, d]) => [`${w}x${d}`, `${name} · ${w}×${d}`]) : [];
-    const custom = sizeKey !== null && !sizes.some(([v]) => v === sizeKey);
     return `
       ${head('가구', single ? App.catalog.itemLabel(els[0]) : `${els.length}개 선택`)}
       ${selectField('f-itemKind', '종류', App.catalog.ITEM_KINDS.furn.map((d) => [d.kind, d.kind]), kind)}
-      ${sizes.length ? selectField('f-furnSize', '규격', custom ? [[sizeKey, '직접 넣은 크기'], ...sizes] : sizes, sizeKey) : ''}
-      <div class="field-grid">
-        ${numberField('size', '폭')}
-        ${numberField('depth')}
-      </div>
+      ${sizeRows(def)}
       ${selectField('f-rotation', '회전', [['0', '0°'], ['90', '90°'], ['180', '180°'], ['270', '270°']], commonText((e) => String(e.rotation)),
         '<button type="button" class="btn" data-act="rotate">90° 돌리기</button>')}
       ${single ? `<div class="field-group-label">가운데 위치</div><div class="field-grid">${numberField('x')}${numberField('y')}</div>` : ''}
+      ${gapRows()}
+      ${pairRows()}
       <div class="stats">
         ${single ? stat('방', roomName(els[0].room)) : Object.entries(counts).map(([k, n]) => stat(k, `${n}개`)).join('')}
       </div>
@@ -540,16 +611,19 @@
       ${kinds.length ? selectField('f-itemKind', '종류', kinds, commonText((e) => e.kind)) : ''}
       ${def && def.options ? Object.entries(def.options).map(([key, o]) =>
         selectField(`f-opt-${key}`, esc(o.label), o.values.map((v) => [v, v]), commonText((e) => e[key] ?? null))).join('') : ''}
+      ${def && def.depth ? sizeRows(def) : ''}
       <div class="field-grid">
         ${numberField('height')}
         ${def && def.numbers ? Object.entries(def.numbers).map(([key, o]) => intField(key, o)).join('') : ''}
-        ${numberField('size')}
+        ${def && def.depth ? '' : numberField('size')}
       </div>
       ${ceilingOnes.length ? `<p class="props-meta">설치 높이를 비우면 그 방의 천장 높이${single ? `(${esc(App.units.formatLength(ceiling))})` : ''}에 다는 것으로 봅니다. 높이는 배관·전선관 수직 길이 계산에 쓰입니다.</p>`
         : '<p class="props-meta">설치 높이는 바닥에서 기구 가운데까지입니다. 배관·전선관 수직 길이 계산에 쓰입니다.</p>'}
       ${selectField('f-rotation', '회전', [['0', '0°'], ['90', '90°'], ['180', '180°'], ['270', '270°']], rotation,
         '<button type="button" class="btn" data-act="rotate">90° 돌리기</button>')}
       ${single && !mounted.length ? `<div class="field-group-label">가운데 위치</div><div class="field-grid">${numberField('x')}${numberField('y')}</div>` : ''}
+      ${gapRows()}
+      ${pairRows()}
       <div class="stats">
         ${single ? stat('방', roomName(els[0].room)) : Object.entries(counts).map(([k, n]) => stat(k, `${n}개`)).join('')}
         ${mounted.length ? stat('벽에 붙음', single ? (wallType ? wallType.name : '벽') : `${mounted.length}개`, '벽을 옮기면 따라갑니다') : ''}
@@ -704,6 +778,7 @@
     return `
       ${head(`${els.length}개 선택`, parts)}
       ${walls.length ? materialRows(walls) : ''}
+      ${pairRows()}
       ${commonFields(false)}
       <button type="button" class="btn btn-danger" data-act="delete">${els.length}개 삭제</button>`;
   }
@@ -1051,6 +1126,8 @@
         case 'edit-line': App.catalogUI.open('line', commonText((l) => l.presetId)); break;
         case 'rotate': App.actions.rotateSelection(); break;
         case 'detach': apply('벽에서 떼기', (it) => (it.wallId ? { wallId: null, t: null, side: null } : {})); break;
+        case 'gap-dims-edge': App.dims.clearanceDims(els[0], 'edge'); break;
+        case 'gap-dims-center': App.dims.clearanceDims(els[0], 'center'); break;
         case 'group': App.actions.groupSelection(); break;
         case 'calibrate': App.underlay.calibrate(els[0].id); break;
         case 'duplicate': App.edit.duplicate(); break;

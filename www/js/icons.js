@@ -87,6 +87,15 @@
       stroke(c, [12, 5.5, 12, 19.5], 2.4);
       stroke(c, [8.5, 19.5, 15.5, 19.5], 1.8);
     },
+    snap(c) {
+      // 자석
+      c.lineWidth = 2.6;
+      c.beginPath(); c.arc(12, 11, 6.5, Math.PI, 0); c.stroke();
+      stroke(c, [5.5, 11, 5.5, 19], 2.6);
+      stroke(c, [18.5, 11, 18.5, 19], 2.6);
+      c.fillRect(3.5, 16.5, 4, 3.5);
+      c.fillRect(16.5, 16.5, 4, 3.5);
+    },
     furn(c) {
       // 소파: 등받이, 팔걸이, 방석
       c.lineWidth = 1.8;

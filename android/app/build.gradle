@@ -14,8 +14,8 @@ android {
         applicationId "kr.hyeonjang.domyeon"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 5          // 업데이트마다 1씩 올림
-        versionName "1.1.1"    // www/js/settings.js APP_VERSION과 같게
+        versionCode 6          // 업데이트마다 1씩 올림
+        versionName "1.2.0"    // www/js/settings.js APP_VERSION과 같게
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

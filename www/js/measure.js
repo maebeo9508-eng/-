@@ -192,6 +192,35 @@
     return pieces;
   }
 
+  /** 방 안목 다각형: 벽이 놓인 변은 그 벽 두께의 반만큼 방 안쪽으로 옮긴 다각형 (바닥재·걸레받이 기준).
+      벽이 없는 변은 그대로 */
+  function clearPolygon(r) {
+    const pts = r.points;
+    const n = pts.length;
+    if (n < 3) return pts.slice();
+    const walls = r.wallIds.map((id) => App.doc.get(id)).filter((w) => w && w.type === 'wall');
+    const inward = G().signedArea(pts) > 0 ? 1 : -1;
+    const lines = pts.map((a, i) => {
+      const b = pts[(i + 1) % n];
+      const dir = G().unit(sub(b, a));
+      const nrm = G().perp(dir);
+      let half = 0;
+      walls.forEach((w) => {
+        if (Math.abs(dot(sub(w.start, a), nrm)) > 1 || Math.abs(dot(sub(w.end, a), nrm)) > 1) return; // 같은 직선 위만
+        const len = G().dist(a, b);
+        const s0 = Math.min(dot(sub(w.start, a), dir), dot(sub(w.end, a), dir));
+        const s1 = Math.max(dot(sub(w.start, a), dir), dot(sub(w.end, a), dir));
+        if (Math.min(len, s1) - Math.max(0, s0) > 0.5) half = Math.max(half, w.thickness / 2);
+      });
+      const k = half * inward;
+      return { p: { x: a.x + nrm.x * k, y: a.y + nrm.y * k }, dir };
+    });
+    return lines.map((l, i) => {
+      const prev = lines[(i + n - 1) % n];
+      return G().lineIntersect(prev.p, prev.dir, l.p, l.dir) || l.p; // 일직선으로 이어진 변이면 그 점
+    });
+  }
+
   /** 방이 벽의 어느 쪽에 있는지: 벽 방향의 왼쪽(+1) / 오른쪽(-1) */
   function roomSide(r, wall, a, b) {
     const d = G().unit(sub(wall.end, wall.start));
@@ -250,13 +279,15 @@
     roomAt,
     ceilingAt,
     roomEdges,
+    clearPolygon,
     openingRoom,
     lineRooms,
 
     /** 방 하나의 면적들 (mm²): 바닥, 천장(따로 정하지 않으면 바닥과 같음), 방 쪽 벽 면적, 방 쪽 석고 */
     room(r) {
       const floor = Math.abs(App.geom.signedArea(r.points));
-      let wallGross = 0, openingArea = 0;
+      const clear = clearPolygon(r);
+      let wallGross = 0, openingArea = 0, doorWidth = 0;
       const boards = new Map();
       roomEdges(r).forEach((e) => {
         const H = e.wall ? e.wall.height : r.wallHeight;
@@ -268,7 +299,10 @@
             const g = App.model.openingGeom(o);
             if (!g) return;
             const s = dot(sub(g.center, e.a), dir);
-            if (s >= -0.5 && s <= e.len + 0.5) cut += App.model.TYPES[o.type].area(o);
+            if (s >= -0.5 && s <= e.len + 0.5) {
+              cut += App.model.TYPES[o.type].area(o);
+              if (o.type === 'door') doorWidth += g.half * 2; // 걸레받이는 문 자리에서 끊김
+            }
           });
         }
         cut = Math.min(cut, gross);
@@ -282,10 +316,15 @@
         const spec = `석고보드 ${Number(t.boardT)}T`;
         boards.set(spec, (boards.get(spec) || 0) + (gross - cut) * layers);
       });
+      const clearPerimeter = App.geom.perimeter(clear);
       return {
         floor,
         ceiling: r.ceilingArea != null ? r.ceilingArea : floor,
         perimeter: App.geom.perimeter(r.points),
+        clearArea: Math.abs(App.geom.signedArea(clear)), // 안목 바닥 면적 (벽 면 안쪽)
+        clearPerimeter,                                   // 안목 둘레 = 천장 몰딩 길이
+        baseboard: Math.max(0, clearPerimeter - doorWidth), // 걸레받이: 안목 둘레에서 문 폭을 뺌
+        doorWidth,
         wallGross,
         openingArea,
         wallArea: wallGross - openingArea,

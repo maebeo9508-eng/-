@@ -1,6 +1,6 @@
 /* 서비스 워커: 앱 파일을 모두 기기에 담아 두고 인터넷 없이도 열리게 한다 (비행기 모드 포함).
    파일을 고치면 VERSION을 올려야 기기에 담긴 앱이 새것으로 바뀜 (settings.js의 APP_VERSION과 같이) */
-const VERSION = '1.1.1';
+const VERSION = '1.2.0';
 const CACHE = `hjdm-${VERSION}`;
 
 const FILES = [

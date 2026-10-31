@@ -58,12 +58,26 @@
       },
       {
         kind: '조명', size: 400, aspect: 1, height: null,
-        options: { variant: { label: '형식', values: ['다운라이트', 'LED 평판등', '등기구', '간접등', '센서등'], default: '다운라이트' } },
+        options: { variant: { label: '형식', values: ['다운라이트', 'LED 평판등', '등기구', '간접등', '라인조명', '펜던트', '센서등'], default: '다운라이트' } },
       },
       {
         kind: '분전반', size: 600, aspect: 0.5, wall: true, height: 1500,
         numbers: { circuits: { label: '회로 수', unit: '회로', default: 12, min: 1, max: 200 } },
       },
+      {
+        kind: '감지기', size: 150, aspect: 1, height: null,
+        options: { variant: { label: '형식', values: ['연기', '열', '가스'], default: '연기' } },
+      },
+      {
+        kind: '유도등', size: 400, aspect: 0.35, wall: true, height: 2200,
+        options: { variant: { label: '형식', values: ['피난구', '통로', '객석'], default: '피난구' } },
+      },
+      { kind: '비상조명', size: 300, aspect: 1, height: null },
+      {
+        kind: '통신 단자', size: 200, aspect: 1, wall: true, height: 300,
+        options: { variant: { label: '형식', values: ['TV', '랜(LAN)', '전화', 'TV+랜'], default: '랜(LAN)' } },
+      },
+      { kind: '월패드', size: 300, aspect: 0.3, wall: true, height: 1400 },
       { line: '전선관' },
     ],
     mech: [
@@ -83,6 +97,19 @@
         kind: '배수구', size: 150, aspect: 1, height: 0,
         options: { variant: { label: '규격', values: ['50A', '75A', '100A'], default: '50A' } },
       },
+      // 천장에 다는 것들: 실제 크기(폭 size × 깊이 depth)로 그리고 규격을 고를 수 있음
+      { kind: '시스템 에어컨', size: 950, depth: 950, height: null, sizes: [['4way', 950, 950], ['미니 4way', 620, 620], ['2way', 1100, 600], ['1way', 1200, 450]] },
+      { kind: '점검구', size: 450, depth: 450, height: null, sizes: [['300', 300, 300], ['450', 450, 450], ['600', 600, 600]] },
+      {
+        kind: '디퓨저', size: 450, depth: 450, height: null, sizes: [['Ø300', 300, 300], ['450', 450, 450], ['600', 600, 600], ['라인 1200', 1200, 150]],
+        options: { variant: { label: '형식', values: ['사각', '원형', '라인'], default: '사각' } },
+      },
+      { kind: '스프링클러', size: 120, aspect: 1, height: null },
+      {
+        kind: '수전', size: 150, aspect: 1, wall: true, height: 900,
+        options: { variant: { label: '자리', values: ['싱크', '세면', '세탁', '샤워', '외부'], default: '싱크' } },
+      },
+      { kind: '보일러', size: 450, aspect: 0.35, wall: true, height: 1500 },
       { line: '배관' },
       { line: '덕트' },
     ],
@@ -108,8 +135,9 @@
       { kind: '신발장', size: 1000, depth: 380, h3: 1200, back: true },
     ],
   };
-  // 가구는 높이 0(바닥)에 놓이고, 기호 비율은 깊이 ÷ 폭
-  ITEM_KINDS.furn.forEach((d) => { d.aspect = d.depth / d.size; d.height = 0; });
+  // 가구는 높이 0(바닥)에 놓이고, 실제 크기로 그리는 것(깊이가 있는 것)의 기호 비율은 깊이 ÷ 폭
+  ITEM_KINDS.furn.forEach((d) => { d.height = 0; });
+  [...ITEM_KINDS.mech, ...ITEM_KINDS.furn].forEach((d) => { if (d.depth) d.aspect = d.depth / d.size; });
   const LINE_CATEGORIES = ['전선관', '배관', '덕트', '기타'];
   const COLORS = [
     ['#e03131', '빨강'], ['#c2255c', '자홍'], ['#e8590c', '주황'], ['#f08c00', '노랑'], ['#2f9e44', '초록'],
@@ -140,10 +168,21 @@
     },
     /** 집계용 이름: '콘센트 2구 · 일반(접지)', '분전반 12회로' */
     itemLabel(it) {
-      if (it.category === 'furn') return `${it.kind} ${num(it.size)}×${num(it.depth)}`;
+      if (it.depth != null) {
+        // 실제 크기로 그리는 것: 규격 이름(크기가 맞으면)과 폭×깊이
+        const name = catalog.sizeName(it).replace(/^\d+$/, ''); // '450'처럼 숫자뿐인 규격 이름은 크기와 겹쳐서 뺌
+        const sized = `${it.kind}${name ? ` ${name}` : ''} ${num(it.size)}×${num(it.depth)}`;
+        return it.category === 'furn' || !it.variant ? sized : `${sized} · ${it.variant}`;
+      }
       const parts = [it.kind + (it.gang ? ` ${it.gang}` : '') + (it.circuits ? ` ${it.circuits}회로` : '')];
       if (it.variant) parts.push(it.variant);
       return parts.join(' · ');
+    },
+    /** 폭×깊이가 규격 목록의 하나와 같으면 그 이름 (예: 퀸, 4way) */
+    sizeName(it) {
+      const def = catalog.itemDef(it.kind);
+      const hit = def && def.sizes && def.sizes.find(([, w, d]) => w === it.size && d === it.depth);
+      return hit ? hit[0] : '';
     },
     /** 선 분류에 맞는 레이어: 전선관은 전기, 나머지는 설비 */
     lineLayer(category) {

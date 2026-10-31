@@ -336,6 +336,9 @@ button { font: inherit; color: inherit; }
   touch-action: manipulation;
 }
 .snap-btn + .snap-btn { border-left: 1px solid var(--line); }
+.snap-btn small { display: none; }
+.stage-pill.snap-toggle { display: none; } /* PC는 버튼 줄 그대로, 휴대폰에서만 접기 */
+.snap-count { min-width: 18px; padding: 0 5px; border-radius: 9px; background: var(--accent-soft); color: var(--accent); font-size: 11px; line-height: 18px; text-align: center; }
 .stage-row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; max-width: 100%; }
 /* 위쪽 버튼 묶음의 빈 곳은 도면을 가리지 않게 (누르면 도면으로) */
 .stage-top, .stage-row { pointer-events: none; }
@@ -1047,6 +1050,20 @@ button { font: inherit; color: inherit; }
   .toolbar::-webkit-scrollbar { display: none; }
   .tool { width: 58px; height: 54px; }
   .snap-btn { min-height: 44px; padding: 0 11px; }
+  /* 휴대폰: 스냅 버튼은 서랍처럼 접어 두고 '스냅'을 누르면 체크 목록으로 */
+  .snap-wrap { position: relative; }
+  .stage-pill.snap-toggle { display: inline-flex; min-height: var(--hit); }
+  .snap-wrap.is-open .snap-toggle { color: var(--accent); border-color: var(--accent); }
+  .snapbar { display: none; position: absolute; top: calc(100% + 6px); left: 0; z-index: 6; flex-direction: column; min-width: 230px; }
+  .snap-wrap.is-open .snapbar { display: flex; }
+  .snapbar .snap-btn { position: relative; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 1px; min-height: 50px; padding: 4px 14px 4px 44px; text-align: left; color: var(--fg); font-size: 14px; }
+  .snapbar .snap-btn[hidden] { display: none; }
+  .snapbar .snap-btn small { display: block; font-size: 11px; font-weight: 400; color: var(--fg-muted); }
+  .snapbar .snap-btn + .snap-btn { border-left: 0; border-top: 1px solid var(--line); }
+  .snapbar .snap-btn[aria-pressed="true"] { background: transparent; color: var(--fg); }
+  .snapbar .snap-btn::before { content: ''; position: absolute; left: 13px; top: 50%; width: 20px; height: 20px; margin-top: -10px; box-sizing: border-box; border: 2px solid var(--line); border-radius: 5px; background: var(--surface); }
+  .snapbar .snap-btn[aria-pressed="true"]::before { background: var(--accent); border-color: var(--accent); }
+  .snapbar .snap-btn[aria-pressed="true"]::after { content: ''; position: absolute; left: 20px; top: 50%; width: 6px; height: 11px; margin-top: -8px; border: solid var(--accent-fg); border-width: 0 2.5px 2.5px 0; transform: rotate(45deg); }
   .finish-btn, .draw-btn { min-height: 44px; }
   /* 휴대폰: 위쪽 버튼 묶음 아래로 (스냅 버튼과 겹치지 않게) */
   .draw-actions { top: calc(var(--stage-top-h, 56px) + 12px + var(--ruler)); }

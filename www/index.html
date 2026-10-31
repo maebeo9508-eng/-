@@ -95,13 +95,19 @@
 
       <div class="stage-top" id="stageTop">
       <div class="stage-row">
+      <div class="snap-wrap" id="snapWrap">
+      <!-- 휴대폰: 스냅 버튼들을 접어 두고, 누르면 체크 목록으로 열림 -->
+      <button type="button" class="stage-pill snap-toggle" id="btnSnap" aria-expanded="false" aria-controls="snapbar" title="붙기(스냅) 설정">
+        <span class="ico ico-sm" data-icon="snap"></span><span>스냅</span><span class="snap-count" id="snapCount"></span><span class="ico ico-sm" data-icon="chevron"></span>
+      </button>
       <div class="snapbar" id="snapbar" role="group" aria-label="그리기 보조">
-        <button type="button" class="snap-btn" data-snap="snapGrid" aria-pressed="true" title="격자 스냅">격자</button>
-        <button type="button" class="snap-btn" data-snap="snapEnd" aria-pressed="true" title="끝점 스냅">끝점</button>
-        <button type="button" class="snap-btn" data-snap="snapMid" aria-pressed="true" title="중간점 스냅">중간점</button>
-        <button type="button" class="snap-btn" data-snap="snapFace" aria-pressed="true" title="벽면·선 위 스냅 (벽 그릴 때는 중심선)">벽면</button>
-        <button type="button" class="snap-btn" data-snap="ortho" aria-pressed="true" title="직교 고정 (Shift로 잠깐 전환)">직교</button>
-        <button type="button" class="snap-btn" data-snap="stretchWalls" data-only="select" aria-pressed="true" title="벽을 옮기거나 끝을 끌 때 이어진 벽도 같이 늘리기 (끄면 고른 벽만 이동)">늘리기</button>
+        <button type="button" class="snap-btn" data-snap="snapGrid" aria-pressed="true" title="격자 스냅"><span>격자</span><small>격자점에 붙기</small></button>
+        <button type="button" class="snap-btn" data-snap="snapEnd" aria-pressed="true" title="끝점 스냅"><span>끝점</span><small>벽·선 끝, 벽 모서리에</small></button>
+        <button type="button" class="snap-btn" data-snap="snapMid" aria-pressed="true" title="중간점 스냅"><span>중간점</span><small>벽·선 가운데에</small></button>
+        <button type="button" class="snap-btn" data-snap="snapFace" aria-pressed="true" title="벽면·선 위 스냅 (벽 그릴 때는 중심선)"><span>벽면</span><small>벽면·선 위에 (벽은 중심선)</small></button>
+        <button type="button" class="snap-btn" data-snap="ortho" aria-pressed="true" title="직교 고정 (Shift로 잠깐 전환)"><span>직교</span><small>가로·세로로만 그리기</small></button>
+        <button type="button" class="snap-btn" data-snap="stretchWalls" data-only="select" aria-pressed="true" title="벽을 옮기거나 끝을 끌 때 이어진 벽도 같이 늘리기 (끄면 고른 벽만 이동)"><span>늘리기</span><small>벽을 옮기면 이어진 벽도 같이</small></button>
+      </div>
       </div>
       <div class="menu-wrap layer-wrap">
         <button type="button" class="stage-pill" id="btnLayers" aria-label="레이어" aria-haspopup="menu" aria-expanded="false" aria-controls="layerMenu" title="레이어 보이기·숨기기">

@@ -138,6 +138,46 @@
     });
     drawGroupBoxes(plan);
     drawLockBadges(plan);
+    // 기호·가구·기둥 하나를 골랐으면(옮기는 중 포함) 벽까지 거리
+    if (!App.exporting && sel.size === 1) {
+      const el = App.doc.get(sel.list()[0]);
+      if (el && (el.type === 'item' || el.type === 'column')) clearanceGuides(plan, el);
+    }
+  }
+
+  /** 기호·가구·기둥에서 네 방향 벽 면까지 점선과 거리 (가장자리 기준). 놓는 중인 것(미리 보기)에도 씀 */
+  function clearanceGuides(plan, el) {
+    if (App.settings.showDistances === false) return;
+    const c = App.dims.clearance(el);
+    if (!c) return;
+    const ctx = plan.ctx, view = plan.view;
+    screenTransform(plan);
+    ctx.save();
+    ctx.font = '600 11px system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    Object.values(c).forEach((k) => {
+      if (k.edge < 0.5) return; // 벽에 붙어 있음
+      const a = view.toScreen(el.x + k.dir.x * k.ext, el.y + k.dir.y * k.ext);
+      const b = view.toScreen(el.x + k.dir.x * k.center, el.y + k.dir.y * k.center);
+      if (Math.hypot(b.x - a.x, b.y - a.y) < 8) return;
+      ctx.strokeStyle = plan.colors.accent;
+      ctx.lineWidth = 1.2;
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+      ctx.setLineDash([]);
+      const nx = -k.dir.y * 5, ny = k.dir.x * 5; // 벽 쪽 끝 눈금
+      ctx.beginPath(); ctx.moveTo(b.x - nx, b.y - ny); ctx.lineTo(b.x + nx, b.y + ny); ctx.stroke();
+      const text = App.units.formatLength(k.edge);
+      const tw = ctx.measureText(text).width + 8;
+      const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+      ctx.fillStyle = plan.colors.surface;
+      ctx.fillRect(mx - tw / 2, my - 8, tw, 16);
+      ctx.strokeRect(mx - tw / 2 + 0.5, my - 7.5, tw - 1, 15);
+      ctx.fillStyle = plan.colors.accent;
+      ctx.fillText(text, mx, my + 0.5);
+    });
+    ctx.restore();
   }
 
   /** 고른 것 중 잠긴 것: 오른쪽 위에 자물쇠 */
@@ -512,7 +552,8 @@
 
   /* ── 전기·설비 기호 ──
      (0, 0)을 가운데로 폭 w, 깊이 h(mm)에 그림. px: 화면 1px의 도면 길이(선 굵기용), bg: 속 채움(없으면 비움) */
-  function itemSymbol(ctx, kind, w, h, px, ink, bg) {
+  function itemSymbol(ctx, kind, w, h, px, ink, bg, it = null) {
+    const variant = it && it.variant;
     ctx.strokeStyle = ink;
     ctx.fillStyle = ink;
     const lw = (k) => { ctx.lineWidth = k * px; };
@@ -566,6 +607,86 @@
         circle(w / 2); back(); lw(1.6); ctx.stroke();
         circle(w * 0.25); lw(1.2); ctx.stroke();
         seg(-w * 0.18, 0, w * 0.18, 0); seg(0, -h * 0.18, 0, h * 0.18);
+        break;
+      case '감지기': {
+        circle(w / 2); back(); lw(1.5); ctx.stroke();
+        ctx.font = `700 ${h * 0.55}px system-ui, sans-serif`;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(variant === '열' ? 'H' : variant === '가스' ? 'G' : 'S', 0, h * 0.03);
+        break;
+      }
+      case '유도등':
+        box(); back(); lw(1.5); ctx.stroke();
+        // 달리는 방향 화살표
+        ctx.beginPath(); ctx.moveTo(-w * 0.3, 0); ctx.lineTo(w * 0.15, 0); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(w * 0.32, 0); ctx.lineTo(w * 0.1, -h * 0.3); ctx.lineTo(w * 0.1, h * 0.3); ctx.closePath(); ctx.fill();
+        break;
+      case '비상조명':
+        circle(w / 2); back(); lw(1.5); ctx.stroke();
+        circle(w * 0.2); ctx.fill();
+        seg(-w * 0.42, 0, -w * 0.26, 0); seg(w * 0.26, 0, w * 0.42, 0);
+        break;
+      case '통신 단자': {
+        circle(w / 2); back(); lw(1.5); ctx.stroke();
+        const t = variant === 'TV' ? 'T' : variant === '전화' ? 'P' : variant === 'TV+랜' ? 'TL' : 'L';
+        ctx.font = `700 ${h * (t.length > 1 ? 0.42 : 0.55)}px system-ui, sans-serif`;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(t, 0, h * 0.03);
+        break;
+      }
+      case '월패드':
+        box(); back(); lw(1.5); ctx.stroke();
+        ctx.beginPath(); ctx.rect(-w * 0.3, -h * 0.25, w * 0.6, h * 0.5); lw(1); ctx.stroke();
+        break;
+      case '시스템 에어컨': {
+        box(); back(); lw(1.4); ctx.stroke();
+        const m = Math.min(w, h), e = m * 0.07, sl = m * 0.05;
+        ctx.beginPath(); ctx.rect(-w / 2 + e * 2.4, -h / 2 + e * 2.4, w - e * 4.8, h - e * 4.8); lw(0.9); ctx.stroke(); // 흡입 그릴
+        // 바람 나오는 곳(슬롯): 4way는 네 변, 2way는 앞뒤, 1way는 앞
+        const ratio = h / w;
+        const slot = (x1, y1, x2, y2) => { ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.lineWidth = Math.max(sl, 1.2 * px); ctx.stroke(); };
+        const sx = w / 2 - e * 1.4, sy = h / 2 - e * 1.4;
+        slot(-w * 0.32, sy, w * 0.32, sy);
+        if (ratio >= 0.45) slot(-w * 0.32, -sy, w * 0.32, -sy);
+        if (ratio >= 0.8) { slot(-sx, -h * 0.32, -sx, h * 0.32); slot(sx, -h * 0.32, sx, h * 0.32); }
+        break;
+      }
+      case '점검구': {
+        box(); back(); lw(1.4); ctx.stroke();
+        const i = Math.min(w, h) * 0.1;
+        ctx.beginPath(); ctx.rect(-w / 2 + i, -h / 2 + i, w - i * 2, h - i * 2); lw(0.9); ctx.stroke();
+        lw(0.7); seg(-w / 2 + i, -h / 2 + i, w / 2 - i, h / 2 - i); seg(-w / 2 + i, h / 2 - i, w / 2 - i, -h / 2 + i);
+        break;
+      }
+      case '디퓨저': {
+        lw(1.3);
+        if (variant === '원형') {
+          const r = Math.min(w, h) / 2;
+          for (const k of [1, 0.66, 0.33]) { circle(r * k); if (k === 1) back(); ctx.stroke(); lw(0.9); }
+        } else if (variant === '라인' || h < w * 0.3) {
+          box(); back(); ctx.stroke(); lw(0.9);
+          seg(-w * 0.45, -h * 0.15, w * 0.45, -h * 0.15); seg(-w * 0.45, h * 0.15, w * 0.45, h * 0.15);
+        } else {
+          box(); back(); ctx.stroke(); lw(0.9);
+          for (const k of [0.66, 0.33]) { ctx.beginPath(); ctx.rect((-w / 2) * k, (-h / 2) * k, w * k, h * k); ctx.stroke(); }
+          seg(-w / 2, -h / 2, w / 2, h / 2); seg(-w / 2, h / 2, w / 2, -h / 2);
+        }
+        break;
+      }
+      case '스프링클러':
+        circle(w / 2); back(); lw(1.4); ctx.stroke();
+        seg(-w * 0.36, 0, w * 0.36, 0); seg(0, -h * 0.36, 0, h * 0.36);
+        circle(w * 0.12); ctx.fill();
+        break;
+      case '수전':
+        circle(w * 0.32, 0, h * 0.1); back(); lw(1.4); ctx.stroke();
+        lw(1.6); seg(0, -h * 0.22, 0, -h * 0.48); seg(-w * 0.22, -h * 0.48, w * 0.22, -h * 0.48); // 손잡이
+        break;
+      case '보일러':
+        box(); back(); lw(1.5); ctx.stroke();
+        ctx.font = `700 ${h * 0.6}px system-ui, sans-serif`;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('B', 0, h * 0.03);
         break;
       default:
         if (furniture(ctx, kind, w, h, lw, seg, box, back)) break;
@@ -719,7 +840,7 @@
     ctx.globalAlpha = alpha;
     ctx.translate(it.x, it.y);
     ctx.rotate((it.rotation * Math.PI) / 180);
-    itemSymbol(ctx, it.kind, w, h, 1 / plan.view.scale, ink, plan.colors.canvasBg);
+    itemSymbol(ctx, it.kind, w, h, 1 / plan.view.scale, ink, plan.colors.canvasBg, it);
     ctx.restore();
   }
 
@@ -1209,7 +1330,7 @@
   }
 
   App.draw = {
-    scene, wallOutlines, previewWall, lengthTag, snapMarker, pointMarker, selectionBox, facePreview,
+    scene, wallOutlines, clearanceGuides, previewWall, lengthTag, snapMarker, pointMarker, selectionBox, facePreview,
     openingPreview, columnPreview, distanceTag, worldTransform, screenTransform,
     previewLine, previewItem, previewDim, previewZone, itemIcon, lineIcon,
   };

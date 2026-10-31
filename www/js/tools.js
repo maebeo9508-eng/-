@@ -881,6 +881,7 @@
     overlay(plan) {
       if (!this.cursor || this.press) return;
       App.draw.columnPreview(plan, this.cursor, this.preset());
+      if (this.preset()) App.draw.clearanceGuides(plan, { type: 'column', ...App.model.TYPES.column.create(this.cursor, this.preset()) });
       App.draw.snapMarker(plan, this.cursor);
     }
   }
@@ -1014,7 +1015,9 @@
       if (this.lineTool) return this.lineTool.overlay(plan);
       const g = this.ghost;
       if (!g || this.press) return;
-      App.draw.previewItem(plan, { kind: g.def.kind, category: this.category, x: g.x, y: g.y, rotation: g.rotation, size: g.def.size, depth: g.def.depth });
+      const ghost = { type: 'item', kind: g.def.kind, category: this.category, x: g.x, y: g.y, rotation: g.rotation, size: g.def.size, depth: g.def.depth };
+      App.draw.previewItem(plan, ghost);
+      App.draw.clearanceGuides(plan, ghost); // 놓기 전에 벽까지 거리
       if (g.snap) App.draw.snapMarker(plan, g.snap);
     }
   }
