@@ -285,6 +285,10 @@
 
     const { polylines, texts, stats, skip, addPoly, addText } = collector(hidden);
     stats.xrefs = xrefs;
+    // 문제를 알릴 때 쓰는 정보: 모형·배치 공간 개체 수와 종류
+    stats.entityTypes = {};
+    sections.ENTITIES.forEach((e) => { stats.entityTypes[e.type] = (stats.entityTypes[e.type] || 0) + 1; });
+    stats.blockCount = blocks.size;
 
     /** 개체 목록을 변환 m으로 그림. 폴리라인은 뒤따르는 VERTEX를 함께 읽음 */
     function walk(ents, m0, depth) {

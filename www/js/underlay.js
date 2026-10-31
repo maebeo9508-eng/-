@@ -408,12 +408,16 @@
     await new Promise((r) => setTimeout(r, 30)); // 안내가 먼저 보이게
     // reparse(옵션): 꺼진 레이어 포함 여부를 바꿔 다시 만들 때 파일을 다시 읽지 않음
     let parsed, reparse, fallback = '';
+    const info = { size: file.size, version: '', dxfSize: 0 }; // 빈 도면일 때 알려 줄 정보
     try {
       let buffer = await file.arrayBuffer();
       if (ext === 'dwg') {
         const problem = App.dwg.check(buffer);
         if (problem) throw new Error(problem);
+        const v = App.dwg.version(buffer);
+        info.version = `${App.dwg.VERSIONS[v] || ''} (${v})`;
         buffer = await App.dwg.toDxf(buffer); // DWG → DXF (작업자에서)
+        info.dxfSize = buffer.byteLength;
       }
       const text = App.dxf.decode(buffer);
       // DWG에서 바꾼 DXF는 켜진 레이어도 '꺼짐'으로 적혀 나오는 경우가 있어 얼린 레이어만 숨김
@@ -457,6 +461,8 @@
           <p class="dialog-note">캐드에서 전체를 <b>분해(EXPLODE)</b>한 뒤 저장하거나, ‘다른 이름으로 저장’에서 DXF로 저장해 다시 열어 보세요.</p>`);
       }
       if (!reasons.length) reasons.push('<p>모형 공간과 배치(종이) 공간 모두에서 선이나 글자를 찾지 못했습니다.</p><p class="dialog-note">캐드에서 ‘다른 이름으로 저장’ → DXF(또는 2013 형식 DWG)로 저장해 다시 열어 보세요.</p>');
+      const types = Object.entries(s.entityTypes || {}).map(([t, n]) => `${t} ${n}`).join(', ') || '없음';
+      reasons.push(`<p class="props-meta">파일 정보: ${esc(file.name)} · ${info.size.toLocaleString('ko-KR')}바이트${info.version ? ` · DWG ${esc(info.version)} · 변환 ${info.dxfSize.toLocaleString('ko-KR')}바이트` : ''} · 개체 ${esc(types)} · 블록 ${s.blockCount || 0}개<br>문제를 알릴 때 이 화면을 함께 보내 주세요.</p>`);
       await App.ui.dialog({ title: '그릴 내용을 찾지 못했습니다', html: reasons.join('') });
       return false;
     }
