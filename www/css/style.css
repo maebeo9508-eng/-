@@ -669,9 +669,12 @@ button { font: inherit; color: inherit; }
 }
 .v3-bar .btn { pointer-events: auto; box-shadow: var(--shadow); padding: 0 12px; }
 .v3-gap { flex: 1; }
-@media (max-width: 420px) {
-  .v3-bar { left: 8px; right: 8px; gap: 6px; }
-  .v3-bar .btn { padding: 0 9px; font-size: 13px; }
+@media (max-width: 480px) {
+  /* 버튼 일곱 개가 한 줄에 들어가게: 틈과 안쪽 여백을 줄이고 걷기 그림은 뺌 */
+  .v3-bar { left: 6px; right: 6px; gap: 4px; }
+  .v3-bar .btn { padding: 0 7px; min-width: 40px; font-size: 13px; }
+  .v3-bar [data-v3="walk"] .ico { display: none; }
+  .v3-gap { min-width: 0; }
 }
 .v3-bar .btn[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent), var(--shadow); }
 .v3-hint {
@@ -1178,4 +1181,86 @@ button { font: inherit; color: inherit; }
 /* 좁은 휴대폰: '파일' 글자가 두 줄로 꺾이지 않게 아이콘만 */
 @media (max-width: 420px) {
   .tb-label { display: none; }
+}
+
+/* ── 2.1: 모드 전환(위쪽 막대)과 조감도 모드 화면 ───────── */
+.mode-switch { display: inline-flex; flex: none; padding: 3px; gap: 2px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--line); }
+.mode-tab {
+  display: inline-flex; align-items: center; gap: 5px; min-height: 34px; padding: 0 12px; border: 0; border-radius: 9px;
+  background: transparent; color: var(--fg-muted); font-size: 13px; font-weight: 700; white-space: nowrap; cursor: pointer; touch-action: manipulation;
+}
+.mode-tab[aria-selected="true"] { background: var(--accent); color: var(--accent-fg); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18); }
+/* 조감도 모드는 파란 계열: 지금 어느 모드인지 한눈에 */
+:root[data-mode="event"] { --accent: #2463eb; --accent-fg: #ffffff; --accent-soft: rgba(36, 99, 235, 0.11); --event: #334155; }
+:root[data-theme="dark"][data-mode="event"] { --accent: #6aa5ff; --accent-fg: #06121f; --accent-soft: rgba(106, 165, 255, 0.18); --event: #cbd5e1; }
+:root[data-mode="event"] .topbar { box-shadow: inset 0 -2px 0 var(--accent); }
+.event-only { display: none !important; }
+:root[data-mode="event"] .event-only { display: inline-flex !important; }
+:root[data-mode="event"] .event-only[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
+/* 조감도 모드에서는 스냅 버튼들을 접어 둠 (PC에서도) */
+:root[data-mode="event"] .stage-pill.snap-toggle { display: inline-flex; }
+:root[data-mode="event"] .snap-wrap:not(.is-open) .snapbar { display: none; }
+:root[data-mode="event"] .snap-wrap.is-open .snapbar { position: absolute; top: calc(100% + 6px); left: 0; z-index: 30; display: grid; gap: 4px; padding: 8px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); }
+:root[data-mode="event"] .snap-wrap { position: relative; }
+:root[data-mode="event"] .fab-3d { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+:root[data-mode="event"] .fab-3d .fab-3d-mark { color: var(--accent-fg); }
+/* 그림으로 고르는 팔레트 */
+.palette.is-pictures { gap: 6px; padding: 6px; }
+.pal-pic { flex-direction: column; gap: 2px; width: 84px; min-width: 84px; height: auto; padding: 4px 2px 6px; border-radius: 12px; font-size: 11.5px; line-height: 1.2; }
+.pal-pic > span:last-child { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pal-thumb { display: grid; place-items: center; width: 66px; height: 60px; object-fit: contain; pointer-events: none; }
+.pal-wait .ico { width: 30px; height: 30px; opacity: 0.45; }
+.pal-pic[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); }
+.cat-all { font-weight: 800; color: var(--accent); border-color: var(--accent); }
+/* 물건 고르기 창 */
+.picker-search { margin-bottom: 10px; }
+.picker { display: grid; gap: 14px; }
+.picker-sec h3 { margin: 0 0 6px; font-size: 14px; }
+.picker-sec h3 small { color: var(--fg-muted); font-weight: 500; }
+.picker-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; }
+.picker-grid .pal-pic { width: auto; min-width: 0; border: 1px solid var(--line); background: var(--surface); cursor: pointer; }
+.picker-grid .pal-pic[hidden] { display: none; }
+.picker-grid .pal-thumb { width: 100%; height: 72px; }
+.picker-grid .pal-pic:hover { border-color: var(--accent); }
+/* 고른 물건 빠른 막대 */
+.quick-bar {
+  position: absolute; left: 50%; bottom: calc(var(--sheet-h, 0px) + 58px); transform: translateX(-50%); z-index: 12;
+  display: flex; align-items: center; gap: 6px; max-width: calc(100% - 16px); padding: 6px 8px; border-radius: 14px;
+  background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); overflow-x: auto; scrollbar-width: none;
+}
+.quick-bar[hidden] { display: none; }
+.quick-bar::-webkit-scrollbar { display: none; }
+.quick-bar .btn { flex: none; min-height: 38px; padding: 0 11px; white-space: nowrap; }
+.quick-name { flex: none; max-width: 120px; padding: 0 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 700; color: var(--accent); }
+.color-pick { flex: none; width: 44px; height: 40px; padding: 2px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); cursor: pointer; }
+@media (max-width: 768px) {
+  .mode-tab { padding: 0 8px; min-height: 36px; font-size: 12.5px; }
+  .mode-tab .ico { display: none; }
+  /* 휴대폰: 오른쪽 3D 버튼을 가리지 않게 왼쪽으로 붙임 */
+  .quick-bar { left: 8px; right: 66px; transform: none; max-width: none; bottom: calc(var(--sheet-h, 0px) + 64px); }
+  .pal-pic { width: 76px; min-width: 76px; }
+  .pal-thumb { width: 60px; height: 54px; }
+}
+/* 좁은 휴대폰: 위쪽 막대에 모드 전환까지 한 줄에 들어가게 (버튼은 손가락 크기 44px 그대로) */
+.narrow-only { display: none !important; }
+@media (max-width: 768px) {
+  .mode-switch { padding: 0; gap: 0; border-radius: 10px; }
+  .mode-tab { min-height: 44px; min-width: 46px; border-radius: 9px; }
+}
+@media (max-width: 480px) {
+  .topbar { gap: 2px; padding-left: 5px; padding-right: 5px; }
+  #btnFile .ico-sm { display: none; }
+  .mode-tab { padding: 0 6px; font-size: 12px; }
+  .tb-project { max-width: none; min-width: var(--hit); padding: 0 3px; flex: 0 0 auto; }
+  .tb-project .prj-name-label { display: none; }
+}
+@media (max-width: 420px) {
+  /* 찾기는 파일 메뉴 안으로 */
+  #btnSearch { display: none; }
+  .narrow-only { display: flex !important; }
+  .mode-tab { padding: 0 5px; font-size: 11.5px; letter-spacing: -0.02em; }
+}
+@media (max-width: 345px) {
+  /* 아주 좁은 화면: 저장 상태 점은 숨김 (도면 목록은 파일 메뉴에 있음) */
+  #btnProject { display: none; }
 }

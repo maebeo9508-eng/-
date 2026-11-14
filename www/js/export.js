@@ -103,6 +103,14 @@
     App.selection = NO_SELECTION;
     App.exporting = true;
     try {
+      // 조감도 물건의 색 그림을 이 그림 배율로 먼저 만들어 둠 (화면에 안 보이던 물건도 기호가 아니라 그림으로 나오게)
+      if (App.sprites && App.sprites.available && App.settings.planPictures !== false) {
+        const dry = document.createElement('canvas');
+        dry.width = dry.height = 2;
+        App.plan = { ...fake, canvas: dry, ctx: dry.getContext('2d') };
+        try { App.draw.scene(App.plan); App.sprites.flush(); } catch (e) { console.warn('물건 그림 준비 실패', e); }
+        App.plan = fake;
+      }
       ctx.save();
       App.draw.scene(fake);
       ctx.restore();

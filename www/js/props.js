@@ -374,7 +374,8 @@
         ${stat(single ? '벽 면적 (한 면)' : '벽 면적 합계 (한 면)', App.units.formatArea(area), openings ? `문·창문 ${openings}개 뺌` : '')}
         ${single ? stat('방', roomsOfWall(els[0].id)) : ''}
       </div>
-      ${materialRows(els)}
+      ${wallLook()}
+      ${App.modes.is('event') ? '' : materialRows(els)}
       ${qs.some((q) => q.frameDetail && q.frameDetail.jambs) ? '<p class="props-meta">문·창문 양옆 세로재, 그 위·아래 토막, 인방·창대 가로재까지 넣은 물량입니다.</p>' : ''}
       ${single ? `
         <div class="field-group-label">시작점</div>
@@ -383,6 +384,32 @@
         <div class="field-grid">${numberField('ex')}${numberField('ey')}</div>` : ''}
       ${commonFields(single)}
       ${deleteButton('벽')}`;
+  }
+
+  /** 색 고르기: 목록 + 다른 색(색상판). cur: 지금 색('' 기본) 또는 null(여러 값) */
+  function colorField(id, label, cur, base = '기본 색') {
+    const list = [['', base], ...App.catalog.ITEM_COLORS];
+    if (cur && !list.some(([v]) => v === cur)) list.push([cur, '고른 색']);
+    return selectField(id, label, list, cur,
+      `<input type="color" class="color-pick" id="${id}Pick" value="${esc(cur || '#ffffff')}" title="다른 색 고르기" aria-label="다른 색 고르기">`);
+  }
+  /** 벽의 색과 사진 (3D에서 보임) */
+  function wallLook() {
+    const img = els.length === 1 && els[0].imageId ? App.images.url(els[0].imageId) : null;
+    const has = els.some((w) => w.imageId);
+    return `
+      <div class="field-group-label">벽 색·사진 (3D에서 보임)</div>
+      ${colorField('f-wallColor', '벽 색', commonText((w) => w.color || ''), '기본 (밝은 회색)')}
+      ${img ? `<img class="face-thumb" src="${esc(img)}" alt="벽에 붙인 사진">` : ''}
+      <div class="btn-row">
+        <button type="button" class="btn" data-act="wall-image">${has ? '사진 바꾸기' : '사진 붙이기 (사진첩)'}</button>
+        ${has ? '<button type="button" class="btn" data-act="wall-image-clear">사진 떼기</button>' : ''}
+      </div>
+      ${has ? `<div class="field-grid">
+        ${selectField('f-wallImageSide', '붙이는 면', [['both', '양쪽 면'], ['left', '한쪽 면'], ['right', '반대쪽 면']], commonText((w) => w.imageSide || 'both'))}
+        ${selectField('f-wallImageFit', '채우는 방법', [['fit', '사진 다 보이게'], ['cover', '벽에 꽉 채우기'], ['stretch', '벽 크기로 늘이기'], ['tile', '무늬처럼 반복']], commonText((w) => w.imageFit || 'fit'))}
+      </div>` : ''}
+      <p class="props-meta">사진은 벽 한 면에 붙습니다 (문·창문 자리는 비움). 현수막·벽화는 '사진 다 보이게', 벽지·타일 무늬는 '무늬처럼 반복'(사진 한 장이 1.2m 높이)이 잘 맞습니다. 3D에서 확인하세요.</p>`;
   }
 
   const ISSUE_TEXT = {
@@ -628,7 +655,7 @@
       ${def && def.options ? Object.entries(def.options).map(([key, o]) =>
         selectField(`f-opt-${key}`, esc(o.label), o.values.map((v) => [v, v]), commonText((e) => e[key] ?? null))).join('') : ''}
       ${def && def.styles ? selectField('f-opt-style', def.kind === '나무' || def.kind === '담장' || def.kind === '화분' || def.kind === '사람' ? '모양' : '의자 모양', def.styles.map((v) => [v, v]), commonText((e) => e.style ?? null)) : ''}
-      ${def && def.colors ? selectField('f-itemColor', esc(def.colors), [['', '기본 색'], ...App.catalog.ITEM_COLORS], commonText((e) => e.color || '')) : ''}
+      ${def && def.colors ? colorField('f-itemColor', esc(def.colors), commonText((e) => e.color || '')) : ''}
       ${kind === '의자 배열' ? `<div class="field-grid">${intField('count', { label: '총 의자 수', unit: '개' }, (e) => App.catalog.seats(e).count)}</div>` : ''}
       ${numbers.length ? `<div class="field-grid">${numbers.map(([key, o]) => intField(key, o)).join('')}</div>` : ''}
       ${kind === '의자 배열' ? '<p class="props-meta">총 의자 수를 넣으면 줄 수가 맞춰지고, 모자라는 자리는 맨 뒷줄에서 빠집니다. 의자는 기호의 아래쪽(앞)을 보고 앉습니다. 놓을 때 가까운 무대 쪽을 보게 돌려 놓습니다.</p>' : ''}
@@ -963,7 +990,8 @@
     els = App.selection.list().map((id) => App.doc.get(id)).filter(Boolean);
     const key = els.map((e) => e.id).join(',') + (els.length ? '' : `|${App.tools.id}`);
     // 글자를 치는 중인 칸이 있으면 패널을 다시 그리지 않음 (선택 상자는 바로 다시 그려도 됨)
-    const editing = pane.contains(document.activeElement) && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName);
+    // 색 고르기 칸은 글자를 치는 칸이 아니므로, 색을 고르고 나면 목록(고른 색)까지 새로 그림
+    const editing = pane.contains(document.activeElement) && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName) && document.activeElement.type !== 'color';
     if (key !== shownKey || !editing) {
       shownKey = key;
       build();
@@ -1118,8 +1146,20 @@
         });
         return;
       }
-      if (id === 'f-itemColor') {
+      if (id === 'f-itemColor' || id === 'f-wallColor') {
         if (t.value !== '' || commonText((e) => e.color || '') !== null) apply('색 변경', () => ({ color: t.value || null }));
+        return;
+      }
+      if (id === 'f-itemColorPick' || id === 'f-wallColorPick') {
+        apply('색 변경', () => ({ color: t.value }));
+        return;
+      }
+      if (id === 'f-wallImageSide') {
+        if (t.value) apply('사진 붙이는 면', () => ({ imageSide: t.value }));
+        return;
+      }
+      if (id === 'f-wallImageFit') {
+        if (t.value) apply('사진 채우는 방법', () => ({ imageFit: t.value }));
         return;
       }
       if (id === 'f-faceText') {
@@ -1294,6 +1334,10 @@
           App.images.pick().then((id) => { if (id) apply('이미지 넣기', () => ({ imageId: id })); });
           break;
         case 'face-image-clear': apply('이미지 빼기', () => ({ imageId: null })); break;
+        case 'wall-image':
+          App.images.pick().then((id) => { if (id) apply('벽에 사진 붙이기', () => ({ imageId: id })); });
+          break;
+        case 'wall-image-clear': apply('벽 사진 떼기', () => ({ imageId: null })); break;
         case 'route-check': App.routes.report(); break;
         case 'route-reverse': apply('방향 뒤집기', (r) => ({ points: r.points.slice().reverse() })); break;
         case 'route-walk': App.view3d.open({ walk: true, routeId: els[0].id }); break;

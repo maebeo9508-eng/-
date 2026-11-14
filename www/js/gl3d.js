@@ -68,7 +68,7 @@
   /* ── 재질 번호 (셰이더와 같아야 함) ── */
   const MAT = {
     plain: 0, grass: 1, asphalt: 2, paver: 3, wood: 4, fabric: 5, tile: 6, concrete: 7, water: 8, emissive: 9,
-    soil: 10, stone: 11, brick: 12, foliage: 13, metal: 14, window: 15, gloss: 16, canvas: 17, glass: 18, grain: 19,
+    soil: 10, stone: 11, brick: 12, foliage: 13, metal: 14, window: 15, gloss: 16, canvas: 17, glass: 18, grain: 19, blob: 20, pool: 21, turf: 22, track: 23, sand: 24,
   };
 
   const hexCache = new Map();
@@ -179,6 +179,15 @@
       this._v(p2[0], p2[1], p2[2], nx, ny, nz, col, mat, 1, 0);
       this._v(p3[0], p3[1], p3[2], nx, ny, nz, col, mat, 0, 0);
     }
+    /** uv를 직접 주는 사각형 (벽에 붙이는 사진처럼 한 장을 여러 조각에 나눠 붙일 때). uv: [[u, v] × 4] */
+    quadUV(p0, p1, p2, p3, uv, col, mat = 0) {
+      const ux = p1[0] - p0[0], uy = p1[1] - p0[1], uz = p1[2] - p0[2];
+      const vx = p3[0] - p0[0], vy = p3[1] - p0[1], vz = p3[2] - p0[2];
+      let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+      const l = Math.hypot(nx, ny, nz) || 1;
+      nx /= l; ny /= l; nz /= l;
+      [[p0, uv[0]], [p1, uv[1]], [p2, uv[2]], [p0, uv[0]], [p2, uv[2]], [p3, uv[3]]].forEach(([p, t]) => this._v(p[0], p[1], p[2], nx, ny, nz, col, mat, t[0], t[1]));
+    }
     /** 상자: 두 구석 (x0, y0, z0)~(x1, y1, z1). o: { top: 윗면 색, topMat, bottom: 바닥면도 그림 } */
     box(x0, y0, z0, x1, y1, z1, col, mat = 0, o = null) {
       const tc = (o && o.top) || col, tm = o && o.topMat != null ? o.topMat : mat;
@@ -265,9 +274,9 @@
       }
     }
     /** 공·타원체: 가운데와 세 반지름 */
-    ball(cx, cy, cz, rx, ry, rz, col, mat = 0, seg = 10, rings = 6) {
+    ball(cx, cy, cz, rx, ry, rz, col, mat = 0, seg = 10, rings = 6, half = false) {
       const P = (i, j) => {
-        const th = (j / rings) * Math.PI, ph = (i / seg) * Math.PI * 2;
+        const th = (j / rings) * (half ? Math.PI / 2 : Math.PI), ph = (i / seg) * Math.PI * 2; // half: 위쪽 반만 (돔)
         const sx = Math.sin(th) * Math.cos(ph), sy = Math.cos(th), sz = Math.sin(th) * Math.sin(ph);
         let nx = sx / rx, ny = sy / ry, nz = sz / rz;
         const l = Math.hypot(nx, ny, nz) || 1;
@@ -281,7 +290,7 @@
             this._v(b[0], b[1], b[2], b[3], b[4], b[5], col, mat, 1, 0);
             this._v(c[0], c[1], c[2], c[3], c[4], c[5], col, mat, 1, 1);
           }
-          if (j < rings - 1) {
+          if (j < rings - 1 || half) {
             this._v(a[0], a[1], a[2], a[3], a[4], a[5], col, mat, 0, 0);
             this._v(c[0], c[1], c[2], c[3], c[4], c[5], col, mat, 1, 1);
             this._v(d[0], d[1], d[2], d[3], d[4], d[5], col, mat, 0, 1);
@@ -345,8 +354,8 @@
 
   const FS = `${PREC}
     varying vec3 vPos; varying vec3 vNormal; varying vec3 vColor; varying float vMat; varying vec2 vUv;
-    uniform vec3 uCam, uSunDir, uSunCol, uSkyAmb, uGroundAmb, uFogCol, uZenith;
-    uniform float uFogDensity, uPixel, uShadowOn, uShadowTexel, uShadowBias, uShadowOffset, uUseTex, uTime, uAlpha;
+    uniform vec3 uCam, uSunDir, uSunCol, uSkyAmb, uGroundAmb, uFogCol, uZenith, uViewDir;
+    uniform float uFogDensity, uPixel, uShadowOn, uShadowTexel, uShadowBias, uShadowOffset, uUseTex, uTime, uAlpha, uOrtho, uNight;
     uniform mat4 uShadowMat;
     uniform sampler2D uShadowMap, uTex;
     ${NOISE}
@@ -357,11 +366,21 @@
       vec3 p = sp.xyz / sp.w;
       if (p.x < 0.0 || p.x > 1.0 || p.y < 0.0 || p.y > 1.0 || p.z > 1.0) return 1.0;
       float z = p.z - uShadowBias;
+      // 픽셀마다 돌린 여덟 점(고르게 퍼진 원판)으로 가장자리를 부드럽게. 점 자리는 미리 계산해 둠 (휴대폰에서 가볍게)
+      float a = hash(gl_FragCoord.xy) * 6.2832;
+      float ca = cos(a), sa = sin(a);
+      mat2 rot = mat2(ca, sa, -sa, ca);
+      float r = uShadowTexel * 2.2;
       float s = 0.0;
-      for (int i = -1; i <= 1; i++) {
-        for (int j = -1; j <= 1; j++) s += lit(p.xy + vec2(float(i), float(j)) * uShadowTexel, z);
-      }
-      return s / 9.0;
+      s += lit(p.xy + rot * vec2(0.2500, 0.0000) * r, z);
+      s += lit(p.xy + rot * vec2(-0.3193, 0.2925) * r, z);
+      s += lit(p.xy + rot * vec2(0.0489, -0.5569) * r, z);
+      s += lit(p.xy + rot * vec2(0.4024, 0.5249) * r, z);
+      s += lit(p.xy + rot * vec2(-0.7385, -0.1306) * r, z);
+      s += lit(p.xy + rot * vec2(0.6996, -0.4450) * r, z);
+      s += lit(p.xy + rot * vec2(-0.2340, 0.8705) * r, z);
+      s += lit(p.xy + rot * vec2(-0.4463, -0.8593) * r, z);
+      return s * 0.125;
     }
     /* 밝은 곳이 하얗게 날아가지 않게 누르는 곡선 */
     vec3 tone(vec3 x) {
@@ -379,9 +398,18 @@
       vec3 n = normalize(vNormal);
       vec3 toCam = uCam - vPos;
       float dist = length(toCam);
-      vec3 v = toCam / dist;
+      vec3 v = uOrtho > 0.0 ? uViewDir : toCam / dist;
       if (dot(n, v) < 0.0) n = -n;
-      float foot = dist * uPixel / max(dot(n, v), 0.25);
+      float foot = (uOrtho > 0.0 ? uOrtho : dist * uPixel) / max(dot(n, v), 0.25);
+      float m = vMat;
+      if (m > 19.5 && m < 21.5) {
+        // 바닥 그늘(물건 아래의 옅은 그림자)과 밤의 불빛 웅덩이: 가운데가 진하고 가장자리로 사라짐
+        vec2 q = max(abs(vUv - 0.5) * 2.0 - 0.45, 0.0) / 0.55;
+        float f = 1.0 - smoothstep(0.0, 1.0, length(q));
+        if (m < 20.5) gl_FragColor = vec4(0.0, 0.0, 0.0, f * 0.34 * vColor.r * (1.0 - 0.6 * uNight));
+        else { float g = 1.0 - smoothstep(0.0, 1.0, length(vUv - 0.5) * 2.0); gl_FragColor = vec4(vColor, g * g * 0.6 * uNight); } // 둥근 불빛
+        return;
+      }
       vec3 an = abs(n);
       vec2 p = an.y > 0.6 ? vPos.xz : (an.x > an.z ? vPos.zy : vPos.xy);
       vec3 base = vColor;
@@ -393,7 +421,6 @@
       }
       base = pow(base, vec3(2.2));
       float spec = 0.0, shin = 16.0, refl = 0.0, glow = 0.0, through = 0.0;
-      float m = vMat;
       if (m < 0.5) {
         // 민무늬
       } else if (m < 1.5) { // 잔디
@@ -461,8 +488,9 @@
         base *= 0.74 + 0.42 * noise(q * 1.8) + 0.5 * (noise(q * 13.0) - 0.5) * det(0.075, foot) + 0.3 * (noise(q * 55.0) - 0.5) * det(0.018, foot);
       } else if (m < 14.5) { // 금속
         spec = 0.55; shin = 42.0; refl = 0.12;
-      } else if (m < 15.5) { // 건물 창 (비치는 유리)
+      } else if (m < 15.5) { // 건물 창 (비치는 유리). 밤에는 군데군데 불이 켜짐
         spec = 0.9; shin = 110.0; refl = 0.55;
+        if (uNight > 0.5 && hash(floor(vec2(vPos.x * 0.37 + vPos.z * 0.61, vPos.y * 0.31) * 1.7)) > 0.42) { base = vec3(1.0, 0.86, 0.55); glow = 1.0; }
       } else if (m < 16.5) { // 광택 칠 (자동차)
         spec = 0.45; shin = 60.0; refl = 0.14;
       } else if (m < 17.5) { // 천막 천: 빛이 조금 비침
@@ -470,10 +498,17 @@
         base *= 0.97 + 0.05 * (noise(p * 3.0) - 0.5);
       } else if (m < 18.5) { // 투명 유리
         spec = 0.8; shin = 100.0; refl = 0.3;
-      } else { // 나뭇결 (가구)
+      } else if (m < 19.5) { // 나뭇결 (가구)
         vec2 g = an.y > 0.6 ? vPos.xz : vec2(vPos.x + vPos.z, vPos.y);
         base *= 0.95 + 0.14 * (noise(vec2(g.x * 3.0, g.y * 70.0)) - 0.5) * det(0.014, foot) + 0.08 * (noise(g * 1.3) - 0.5);
         spec = 0.08; shin = 24.0;
+      } else if (m < 22.5) { // 인조 잔디·경기장 잔디: 깎은 줄무늬
+        float stripe = step(0.5, fract(vUv.x * 0.5));
+        base *= (0.93 + 0.12 * stripe) * (0.95 + 0.1 * (noise(p * 30.0) - 0.5) * det(0.03, foot) + 0.25 * (noise(p * 160.0) - 0.5) * det(0.006, foot));
+      } else if (m < 23.5) { // 우레탄 트랙·코트 바닥
+        base *= 0.94 + 0.14 * (noise(p * 220.0) - 0.5) * det(0.0045, foot) + 0.06 * (noise(p * 1.1) - 0.5);
+      } else { // 모래
+        base *= 0.94 + 0.1 * (noise(p * 0.5) - 0.5) + 0.2 * (noise(p * 90.0) - 0.5) * det(0.011, foot) + 0.12 * (noise(vec2(p.x * 3.0 + noise(p * 0.8) * 2.0, p.y * 0.6)) - 0.5) * det(0.3, foot);
       }
       vec3 col;
       if (glow > 0.5) {
@@ -496,8 +531,10 @@
         }
         if (m > 17.5 && m < 18.5) alpha = clamp(0.16 + 0.6 * fres, 0.0, 1.0);
       }
-      float fog = 1.0 - exp(-dist * dist * uFogDensity * uFogDensity);
-      col = mix(col, uFogCol, fog);
+      if (uOrtho <= 0.0) {
+        float fog = 1.0 - exp(-dist * dist * uFogDensity * uFogDensity);
+        col = mix(col, uFogCol, fog);
+      }
       gl_FragColor = vec4(pow(tone(col), vec3(1.0 / 2.2)), alpha);
     }`;
 
@@ -521,7 +558,7 @@
     varying vec2 vNdc;
     uniform mat4 uInvVP;
     uniform vec3 uCam, uSunDir, uSunCol, uZenith, uHorizon;
-    uniform float uClouds, uTime;
+    uniform float uClouds, uTime, uNight;
     ${NOISE}
     float fbm(vec2 p) {
       float s = 0.0, a = 0.5;
@@ -540,6 +577,11 @@
         float c = smoothstep(0.5, 0.82, fbm(uv));
         float shadeC = 0.82 + 0.18 * smoothstep(0.5, 0.9, fbm(uv + 0.07));
         col = mix(col, (uHorizon * 0.35 + vec3(0.72)) * shadeC + uSunCol * 0.12, c * 0.9 * smoothstep(0.02, 0.22, e));
+      }
+      if (uNight > 0.5 && e > 0.0) {
+        vec2 sp = dir.xz / (e + 0.35) * 190.0;
+        float st = hash(floor(sp));
+        col += vec3(0.9, 0.95, 1.0) * step(0.9965, st) * smoothstep(0.02, 0.2, e) * (0.4 + 0.6 * fract(st * 91.0));
       }
       if (e < 0.0) col = uHorizon;
       col *= 0.92;
@@ -561,14 +603,19 @@
       id: 'sunset', name: '노을', dir: [0.86, 0.2, 0.2], sun: [1.15, 0.62, 0.34], skyAmb: [0.36, 0.34, 0.46], groundAmb: [0.27, 0.22, 0.2],
       zenith: [0.12, 0.2, 0.5], horizon: [0.95, 0.6, 0.4],
     },
+    {
+      id: 'night', name: '밤', dir: [0.3, 0.75, 0.5], sun: [0.2, 0.24, 0.38], skyAmb: [0.1, 0.12, 0.2], groundAmb: [0.07, 0.07, 0.1],
+      zenith: [0.006, 0.01, 0.035], horizon: [0.035, 0.05, 0.11], night: true,
+    },
   ];
 
   const ATTRS = ['aPos', 'aNormal', 'aColor', 'aMat', 'aUv'];
 
   class Renderer {
-    constructor(canvas) {
+    /** opt.alpha: 바탕을 투명하게 (물건 그림을 따로 뽑을 때) */
+    constructor(canvas, opt = {}) {
       this.canvas = canvas;
-      const attrs = { antialias: true, alpha: false, depth: true, stencil: false, preserveDrawingBuffer: false, powerPreference: 'high-performance' };
+      const attrs = { antialias: true, alpha: !!opt.alpha, depth: true, stencil: false, preserveDrawingBuffer: false, powerPreference: 'high-performance' };
       const gl = canvas.getContext('webgl', attrs) || canvas.getContext('experimental-webgl', attrs);
       if (!gl) throw new Error('WebGL을 쓸 수 없습니다');
       this.gl = gl;
@@ -663,7 +710,7 @@
       const L = scene.layers;
       this.batches = {
         solid: this._upload(L.solid), ceil: this._upload(L.ceil), glass: this._upload(L.glass),
-        decals: L.decals.map((m) => this._upload(m)),
+        decals: L.decals.map((m) => this._upload(m)), blobs: L.blobs && L.blobs.n ? this._upload(L.blobs) : null,
       };
       this.textured = scene.textured.filter((t) => t.mesh.n).map((t) => ({ ...this._upload(t.mesh), tex: this._texture(t.source), layer: t.layer }));
       this.bounds = scene.bounds;
@@ -672,7 +719,7 @@
     clearScene() {
       const gl = this.gl;
       const b = this.batches;
-      [b.solid, b.ceil, b.glass, ...(b.decals || [])].forEach((x) => x && gl.deleteBuffer(x.buf));
+      [b.solid, b.ceil, b.glass, b.blobs, ...(b.decals || [])].forEach((x) => x && gl.deleteBuffer(x.buf));
       this.textured.forEach((t) => { gl.deleteBuffer(t.buf); gl.deleteTexture(t.tex); });
       this.batches = {};
       this.textured = [];
@@ -686,10 +733,12 @@
       const q = (x0, z0, x1, z1) => m.quad([x0, 0, z1], [x1, 0, z1], [x1, 0, z0], [x0, 0, z0], color, mat);
       for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) q(cx - r + i * cell, cz - r + j * cell, cx - r + (i + 1) * cell, cz - r + (j + 1) * cell);
       // 바깥 띠 (멀리까지)
-      q(cx - R, cz - R, cx + R, cz - r);
-      q(cx - R, cz + r, cx + R, cz + R);
-      q(cx - R, cz - r, cx - r, cz + r);
-      q(cx + r, cz - r, cx + R, cz + r);
+      // 바깥 띠 (멀리까지). 안쪽 판과 조금 겹쳐 틈이 보이지 않게
+      const e = 0.6;
+      q(cx - R, cz - R, cx + R, cz - r + e);
+      q(cx - R, cz + r - e, cx + R, cz + R);
+      q(cx - R, cz - r, cx - r + e, cz + r);
+      q(cx + r - e, cz - r, cx + R, cz + r);
       gl.bindBuffer(gl.ARRAY_BUFFER, this.groundBuf);
       gl.bufferData(gl.ARRAY_BUFFER, m.a.subarray(0, m.n * STRIDE), gl.STATIC_DRAW);
       this.groundCount = m.n;
@@ -797,13 +846,17 @@
       const sh = shadowsOn ? this._shadowPass(sun, o.focus || this._sceneFocus(), o.shadowSize || 2048) : null;
 
       const view = M4.lookAt(cam.eye, cam.target, cam.up || [0, 1, 0]);
-      const proj = M4.perspective(cam.fov, W / H, cam.near, cam.far);
+      // cam.ortho: { hw, hh } 원근 없이 (위에서 본 그림)
+      const proj = cam.ortho ? M4.ortho(-cam.ortho.hw, cam.ortho.hw, -cam.ortho.hh, cam.ortho.hh, cam.near, cam.far) : M4.perspective(cam.fov, W / H, cam.near, cam.far);
       const vp = M4.mul(proj, view);
+      const vl = Math.hypot(cam.eye[0] - cam.target[0], cam.eye[1] - cam.target[1], cam.eye[2] - cam.target[2]) || 1;
       gl.viewport(0, 0, W, H);
-      gl.clearColor(sun.horizon[0], sun.horizon[1], sun.horizon[2], 1);
+      if (o.transparent) gl.clearColor(0, 0, 0, 0);
+      else gl.clearColor(sun.horizon[0], sun.horizon[1], sun.horizon[2], 1);
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
       // 하늘
+      if (o.sky !== false) {
       gl.disable(gl.DEPTH_TEST);
       gl.depthMask(false);
       gl.disable(gl.BLEND);
@@ -815,13 +868,15 @@
       gl.uniform3fv(su.uSunCol, sun.sun);
       gl.uniform3fv(su.uZenith, sun.zenith);
       gl.uniform3fv(su.uHorizon, sun.horizon);
-      gl.uniform1f(su.uClouds, o.clouds === false ? 0 : 1);
+      gl.uniform1f(su.uClouds, o.clouds === false || sun.night ? 0 : 1);
       gl.uniform1f(su.uTime, time);
+      gl.uniform1f(su.uNight, sun.night ? 1 : 0);
       gl.bindBuffer(gl.ARRAY_BUFFER, this.skyBuf);
       gl.enableVertexAttribArray(0);
       gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
       for (let i = 1; i < 5; i++) gl.disableVertexAttribArray(i);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
+      }
 
       // 장면
       gl.enable(gl.DEPTH_TEST);
@@ -838,7 +893,10 @@
       gl.uniform3fv(u.uFogCol, sun.horizon);
       gl.uniform3fv(u.uZenith, sun.zenith);
       gl.uniform1f(u.uFogDensity, o.fog || 1 / 1300);
-      gl.uniform1f(u.uPixel, cam.fov / H);
+      gl.uniform1f(u.uPixel, (cam.fov || 1) / H);
+      gl.uniform1f(u.uOrtho, cam.ortho ? (2 * cam.ortho.hh) / H : 0);
+      gl.uniform3fv(u.uViewDir, [(cam.eye[0] - cam.target[0]) / vl, (cam.eye[1] - cam.target[1]) / vl, (cam.eye[2] - cam.target[2]) / vl]);
+      gl.uniform1f(u.uNight, sun.night ? 1 : 0);
       gl.uniform1f(u.uTime, time);
       gl.uniform1f(u.uAlpha, 1);
       gl.uniform1f(u.uShadowOn, sh ? 1 : 0);
@@ -874,7 +932,7 @@
       const B = this.batches;
       // 바닥은 깊이를 쓰지 않음: 그 위의 영역·카펫 같은 것이 바닥과 깊이를 다투지 않게 (바닥 아래에는 아무것도 없음)
       gl.depthMask(false);
-      draw({ buf: this.groundBuf, count: this.groundCount });
+      if (o.ground !== false) draw({ buf: this.groundBuf, count: this.groundCount });
       gl.depthMask(true);
       draw(B.solid);
       if (o.ceil) draw(B.ceil);
@@ -885,10 +943,12 @@
       gl.depthMask(false);
       (B.decals || []).forEach(draw);
       drawTex('decal');
+      // 물건 아래의 옅은 그늘, 밤의 불빛 (섞어 그림)
+      gl.enable(gl.BLEND);
+      gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+      if (o.blobs !== false) draw(B.blobs);
       gl.disable(gl.POLYGON_OFFSET_FILL);
       // 유리
-      gl.enable(gl.BLEND);
-      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
       draw(B.glass);
       gl.disable(gl.BLEND);
       gl.depthMask(true);

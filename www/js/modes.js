@@ -51,46 +51,23 @@
       modes.sync();
       if (!quiet) App.ui.toast(`${m.title} 모드: ${m.desc}`);
     },
-    /** 화면을 지금 모드에 맞춤 (도면을 열었을 때, 모드를 바꿨을 때) */
+    /** 화면을 지금 모드에 맞춤 (도면을 열었을 때, 모드를 바꿨을 때): 도구 줄, 화면 색, 위쪽 이름 */
     sync() {
       const m = modes.def();
+      const changed = document.documentElement.dataset.mode !== m.id;
       document.documentElement.dataset.mode = m.id;
-      const btn = $('#btnMode');
-      if (btn) {
-        $('#modeLabel').textContent = m.label;
-        const ico = $('#modeIcon');
-        ico.dataset.icon = m.icon;
-        App.icons.apply(btn);
-        btn.title = `지금 모드: ${m.title} (눌러서 바꾸기)`;
-        document.querySelectorAll('#modeMenu [data-mode]').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.mode === m.id)));
-      }
+      document.querySelectorAll('#modeSwitch [data-mode]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.mode === m.id)));
+      const sub = $('#brandSub');
+      if (sub) sub.textContent = m.id === 'event' ? '행사 조감도' : '물량 집계';
+      if (changed && App.plan) App.plan.readTheme(); // 모드마다 강조색이 다름
       App.ui.rebuildToolbar();
       App.ui.emit('mode', m.id);
       if (App.plan) App.plan.requestRender();
     },
     init() {
-      const btn = $('#btnMode'), menu = $('#modeMenu');
-      menu.innerHTML = LIST.map((m) => `
-        <button type="button" class="menu-item opt-item" role="menuitemradio" data-mode="${m.id}" aria-checked="false">
-          <span class="opt-text"><b>${m.title}</b><small>${m.desc}</small></span>
-        </button>`).join('');
-      const close = () => {
-        menu.hidden = true;
-        btn.setAttribute('aria-expanded', 'false');
-      };
-      btn.addEventListener('click', () => {
-        if (!menu.hidden) return close();
-        menu.hidden = false;
-        btn.setAttribute('aria-expanded', 'true');
-      });
-      menu.addEventListener('click', (e) => {
+      $('#modeSwitch').addEventListener('click', (e) => {
         const b = e.target.closest('[data-mode]');
-        if (!b) return;
-        close();
-        if (b.dataset.mode !== modes.get()) modes.set(b.dataset.mode);
-      });
-      document.addEventListener('pointerdown', (e) => {
-        if (!menu.hidden && !e.target.closest('.mode-wrap')) close();
+        if (b && b.dataset.mode !== modes.get()) modes.set(b.dataset.mode);
       });
       App.ui.on('project', () => modes.sync()); // 다른 도면을 열면 그 도면의 모드로
       modes.sync();

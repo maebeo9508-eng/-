@@ -44,6 +44,7 @@
 <script src="js/gl3d.js" defer></script>
 <script src="js/models3d.js" defer></script>
 <script src="js/view3d.js" defer></script>
+<script src="js/sprites.js" defer></script>
 <script src="js/keys.js" defer></script>
 <script src="js/main.js" defer></script>
 </head>
@@ -51,7 +52,12 @@
 <div class="app" id="app">
 
   <header class="topbar">
-    <div class="brand pc-only"><span class="brand-mark" aria-hidden="true"></span>현장도면 <small>물량 집계</small></div>
+    <div class="brand pc-only"><span class="brand-mark" aria-hidden="true"></span>현장도면 <small id="brandSub">물량 집계</small></div>
+    <!-- 모드: 인테리어 도면 / 조감도 (화면 구성과 색이 통째로 바뀜) -->
+    <div class="mode-switch" id="modeSwitch" role="tablist" aria-label="모드">
+      <button type="button" class="mode-tab" role="tab" data-mode="interior" aria-selected="true" title="인테리어 도면: 벽·방·문·창문과 자재 물량"><span class="ico ico-sm" data-icon="room"></span><span>인테리어</span></button>
+      <button type="button" class="mode-tab" role="tab" data-mode="event" aria-selected="false" title="조감도: 행사·경기장 배치, 동선, 3D로 둘러보기"><span class="ico ico-sm" data-icon="event"></span><span>조감도</span></button>
+    </div>
 
     <div class="menu-wrap">
       <button type="button" class="tb-btn" id="btnFile" aria-haspopup="menu" aria-expanded="false" aria-controls="fileMenu">
@@ -72,6 +78,7 @@
         <button type="button" class="menu-item" role="menuitem" id="menuPng">도면 그림 (PNG)</button>
         <button type="button" class="menu-item" role="menuitem" id="menuPdf">도면 + 집계표 (PDF, 인쇄용)</button>
         <div class="menu-sep" role="separator"></div>
+        <button type="button" class="menu-item narrow-only" role="menuitem" id="menuSearch">찾기… (방·물건·글자)</button>
         <button type="button" class="menu-item" role="menuitem" id="menuShortcuts">단축키 보기 <kbd>?</kbd></button>
       </div>
     </div>
@@ -100,12 +107,6 @@
 
       <div class="stage-top" id="stageTop">
       <div class="stage-row">
-      <div class="menu-wrap mode-wrap">
-        <button type="button" class="stage-pill mode-pill" id="btnMode" aria-haspopup="menu" aria-expanded="false" aria-controls="modeMenu">
-          <span class="ico ico-sm" id="modeIcon" data-icon="room"></span><span id="modeLabel">인테리어</span><span class="ico ico-sm" data-icon="chevron"></span>
-        </button>
-        <div class="menu mode-menu" id="modeMenu" role="menu" hidden></div>
-      </div>
       <div class="snap-wrap" id="snapWrap">
       <!-- 휴대폰: 스냅 버튼들을 접어 두고, 누르면 체크 목록으로 열림 -->
       <button type="button" class="stage-pill snap-toggle" id="btnSnap" aria-expanded="false" aria-controls="snapbar" title="붙기(스냅) 설정">
@@ -126,6 +127,7 @@
         </button>
         <div class="menu layer-menu" id="layerMenu" role="menu" hidden></div>
       </div>
+      <button type="button" class="stage-pill event-only" id="btnNames" aria-pressed="true" title="물건 이름을 도면에 보이기·숨기기">이름표</button>
       </div>
       <div class="pal-cats" id="paletteCats" role="tablist" aria-label="물건 분류" hidden></div>
       <div class="palette" id="palette" role="toolbar" aria-label="기호 고르기" hidden></div>
@@ -157,6 +159,9 @@
       </div>
 
       <textarea class="text-editor" id="textEditor" rows="1" hidden aria-label="글자 입력" placeholder="글자 입력 후 Enter"></textarea>
+
+      <!-- 조감도 모드: 고른 물건을 바로 돌리고 복제하는 막대 -->
+      <div class="quick-bar" id="quickBar" role="toolbar" aria-label="고른 물건 빠른 동작" hidden></div>
 
       <div class="tool-hint" id="toolHint" role="status" aria-live="polite"></div>
 

@@ -97,6 +97,7 @@
       ctx.globalAlpha = 1;
     };
     fillWalls(solid, c.wall);
+    walls.filter((w) => w.color).forEach((w) => fillWalls([w], w.color, 0.85)); // 색을 정한 벽
     const selectedWalls = walls.filter((w) => sel.has(w.id));
     fillWalls(selectedWalls, c.accent, 0.4);
     if (marks && marks.ids.size) fillWalls(walls.filter((w) => marks.ids.has(w.id)), c[marks.color], 0.45);
@@ -127,6 +128,7 @@
     drawRoomLabels(plan, rooms);
     drawZoneLabels(plan, zones);
     drawRouteLabels(plan, routes);
+    if (App.modes.is('event') && App.settings.itemNames !== false) drawItemNames(plan, items);
     dims.forEach((d) => dimShape(plan, d, markColor(d)));
     texts.forEach((t) => textShape(plan, t, markColor(t)));
     // 선택한 벽의 끝점. 벽 하나만 골랐으면 끌어서 늘일 수 있는 손잡이로 크게
@@ -154,6 +156,32 @@
           ctx.fill();
           ctx.stroke();
         });
+      }
+    }
+    // 조감도 물건 하나를 골랐으면: 돌리는 손잡이(동그라미)와 크기 손잡이(네모)
+    if (sel.size === 1 && !App.exporting) {
+      const one = App.doc.get(sel.list()[0]);
+      if (App.model.handled(one) && App.layers.visible(one) && App.tools.id === 'select') {
+        const hd = App.model.itemHandles(one, scale), S2 = (p) => plan.view.toScreen(p.x, p.y);
+        const r = S2(hd.rotate), st = S2(hd.stem);
+        ctx.strokeStyle = c.accent;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(st.x, st.y); ctx.lineTo(r.x, r.y); ctx.stroke();
+        ctx.fillStyle = c.accent;
+        ctx.beginPath(); ctx.arc(r.x, r.y, 11, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(r.x, r.y, 5.5, -2.4, 1.4); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(r.x + 1, r.y + 8.5); ctx.lineTo(r.x + 1.5, r.y + 3.5); ctx.lineTo(r.x + 6, r.y + 6.5); ctx.closePath(); ctx.fillStyle = '#fff'; ctx.fill();
+        if (App.catalog.resizable(one)) {
+          hd.sizes.forEach((q) => {
+            const p = S2(q);
+            ctx.fillStyle = '#fff';
+            ctx.strokeStyle = c.accent;
+            ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.rect(p.x - 5, p.y - 5, 10, 10); ctx.fill(); ctx.stroke();
+          });
+        }
       }
     }
     drawGroupBoxes(plan);
@@ -1243,13 +1271,45 @@
         lw(1.2); seg(0, 0, 0, m * 1.3);
         circle(0, m * 1.3, m * 0.3); back(); ctx.stroke();
         return true;
-      default:
-        return false;
+      default: {
+        // 따로 기호가 없는 조감도 물건: 자리 상자와 이름 첫 글자
+        const d = App.catalog.itemDef(kind);
+        if (!d || d.category !== 'event') return false;
+        outline();
+        if (it) label(kind.replace(/\s/g, '').slice(0, 3), Math.min(m * 0.3, w / 4));
+        else { seg(-W, -H, W, H); }
+        return true;
+      }
     }
   }
 
+  /** 조감도 물건은 3D 모형을 위에서 본 그림으로 (아직 못 만들었거나 꺼 두었으면 기호) */
+  const pictureOf = (plan, it) => (it.category === 'event' && it.depth != null && App.sprites && App.settings.planPictures !== false
+    ? App.sprites.top(it, plan.view.scale * plan.dpr) : null);
+
   function itemShape(plan, it, color, alpha = 1) {
     const ctx = plan.ctx;
+    const pic = pictureOf(plan, it);
+    if (pic) {
+      const px = 1 / plan.view.scale;
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.translate(it.x, it.y);
+      ctx.rotate((it.rotation * Math.PI) / 180);
+      ctx.drawImage(pic.canvas, pic.x0, pic.z0, pic.w, pic.d);
+      if (color) {
+        // 고름·가리킴: 자리 테두리
+        ctx.globalAlpha = alpha * 0.1;
+        ctx.fillStyle = color;
+        ctx.fillRect(-it.size / 2, -it.depth / 2, it.size, it.depth);
+        ctx.globalAlpha = alpha;
+        ctx.lineWidth = 2 * px;
+        ctx.strokeStyle = color;
+        ctx.strokeRect(-it.size / 2 - 2 * px, -it.depth / 2 - 2 * px, it.size + 4 * px, it.depth + 4 * px);
+      }
+      ctx.restore();
+      return;
+    }
     const { w, h } = App.model.TYPES.item.dims(it);
     const ink = color || plan.colors[it.category] || plan.colors.mech;
     ctx.save();
@@ -1420,6 +1480,26 @@
     ctx.strokeStyle = plan.colors.canvasBg;
     ctx.stroke();
     ctx.restore();
+  }
+
+  /** 조감도 물건 이름표: 화면에서 충분히 크게 보이는 것만, 물건 아래에 작게 */
+  function drawItemNames(plan, items) {
+    const ctx = plan.ctx, scale = plan.view.scale, T = App.model.TYPES.item;
+    ctx.font = '600 11px system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    items.forEach((it) => {
+      if (it.category !== 'event' || it.depth == null || Math.max(it.size, it.depth) * scale < 58) return;
+      const s = plan.view.toScreen(it.x, it.y);
+      const y = s.y + T.extent(it, { x: 0, y: 1 }) * scale + 4;
+      const seats = App.catalog.seats(it);
+      const text = `${it.kind}${seats && it.kind !== '의자' ? ` ${seats.count}석` : ''}`;
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = plan.colors.canvasBg;
+      ctx.strokeText(text, s.x, y);
+      ctx.fillStyle = App.selection.has(it.id) ? plan.colors.accent : plan.colors.label || plan.colors.fg;
+      ctx.fillText(text, s.x, y);
+    });
   }
 
   /** 동선 이름·길이·걸리는 시간, 걸리는 곳 표시(!). 화면 좌표 */
@@ -1796,6 +1876,23 @@
     ctx.setLineDash([]);
   }
 
+  /** 커서 옆의 작은 꼬리표 (돌리는 각도, 바뀌는 크기) */
+  function textTag(plan, world, text) {
+    const ctx = plan.ctx;
+    screenTransform(plan);
+    const s = plan.view.toScreen(world.x, world.y);
+    ctx.font = TAG_FONT;
+    const w = ctx.measureText(text).width + 14, x = s.x + 16, y = s.y - 30;
+    ctx.fillStyle = plan.colors.accent;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(x, y, w, 24, 6); else ctx.rect(x, y, w, 24);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, x + 7, y + 12.5);
+  }
+
   /* ── 도구 미리보기 ── */
   function previewLine(plan, a, b, preset) {
     worldTransform(plan);
@@ -1881,6 +1978,6 @@
   App.draw = {
     scene, wallOutlines, clearanceGuides, previewWall, lengthTag, snapMarker, pointMarker, selectionBox, facePreview,
     openingPreview, columnPreview, distanceTag, worldTransform, screenTransform,
-    previewLine, previewItem, previewDim, previewZone, previewRoute, itemIcon, lineIcon,
+    previewLine, previewItem, previewDim, previewZone, previewRoute, itemIcon, lineIcon, textTag,
   };
 })();

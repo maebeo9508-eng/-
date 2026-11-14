@@ -40,9 +40,16 @@
     c.fillRect(0, 0, LW, LH);
     const img = it && it.imageId ? App.images.get(it.imageId) : null;
     if (img) {
-      // 비율이 비슷하면 꽉 채우고(조금 잘림), 많이 다르면 다 보이게 넣음
       const ia = img.naturalWidth / img.naturalHeight;
-      const cover = Math.abs(Math.log(ia / a)) < 0.25;
+      if (o.fit === 'stretch') { c.drawImage(img, 0, 0, LW, LH); return cv; }
+      if (o.fit === 'tile') {
+        // 무늬처럼 반복: 사진 한 장의 높이를 o.tile(면 높이에 대한 비율)로
+        const th = LH * Math.max(0.02, Math.min(1, o.tile || 0.34)), tw = th * ia;
+        for (let y = LH - th; y > -th; y -= th) for (let x = 0; x < LW; x += tw) c.drawImage(img, x, y, tw + 0.5, th + 0.5);
+        return cv;
+      }
+      // 비율이 비슷하면 꽉 채우고(조금 잘림), 많이 다르면 다 보이게 넣음
+      const cover = o.fit === 'cover' || (o.fit !== 'fit' && Math.abs(Math.log(ia / a)) < 0.25);
       const k = cover ? Math.max(LW / img.naturalWidth, LH / img.naturalHeight) : Math.min(LW / img.naturalWidth, LH / img.naturalHeight);
       const w = img.naturalWidth * k, h = img.naturalHeight * k;
       c.drawImage(img, (LW - w) / 2, (LH - h) / 2, w, h);
@@ -1158,4 +1165,715 @@
   M.FURN = FURN;
   M.symbol = symbol;
   M.woodChair = woodChair;
+})();
+
+/* ── 2.1: 더 많은 조감도 물건 — 경기장, 관람석, 건물 종류, 장식, 차량 등 ── */
+(function () {
+  'use strict';
+  const App = window.App;
+  const { MAT, hex, shade, mixc } = App.gl3d;
+  const M = App.models3d, E = M.EVENT, col = M.col, face = M.faceCanvas;
+  const { WHITE, BLACK, DARK, STEEL, CHROME, GOLD, WOOD, WOOD_DARK, WOOD_LIGHT, WINDOW, CONCRETE } = M.COLORS;
+  const LINE = hex('#f6f6f2'), Y = 0.02;
+  const PI = Math.PI;
+
+  /* 바닥에 그리는 선들 (경기장) */
+  const rectD = (D, x0, z0, x1, z1, c, mat = 0, y = Y) => D.quad([x0, y, z1], [x1, y, z1], [x1, y, z0], [x0, y, z0], c, mat);
+  const hline = (D, x0, x1, z, t = 0.1, c = LINE) => rectD(D, x0, z - t / 2, x1, z + t / 2, c, 0, Y + 0.004);
+  const vline = (D, x, z0, z1, t = 0.1, c = LINE) => rectD(D, x - t / 2, z0, x + t / 2, z1, c, 0, Y + 0.004);
+  const box2 = (D, x0, z0, x1, z1, t = 0.1, c = LINE) => { hline(D, x0, x1, z0, t, c); hline(D, x0, x1, z1, t, c); vline(D, x0, z0, z1, t, c); vline(D, x1, z0, z1, t, c); };
+  function arc(D, cx, cz, r, a0, a1, t = 0.1, c = LINE, n = 28) {
+    for (let i = 0; i < n; i++) {
+      const p = a0 + ((a1 - a0) * i) / n, q = a0 + ((a1 - a0) * (i + 1)) / n, r0 = r - t / 2, r1 = r + t / 2, y = Y + 0.004;
+      D.quad([cx + Math.cos(p) * r0, y, cz + Math.sin(p) * r0], [cx + Math.cos(q) * r0, y, cz + Math.sin(q) * r0], [cx + Math.cos(q) * r1, y, cz + Math.sin(q) * r1], [cx + Math.cos(p) * r1, y, cz + Math.sin(p) * r1], c);
+    }
+  }
+  const spot = (D, x, z, r = 0.15, c = LINE) => D.disc(x, Y + 0.005, z, r, c, 0, 12);
+  /** 바닥 판: 선 바깥 여유 m까지. 잔디는 깎은 줄무늬가 보이게 uv를 길이에 맞춤 */
+  function surface(D, w, d, m, c, mat) {
+    const x = w / 2 + m, z = d / 2 + m;
+    D.quadUV([-x, Y, z], [x, Y, z], [x, Y, -z], [-x, Y, -z], [[0, 0], [(2 * x) / 5.5, 0], [(2 * x) / 5.5, 1], [0, 1]], c, mat);
+  }
+  /** 축구 골대: 골라인 가운데 (x, 0), dir(+1/−1) 쪽이 골문 뒤 */
+  function goal(C, x, gw, gh, dir, deep = 1.6) {
+    const S = C.S, G = C.G, r = 0.06, b = x + dir * deep;
+    [-gw / 2, gw / 2].forEach((z) => {
+      S.tube([x, 0, z], [x, gh, z], r, r, WHITE, 0, 8);
+      S.tube([x, gh, z], [b, gh * 0.55, z], 0.025, 0.025, WHITE, 0, 5, false, false);
+      S.tube([b, gh * 0.55, z], [b, 0, z], 0.025, 0.025, WHITE, 0, 5, false, false);
+      G.quad([x, 0, z], [b, 0, z], [b, gh * 0.55, z], [x, gh, z], hex('#eef2f5'), MAT.glass);
+    });
+    S.tube([x, gh, -gw / 2], [x, gh, gw / 2], r, r, WHITE, 0, 8);
+    G.quad([x, gh, -gw / 2], [x, gh, gw / 2], [b, gh * 0.55, gw / 2], [b, gh * 0.55, -gw / 2], hex('#eef2f5'), MAT.glass);
+    G.quad([b, 0, -gw / 2], [b, 0, gw / 2], [b, gh * 0.55, gw / 2], [b, gh * 0.55, -gw / 2], hex('#eef2f5'), MAT.glass);
+  }
+  /** 농구대: 밑동이 (x, 0), dir 쪽으로 림이 나옴 */
+  function hoop(C, x, dir) {
+    const S = C.S, bx = x + dir * 1.2;
+    S.box(x - 0.35, 0, -0.5, x + 0.35, 0.25, 0.5, DARK, MAT.metal);
+    S.beam([x, 0.25, 0], [x + dir * 0.5, 3.0, 0], 0.16, hex('#1f4fa3'), MAT.metal);
+    S.beam([x + dir * 0.5, 3.0, 0], [bx, 3.3, 0], 0.12, hex('#1f4fa3'), MAT.metal);
+    S.box(Math.min(bx, bx + dir * 0.04), 2.9, -0.9, Math.max(bx, bx + dir * 0.04), 3.95, 0.9, WHITE, 0, { bottom: true });
+    C.G.quad([bx + dir * 0.045, 2.95, -0.85], [bx + dir * 0.045, 2.95, 0.85], [bx + dir * 0.045, 3.9, 0.85], [bx + dir * 0.045, 3.9, -0.85], hex('#dfe9f2'), MAT.glass);
+    const rc = bx + dir * 0.42;
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * 2 * PI, b = ((i + 1) / 12) * 2 * PI;
+      S.tube([rc + Math.cos(a) * 0.23, 3.05, Math.sin(a) * 0.23], [rc + Math.cos(b) * 0.23, 3.05, Math.sin(b) * 0.23], 0.012, 0.012, hex('#e8590c'), 0, 5, false, false);
+    }
+    S.tube([rc, 2.65, 0], [rc, 3.04, 0], 0.14, 0.22, WHITE, MAT.canvas, 10, false, false);
+  }
+  /** 가운데를 가로지르는 네트: 높이 h, 기둥은 선 밖 */
+  function net(C, d, h, mesh = 0.9) {
+    const S = C.S, z = d / 2 + 0.6;
+    [-z, z].forEach((p) => S.cyl(0, 0, p, 0.045, h + 0.05, 0.045, hex('#3b4252'), MAT.metal, 8));
+    C.G.quad([0, h - mesh, -z], [0, h - mesh, z], [0, h, z], [0, h, -z], hex('#ffffff'), MAT.glass);
+    S.box(-0.012, h - 0.05, -z, 0.012, h, z, WHITE);
+  }
+
+  /* ── 경기장 ── */
+  E['축구장'] = E['풋살장'] = (C, it, w, d) => {
+    const D = C.D, futsal = it.kind === '풋살장', k = Math.min(1, d / (futsal ? 20 : 68));
+    surface(D, w, d, futsal ? 1.5 : 4, col(it, futsal ? '#2f7f86' : '#3f9447'), futsal && !it.color ? MAT.track : MAT.turf);
+    const t = futsal ? 0.08 : 0.12, x = w / 2, z = d / 2;
+    box2(D, -x, -z, x, z, t);
+    vline(D, 0, -z, z, t);
+    arc(D, 0, 0, (futsal ? 3 : 9.15) * k, 0, 2 * PI, t);
+    spot(D, 0, 0, 0.18);
+    const pw = (futsal ? 6 : 16.5) * k, pd = (futsal ? 15 : 40.32) * k, gw6 = 5.5 * k, gd6 = 18.32 * k;
+    [-1, 1].forEach((s) => {
+      box2(D, s * x, -pd / 2, s * (x - pw), pd / 2, t);
+      if (!futsal) {
+        box2(D, s * x, -gd6 / 2, s * (x - gw6), gd6 / 2, t);
+        spot(D, s * (x - 11 * k), 0, 0.16);
+        const a = Math.acos((pw - 11 * k) / (9.15 * k));
+        arc(D, s * (x - 11 * k), 0, 9.15 * k, s > 0 ? PI - a : -a, s > 0 ? PI + a : a, t, LINE, 14);
+      } else spot(D, s * (x - 6 * k), 0, 0.12);
+      [[-1, s > 0 ? PI / 2 : 0], [1, s > 0 ? PI : -PI / 2]].forEach(([q, a0]) => arc(D, s * x, q * z, 1, a0, a0 + PI / 2, t, LINE, 6));
+    });
+    if (it.variant !== '없음') {
+      const gw = futsal ? 3 : d >= 60 ? 7.32 : d >= 40 ? 5 : 3, gh = futsal || d < 40 ? 2 : 2.44;
+      goal(C, -x, gw, gh, -1); goal(C, x, gw, gh, 1);
+    }
+  };
+  E['농구장'] = (C, it, w, d) => {
+    const D = C.D, x = w / 2, z = d / 2, t = 0.05, paint = hex('#b5432f');
+    surface(D, w, d, 2, col(it, '#d6a565'), MAT.track);
+    [-1, 1].forEach((s) => {
+      rectD(D, s * x, -2.45, s * (x - 5.8), 2.45, paint, MAT.track, Y + 0.002);
+      box2(D, s * x, -2.45, s * (x - 5.8), 2.45, t);
+      arc(D, s * (x - 5.8), 0, 1.8, s > 0 ? PI / 2 : -PI / 2, s > 0 ? 1.5 * PI : PI / 2, t, LINE, 14);
+      const hx = s * (x - 1.575), a = Math.asin(Math.min(1, (z - 0.9) / 6.75));
+      arc(D, hx, 0, 6.75, s > 0 ? PI - a : -a, s > 0 ? PI + a : a, t, LINE, 24);
+      [-1, 1].forEach((q) => hline(D, s * x, s * (x - 1.575 - Math.cos(a) * 6.75) , q * (z - 0.9), t));
+      if (it.variant !== '없음') hoop(C, s * (x + 0.4), -s);
+    });
+    box2(D, -x, -z, x, z, t);
+    vline(D, 0, -z, z, t);
+    arc(D, 0, 0, 1.8, 0, 2 * PI, t);
+  };
+  E['배구장'] = (C, it, w, d) => {
+    const D = C.D, x = w / 2, z = d / 2, t = 0.05;
+    surface(D, w, d, 3, hex('#2c6fb0'), MAT.track);
+    rectD(D, -x, -z, x, z, col(it, '#e2873b'), MAT.track, Y + 0.002);
+    box2(D, -x, -z, x, z, t);
+    vline(D, 0, -z, z, t); vline(D, -3, -z, z, t); vline(D, 3, -z, z, t);
+    if (it.variant !== '없음') net(C, d, 2.43, 1.0);
+  };
+  E['테니스장'] = (C, it, w, d) => {
+    const D = C.D, x = w / 2, z = d / 2, t = 0.06, sz = z * (8.23 / 10.97), sx = x * (6.4 / 11.885);
+    surface(D, w, d, 3.6, hex('#2f7d4a'), MAT.track);
+    rectD(D, -x, -z, x, z, col(it, '#2b63a8'), MAT.track, Y + 0.002);
+    box2(D, -x, -z, x, z, t);
+    hline(D, -x, x, -sz, t); hline(D, -x, x, sz, t);
+    vline(D, -sx, -sz, sz, t); vline(D, sx, -sz, sz, t);
+    hline(D, -sx, sx, 0, t);
+    if (it.variant !== '없음') { net(C, d, 1.0, 1.0); }
+  };
+  E['배드민턴장'] = (C, it, w, d) => {
+    const D = C.D, x = w / 2, z = d / 2, t = 0.04;
+    surface(D, w, d, 1.5, col(it, '#2f8f5b'), MAT.track);
+    box2(D, -x, -z, x, z, t);
+    hline(D, -x, x, -z + 0.46, t); hline(D, -x, x, z - 0.46, t);
+    [-1, 1].forEach((s) => { vline(D, s * 1.98, -z, z, t); vline(D, s * (x - 0.76), -z, z, t); hline(D, s * 1.98, s * x, 0, t); });
+    if (it.variant !== '없음') net(C, d, 1.55, 0.76);
+  };
+  E['육상 트랙'] = (C, it, w, d) => {
+    const D = C.D, R = d / 2, L = Math.max(0, (w - d) / 2), lanes = Math.max(4, it.lanes || 8), lw = Math.min(1.22 * (d / 92), R / (lanes + 2)), tw = lanes * lw;
+    const red = hex('#b4533f'), green = hex('#3f9447'), n = 24, y = Y;
+    // 안쪽 잔디
+    rectD(D, -L, -(R - tw), L, R - tw, green, MAT.turf, y);
+    [-1, 1].forEach((s) => { for (let i = 0; i < n; i++) { const a = -PI / 2 + (PI * i) / n, b = -PI / 2 + (PI * (i + 1)) / n, r = R - tw; D.tri([s * L, y, 0], [s * (L + Math.cos(a) * r), y, Math.sin(a) * r], [s * (L + Math.cos(b) * r), y, Math.sin(b) * r], green, MAT.turf); } });
+    // 트랙 띠와 레인 선
+    const band = (r0, r1, c, mat, yy) => {
+      rectD(D, -L, -r1, L, -r0, c, mat, yy); rectD(D, -L, r0, L, r1, c, mat, yy);
+      [-1, 1].forEach((s) => { for (let i = 0; i < n; i++) {
+        const a = -PI / 2 + (PI * i) / n, b = -PI / 2 + (PI * (i + 1)) / n;
+        D.quad([s * (L + Math.cos(a) * r0), yy, Math.sin(a) * r0], [s * (L + Math.cos(b) * r0), yy, Math.sin(b) * r0], [s * (L + Math.cos(b) * r1), yy, Math.sin(b) * r1], [s * (L + Math.cos(a) * r1), yy, Math.sin(a) * r1], c, mat);
+      } });
+    };
+    band(R - tw, R, red, MAT.track, y);
+    for (let i = 0; i <= lanes; i++) band(R - tw + i * lw - 0.03, R - tw + i * lw + 0.03, LINE, 0, y + 0.004);
+    vline(D, L * 0.9, R - tw, R, 0.08); // 결승선
+  };
+  // 낱개 골대·농구대: 앞(+z)이 경기장 쪽. 옆으로 누운 모형을 90도 돌려 씀
+  E['골대'] = (C, it, w, d, h) => { C.at(0, 0, -90); goal(C, -(d / 2 - 0.1), w, h, 1, d - 0.2); C.at(0, 0); };
+  E['농구대'] = (C) => { C.at(0, 0, -90); hoop(C, 1.0, -1); C.at(0, 0); };
+  E['시상대'] = (C, it, w, d, h) => {
+    const S = C.S, bw = w / 3, hs = [h * 0.66, h, h * 0.45], c = [hex('#c0c5cc'), hex('#d4a92a'), hex('#b0733a')];
+    ['2', '1', '3'].forEach((n, i) => {
+      const x0 = -w / 2 + i * bw;
+      S.box(x0, 0, -d / 2, x0 + bw - 0.01, hs[i], d / 2, WHITE, 0, { top: c[i] });
+      C.face([[x0 + bw * 0.25, hs[i] * 0.12, d / 2 + 0.004], [x0 + bw * 0.75, hs[i] * 0.12, d / 2 + 0.004], [x0 + bw * 0.75, hs[i] * 0.88, d / 2 + 0.004], [x0 + bw * 0.25, hs[i] * 0.88, d / 2 + 0.004]],
+        face(null, (bw * 0.5) / (hs[i] * 0.76), { bg: c[i], plain: true, text: n }));
+    });
+  };
+  E['점수판'] = (C, it, w, d, h) => {
+    const S = C.S, y0 = h * 0.45;
+    [-w / 2 + 0.25, w / 2 - 0.25].forEach((x) => S.box(x - 0.06, 0, -0.06, x + 0.06, y0, 0.06, DARK, MAT.metal));
+    S.box(-w / 2, y0, -0.1, w / 2, h, 0.1, BLACK, 0, { bottom: true });
+    C.face([[-w / 2 + 0.06, y0 + 0.06, 0.104], [w / 2 - 0.06, y0 + 0.06, 0.104], [w / 2 - 0.06, h - 0.06, 0.104], [-w / 2 + 0.06, h - 0.06, 0.104]],
+      face(it, (w - 0.12) / (h - y0 - 0.12), { bg: hex('#10151c'), led: true, text: it.text || 'HOME 0 : 0 AWAY' }), 'solid', true);
+  };
+  E['선수 벤치'] = (C, it, w, d, h) => {
+    const S = C.S, c = col(it, '#2563eb');
+    S.box(-w / 2 + 0.1, 0.38, -d / 2 + 0.25, w / 2 - 0.1, 0.44, -d / 2 + 0.7, c, 0, { bottom: true });
+    S.box(-w / 2 + 0.1, 0.44, -d / 2 + 0.2, w / 2 - 0.1, 0.85, -d / 2 + 0.26, c);
+    const n = Math.max(2, Math.round(w / 1.6));
+    for (let i = 0; i <= n; i++) {
+      const x = -w / 2 + 0.05 + ((w - 0.1) * i) / n;
+      S.beam([x, 0, -d / 2 + 0.08], [x, h * 0.86, -d / 2 + 0.08], 0.05, STEEL, MAT.metal);
+      S.beam([x, h * 0.86, -d / 2 + 0.08], [x, h, d / 2 - 0.1], 0.05, STEEL, MAT.metal);
+      S.box(x - 0.03, 0, -d / 2 + 0.25, x + 0.03, 0.38, -d / 2 + 0.7, STEEL, MAT.metal);
+    }
+    C.G.quad([-w / 2, 0.1, -d / 2 + 0.05], [w / 2, 0.1, -d / 2 + 0.05], [w / 2, h * 0.86, -d / 2 + 0.05], [-w / 2, h * 0.86, -d / 2 + 0.05], hex('#cfe3f1'), MAT.glass);
+    C.G.quad([-w / 2, h * 0.86, -d / 2 + 0.05], [w / 2, h * 0.86, -d / 2 + 0.05], [w / 2, h, d / 2 - 0.1], [-w / 2, h, d / 2 - 0.1], hex('#cfe3f1'), MAT.glass);
+  };
+  E['트로피'] = (C, it, w, d, h) => {
+    const S = C.S, g = col(it, '#d9a827'), r = Math.min(w, d) / 2;
+    S.cube(0, 0, 0, r * 1.5, h * 0.22, r * 1.5, hex('#3a2a20'), MAT.grain);
+    S.cube(0, h * 0.22, 0, r * 1.1, h * 0.06, r * 1.1, g, MAT.metal);
+    const prof = [[0.28, 0.28], [0.12, 0.36], [0.1, 0.5], [0.3, 0.56], [0.62, 0.74], [0.74, 0.98], [0.7, 1.0]]; // [반지름 비율, 높이 비율]
+    for (let i = 0; i < prof.length - 1; i++) S.tube([0, h * prof[i][1], 0], [0, h * prof[i + 1][1], 0], r * prof[i][0], r * prof[i + 1][0], g, MAT.metal, 16, false, false);
+    [-1, 1].forEach((s) => { for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * PI, b = ((i + 1) / 6) * PI, cx = s * r * 0.7, cy = h * 0.8, rr = h * 0.13;
+      S.tube([cx + s * Math.sin(a) * rr, cy + Math.cos(a) * rr, 0], [cx + s * Math.sin(b) * rr, cy + Math.cos(b) * rr, 0], 0.03, 0.03, g, MAT.metal, 6, false, false);
+    } });
+  };
+
+  /* ── 구조물 ── */
+  E['돔 텐트'] = (C, it, w, d, h) => {
+    const S = C.S, c = col(it, WHITE);
+    S.ball(0, 0, 0, w / 2, h, d / 2, c, MAT.canvas, 20, 7, true);
+    for (let i = 0; i < 8; i++) { const a = (i / 8) * 2 * PI; S.beam([Math.cos(a) * w / 2, 0, Math.sin(a) * d / 2], [Math.cos(a) * w / 2 * 0.72, h * 0.72, Math.sin(a) * d / 2 * 0.72], 0.05, CHROME, MAT.metal); }
+    const dw = Math.min(2.2, w * 0.3);
+    S.quad([-dw / 2, 0.02, d / 2 * 0.99], [dw / 2, 0.02, d / 2 * 0.99], [dw / 2 * 0.9, Math.min(2.3, h * 0.55), d / 2 * 0.86], [-dw / 2 * 0.9, Math.min(2.3, h * 0.55), d / 2 * 0.86], hex('#2a2d33'));
+  };
+  E['파고라'] = (C, it, w, d, h) => {
+    const S = C.S, c = col(it, WOOD), t = 0.12;
+    M.legs(S, w, d, h - 0.15, t, c, MAT.grain, 0.1);
+    [-d / 2 + 0.16, d / 2 - 0.16].forEach((z) => S.box(-w / 2 - 0.2, h - 0.15, z - 0.05, w / 2 + 0.2, h, z + 0.05, c, MAT.grain, { bottom: true }));
+    const n = Math.max(4, Math.round(w / 0.4));
+    for (let i = 0; i <= n; i++) { const x = -w / 2 + (w * i) / n; S.box(x - 0.025, h, -d / 2 - 0.2, x + 0.025, h + 0.1, d / 2 + 0.2, c, MAT.grain, { bottom: true }); }
+  };
+  E['관람석'] = (C, it, w, d, h) => {
+    const S = C.S, n = Math.max(2, it.tiers || 5), td = d / n, th = h / n, c = col(it, '#2563eb');
+    for (let i = 0; i < n; i++) {
+      const z1 = d / 2 - i * td, z0 = z1 - td, y = (i + 1) * th;
+      S.box(-w / 2, 0, z0, w / 2, y - 0.02, z1, hex('#8d939b'), MAT.metal, { top: hex('#a5abb3') });
+      S.box(-w / 2 + 0.1, y - 0.02, z0 + 0.05, w / 2 - 0.1, y + 0.05, z0 + td * 0.55, c, 0, { bottom: true });
+    }
+    [-w / 2, w / 2].forEach((x) => S.beam([x, th + 0.9, d / 2], [x, h + 0.9, -d / 2 + td], 0.04, CHROME, MAT.metal));
+    S.beam([-w / 2, h + 1.0, -d / 2], [w / 2, h + 1.0, -d / 2], 0.04, CHROME, MAT.metal);
+    for (let i = 0; i <= Math.round(w / 2); i++) { const x = -w / 2 + (w * i) / Math.round(w / 2); S.beam([x, 0, -d / 2], [x, h + 1.0, -d / 2], 0.04, CHROME, MAT.metal); }
+  };
+  E['컨테이너'] = (C, it, w, d, h) => {
+    const S = C.S, c = col(it, '#2f6fb7'), dk = shade(c, 0.78), z = d / 2;
+    S.box(-w / 2, 0.12, -z, w / 2, h, z, c, MAT.gloss, { bottom: true });
+    [[-1, -1], [1, -1], [1, 1], [-1, 1]].forEach(([i, j]) => S.box(i * (w / 2) - 0.06, 0, j * z - 0.06, i * (w / 2) + 0.06, h + 0.02, j * z + 0.06, dk, MAT.metal));
+    S.box(-w / 2 - 0.02, h - 0.1, -z - 0.02, w / 2 + 0.02, h + 0.02, z + 0.02, dk, MAT.metal, { bottom: true });
+    const ribs = Math.round(w / 0.5);
+    for (let i = 1; i < ribs; i++) { const x = -w / 2 + (w * i) / ribs; S.box(x - 0.03, 0.2, z, x + 0.03, h - 0.14, z + 0.025, dk); S.box(x - 0.03, 0.2, -z - 0.025, x + 0.03, h - 0.14, -z, dk); }
+    if (it.variant === '창고형') {
+      S.quad([w / 2 + 0.03, 0.16, -z + 0.1], [w / 2 + 0.03, 0.16, z - 0.1], [w / 2 + 0.03, h - 0.14, z - 0.1], [w / 2 + 0.03, h - 0.14, -z + 0.1], dk);
+      [-0.3, 0.3].forEach((p) => S.box(w / 2 + 0.03, 0.5, p - 0.02, w / 2 + 0.07, h - 0.5, p + 0.02, CHROME, MAT.metal));
+    } else {
+      const wx = it.variant === '매점형' ? w * 0.5 : Math.min(1.6, w * 0.3);
+      S.quad([-w / 2 + 0.4, 0.14, z + 0.03], [-w / 2 + 1.3, 0.14, z + 0.03], [-w / 2 + 1.3, 2.15, z + 0.03], [-w / 2 + 0.4, 2.15, z + 0.03], WHITE);
+      S.quad([w / 2 - 0.4 - wx, 1.0, z + 0.03], [w / 2 - 0.4, 1.0, z + 0.03], [w / 2 - 0.4, 2.0, z + 0.03], [w / 2 - 0.4 - wx, 2.0, z + 0.03], WINDOW, MAT.window);
+      if (it.variant === '매점형') {
+        S.quad([w / 2 - 0.5 - wx, 2.0, z + 1.0], [w / 2 - 0.3, 2.0, z + 1.0], [w / 2 - 0.3, 2.3, z + 0.03], [w / 2 - 0.5 - wx, 2.3, z + 0.03], WHITE, MAT.canvas);
+        S.box(w / 2 - 0.4 - wx, 0.95, z, w / 2 - 0.4, 1.0, z + 0.35, STEEL, MAT.metal, { bottom: true });
+      }
+    }
+    if (it.text || it.imageId) C.face([[-w * 0.3, h - 0.75, z + 0.032], [w * 0.3, h - 0.75, z + 0.032], [w * 0.3, h - 0.2, z + 0.032], [-w * 0.3, h - 0.2, z + 0.032]], face(it, (w * 0.6) / 0.55, { bg: WHITE, plain: true }));
+  };
+  E['매표소'] = (C, it, w, d, h) => {
+    const S = C.S, c = col(it, '#e11d48'), z = d / 2;
+    S.box(-w / 2, 0, -z, w / 2, h - 0.5, z, WHITE);
+    S.box(-w / 2, 0, -z - 0.005, w / 2, 0.9, z + 0.005, c);
+    S.quad([-w * 0.36, 1.0, z + 0.006], [w * 0.36, 1.0, z + 0.006], [w * 0.36, h - 0.75, z + 0.006], [-w * 0.36, h - 0.75, z + 0.006], WINDOW, MAT.window);
+    S.box(-w * 0.4, 0.92, z, w * 0.4, 0.98, z + 0.3, STEEL, MAT.metal, { bottom: true });
+    S.box(-w / 2 - 0.25, h - 0.5, -z - 0.1, w / 2 + 0.25, h - 0.38, z + 0.6, c, 0, { bottom: true });
+    S.box(-w / 2, h - 0.38, z - 0.1, w / 2, h, z, c);
+    C.face([[-w / 2 + 0.05, h - 0.34, z + 0.004], [w / 2 - 0.05, h - 0.34, z + 0.004], [w / 2 - 0.05, h - 0.04, z + 0.004], [-w / 2 + 0.05, h - 0.04, z + 0.004]], face(it, (w - 0.1) / 0.3, { bg: c, plain: true, text: it.text || '매표소' }));
+  };
+
+  /* ── 좌석 ── */
+  E['벤치'] = (C, it, w, d, h) => {
+    const S = C.S, c = col(it, WOOD);
+    for (let i = 0; i < 3; i++) S.box(-w / 2, 0.42, -d / 2 + 0.16 + i * 0.14, w / 2, 0.46, -d / 2 + 0.28 + i * 0.14, c, MAT.grain, { bottom: true });
+    for (let i = 0; i < 2; i++) S.box(-w / 2, 0.56 + i * 0.14, -d / 2 + 0.04, w / 2, 0.68 + i * 0.14, -d / 2 + 0.08, c, MAT.grain, { bottom: true });
+    [-w / 2 + 0.15, w / 2 - 0.15].forEach((x) => { S.box(x - 0.03, 0, -d / 2 + 0.03, x + 0.03, h, -d / 2 + 0.09, DARK, MAT.metal); S.box(x - 0.03, 0, -d / 2 + 0.09, x + 0.03, 0.42, d / 2 - 0.05, DARK, MAT.metal); });
+  };
+  E['VIP 소파'] = (C, it, w, d, h) => {
+    const S = C.S, c = col(it, '#7c1d2e'), arm = Math.min(0.18, w * 0.14), light = shade(c, 1.18);
+    S.box(-w / 2, 0.06, -d / 2, w / 2, 0.3, d / 2, c, MAT.fabric, { bottom: true });
+    S.box(-w / 2, 0.3, -d / 2, w / 2, h, -d / 2 + 0.24, c, MAT.fabric);
+    S.box(-w / 2, 0.3, -d / 2 + 0.24, -w / 2 + arm, 0.62, d / 2, c, MAT.fabric);
+    S.box(w / 2 - arm, 0.3, -d / 2 + 0.24, w / 2, 0.62, d / 2, c, MAT.fabric);
+    const n = Math.max(1, Math.floor(w / 0.6)), cw = (w - arm * 2) / n;
+    for (let i = 0; i < n; i++) S.box(-w / 2 + arm + i * cw + 0.01, 0.3, -d / 2 + 0.25, -w / 2 + arm + (i + 1) * cw - 0.01, 0.44, d / 2 - 0.01, light, MAT.fabric);
+    M.legs(S, w, d, 0.06, 0.05, GOLD, MAT.metal, 0.04);
+  };
+  E['피크닉 테이블'] = (C, it, w, d, h) => {
+    const S = C.S, c = col(it, WOOD_LIGHT);
+    S.box(-w / 2, h - 0.05, -0.38, w / 2, h, 0.38, c, MAT.grain, { bottom: true });
+    [-1, 1].forEach((s) => {
+      S.box(-w / 2, 0.42, s * (d / 2 - 0.3), w / 2, 0.47, s * (d / 2 - 0.02), c, MAT.grain, { bottom: true });
+      [-w / 2 + 0.25, w / 2 - 0.25].forEach((x) => S.beam([x, h - 0.05, s * 0.2], [x, 0, s * (d / 2 - 0.1)], 0.07, c, MAT.grain));
+    });
+    [-w / 2 + 0.25, w / 2 - 0.25].forEach((x) => S.box(x - 0.035, 0.36, -d / 2 + 0.05, x + 0.035, 0.42, d / 2 - 0.05, c, MAT.grain, { bottom: true }));
+  };
+
+  /* ── 장비 ── */
+  E['카메라'] = (C, it, w, d, h) => {
+    const S = C.S, y = h - 0.3;
+    [0, 2.1, 4.2].forEach((a) => S.beam([0, y - 0.1, 0], [Math.cos(a) * 0.42, 0, Math.sin(a) * 0.42], 0.035, BLACK, MAT.metal));
+    S.cyl(0, y - 0.12, 0, 0.05, y, 0.07, DARK, MAT.metal, 8);
+    S.box(-0.11, y, -0.3, 0.11, y + 0.24, 0.2, hex('#22252b'));
+    S.tube([0, y + 0.12, 0.2], [0, y + 0.12, 0.42], 0.07, 0.085, BLACK, 0, 10);
+    S.tube([0, y + 0.12, 0.42], [0, y + 0.12, 0.425], 0.07, 0.07, hex('#3b5b8a'), MAT.window, 10);
+    S.box(-0.09, y + 0.24, -0.26, 0.09, y + 0.38, -0.06, hex('#22252b'));
+    S.beam([0.12, y + 0.05, -0.2], [0.3, y - 0.25, -0.55], 0.02, BLACK, MAT.metal);
+  };
+  E['스크린'] = (C, it, w, d, h) => {
+    const S = C.S, y0 = Math.min(0.9, h * 0.3);
+    [-w / 2 + 0.05, w / 2 - 0.05].forEach((x) => { S.box(x - 0.025, 0, -0.025, x + 0.025, h, 0.025, DARK, MAT.metal); S.beam([x, 0.02, -d / 2], [x, 0.02, d / 2], 0.04, DARK, MAT.metal); });
+    S.box(-w / 2, y0, -0.02, w / 2, h, 0.015, BLACK, 0, { bottom: true });
+    C.face([[-w / 2 + 0.05, y0 + 0.05, 0.019], [w / 2 - 0.05, y0 + 0.05, 0.019], [w / 2 - 0.05, h - 0.05, 0.019], [-w / 2 + 0.05, h - 0.05, 0.019]], face(it, (w - 0.1) / (h - y0 - 0.1), { bg: hex('#f4f6f8'), plain: true }));
+  };
+  E['난로'] = (C, it, w, d, h) => {
+    const S = C.S, r = Math.min(w, d) / 2;
+    S.cyl(0, 0, 0, r * 0.75, 0.75, r * 0.7, hex('#b9bec6'), MAT.metal, 14);
+    S.cyl(0, 0.75, 0, 0.04, h - 0.45, 0.04, CHROME, MAT.metal, 8);
+    S.cyl(0, h - 0.45, 0, 0.11, h - 0.15, 0.14, hex('#ff8a3d'), MAT.emissive, 12);
+    S.tube([0, h - 0.15, 0], [0, h, 0], r * 1.25, 0.05, CHROME, MAT.metal, 16, true, false);
+  };
+
+  /* ── 안내·장식 ── */
+  E['윙배너'] = (C, it, w, d, h) => {
+    const S = C.S, c = col(it, '#e11d48');
+    S.cyl(0, 0, 0, 0.2, 0.05, 0.18, DARK, 0, 10);
+    S.tube([-w / 2 + 0.03, 0.05, 0], [-w / 2 + 0.03, h * 0.9, 0], 0.018, 0.012, CHROME, MAT.metal, 6);
+    S.tube([-w / 2 + 0.03, h * 0.9, 0], [w * 0.2, h, 0], 0.012, 0.008, CHROME, MAT.metal, 6);
+    const cv = face(it, (w - 0.1) / (h - 0.6), { bg: c });
+    const pts = [[-w / 2 + 0.05, 0.5, 0.004], [w / 2 - 0.08, 0.7, 0.004], [w / 2 - 0.02, h * 0.9, 0.004], [-w / 2 + 0.05, h * 0.96, 0.004]];
+    S.quad([pts[0][0], pts[0][1], 0], [pts[1][0], pts[1][1], 0], [pts[2][0], pts[2][1], 0], [pts[3][0], pts[3][1], 0], c);
+    C.face(pts, cv);
+    C.face([[pts[1][0], pts[1][1], -0.004], [pts[0][0], pts[0][1], -0.004], [pts[3][0], pts[3][1], -0.004], [pts[2][0], pts[2][1], -0.004]], cv);
+  };
+  E['A형 입간판'] = (C, it, w, d, h) => {
+    const S = C.S, c = col(it, '#f59e0b'), cv = face(it, (w - 0.08) / (h - 0.12), { bg: c, text: it.text || '안내' });
+    [1, -1].forEach((s) => {
+      const z0 = s * d * 0.42, z1 = s * 0.03;
+      S.quad([-w / 2, 0, z0 - s * 0.012], [w / 2, 0, z0 - s * 0.012], [w / 2, h, z1 - s * 0.012], [-w / 2, h, z1 - s * 0.012], DARK);
+      const pts = [[-w / 2 + 0.04, 0.06, z0], [w / 2 - 0.04, 0.06, z0], [w / 2 - 0.04, h - 0.06, z1 + s * 0.004], [-w / 2 + 0.04, h - 0.06, z1 + s * 0.004]];
+      C.face(s > 0 ? pts : [pts[1], pts[0], pts[3], pts[2]], cv);
+    });
+  };
+  E['풍선 아치'] = (C, it, w, d, h) => {
+    const S = C.S, c = col(it, '#ec4899'), r = Math.min(0.24, w * 0.06), n = Math.max(14, Math.round((w + 2 * h) / (r * 1.3)));
+    for (let i = 0; i <= n; i++) {
+      const a = PI - (i / n) * PI, x = Math.cos(a) * (w / 2 - r), y = r + Math.sin(a) * (h - 2 * r);
+      for (let k = 0; k < 3; k++) { const b = (k / 3) * 2 * PI + i * 0.9; S.ball(x + Math.cos(b) * r * 0.5, y + Math.sin(b) * r * 0.35, Math.sin(b) * r * 0.6, r, r * 1.1, r, (i + k) % 3 === 0 ? WHITE : (i + k) % 3 === 1 ? c : shade(c, 0.72), MAT.gloss, 8, 5); }
+    }
+  };
+  E['풍선 다발'] = (C, it, w, d, h) => {
+    const S = C.S, c = col(it, '#ef4444'), cols = [c, WHITE, shade(c, 0.7), hex('#fde047'), c, hex('#60a5fa'), WHITE];
+    S.cyl(0, 0, 0, 0.12, 0.12, 0.1, DARK, 0, 8);
+    for (let i = 0; i < 7; i++) {
+      const a = i * 0.9, rr = i === 0 ? 0 : 0.28, x = Math.cos(a) * rr, z = Math.sin(a) * rr, y = h - 0.25 - (i % 3) * 0.22;
+      S.tube([0, 0.12, 0], [x, y - 0.2, z], 0.004, 0.004, WHITE, 0, 4, false, false);
+      S.ball(x, y, z, 0.17, 0.21, 0.17, cols[i], MAT.gloss, 10, 6);
+    }
+  };
+  E['입체 글자'] = (C, it, w, d, h) => {
+    const S = C.S, c = col(it, '#e11d48'), chars = [...String(it.text || 'LOVE').replace(/\s+/g, '')].slice(0, 12), n = Math.max(1, chars.length), cw = w / n;
+    chars.forEach((ch, i) => {
+      const x0 = -w / 2 + i * cw + cw * 0.05, x1 = x0 + cw * 0.9, cv = face(null, (cw * 0.9) / h, { bg: c, plain: true, text: ch });
+      S.box(x0, 0, -d / 2, x1, h, d / 2, c);
+      C.face([[x0, 0, d / 2 + 0.004], [x1, 0, d / 2 + 0.004], [x1, h, d / 2 + 0.004], [x0, h, d / 2 + 0.004]], cv);
+      C.face([[x1, 0, -d / 2 - 0.004], [x0, 0, -d / 2 - 0.004], [x0, h, -d / 2 - 0.004], [x1, h, -d / 2 - 0.004]], cv);
+    });
+  };
+  E['분수'] = (C, it, w, d, h) => {
+    const S = C.S, r = Math.min(w, d) / 2, st = hex('#b9b6ae');
+    S.tube([0, 0, 0], [0, 0.45, 0], r, r, st, MAT.stone, 28, false, false);
+    S.tube([0, 0.45, 0], [0, 0.45, 0], r, r - 0.18, st, MAT.stone, 28, false, false);
+    for (let i = 0; i < 28; i++) { const a = (i / 28) * 2 * PI, b = ((i + 1) / 28) * 2 * PI; S.quad([Math.cos(a) * r, 0.45, Math.sin(a) * r], [Math.cos(b) * r, 0.45, Math.sin(b) * r], [Math.cos(b) * (r - 0.18), 0.45, Math.sin(b) * (r - 0.18)], [Math.cos(a) * (r - 0.18), 0.45, Math.sin(a) * (r - 0.18)], st, MAT.stone); }
+    S.disc(0, 0.36, 0, r - 0.17, hex('#3b8fd9'), MAT.water, 28);
+    S.cyl(0, 0, 0, r * 0.16, h * 0.55, r * 0.1, st, MAT.stone, 12);
+    S.tube([0, h * 0.55, 0], [0, h * 0.62, 0], r * 0.1, r * 0.42, st, MAT.stone, 16, false, false);
+    S.disc(0, h * 0.615, 0, r * 0.4, hex('#3b8fd9'), MAT.water, 16);
+    C.G.tube([0, h * 0.6, 0], [0, h, 0], 0.05, 0.015, hex('#e8f4ff'), MAT.glass, 8, false, false);
+    for (let i = 0; i < 8; i++) { const a = (i / 8) * 2 * PI; C.G.tube([Math.cos(a) * r * 0.4, h * 0.6, Math.sin(a) * r * 0.4], [Math.cos(a) * r * 0.62, 0.4, Math.sin(a) * r * 0.62], 0.02, 0.035, hex('#e8f4ff'), MAT.glass, 5, false, false); }
+  };
+  E['조형물'] = (C, it, w, d, h) => {
+    const S = C.S, c = col(it, '#c0392b'), r = Math.min(w, d) / 2;
+    S.cube(0, 0, 0, r * 1.3, h * 0.2, r * 1.3, hex('#8d8f93'), MAT.concrete);
+    if (it.style === '기둥') { for (let i = 0; i < 9; i++) { C.at(0, 0, i * 11); S.cube(0, h * (0.2 + i * 0.088), 0, r * (1.0 - i * 0.06), h * 0.09, r * (1.0 - i * 0.06), i % 2 ? c : shade(c, 1.2), MAT.gloss, { bottom: true }); } C.at(0, 0); }
+    else if (it.style === '고리') { const rr = (h * 0.8) / 2 - 0.1; for (let i = 0; i < 20; i++) { const a = (i / 20) * 2 * PI, b = ((i + 1) / 20) * 2 * PI, cy = h * 0.2 + rr + 0.1; S.tube([Math.cos(a) * rr, cy + Math.sin(a) * rr, 0], [Math.cos(b) * rr, cy + Math.sin(b) * rr, 0], 0.12, 0.12, c, MAT.metal, 8, false, false); } }
+    else S.ball(0, h * 0.2 + (h * 0.8) / 2, 0, Math.min(r, h * 0.4), (h * 0.8) / 2, Math.min(r, h * 0.4), c, MAT.metal, 18, 10);
+  };
+  E['바닥 화살표'] = (C, it, w, d) => {
+    const c = col(it, '#f8f8f4'), z = d / 2;
+    C.D.poly([[-w * 0.18, z], [w * 0.18, z], [w * 0.18, -z + w * 0.7], [w / 2, -z + w * 0.7], [0, -z], [-w / 2, -z + w * 0.7], [-w * 0.18, -z + w * 0.7]], Y, c);
+  };
+  E['횡단보도'] = (C, it, w, d) => {
+    const n = Math.max(3, Math.round(w / 1.0));
+    for (let i = 0; i < n; i++) if (i % 2 === 0) rectD(C.D, -w / 2 + (w * i) / n, -d / 2, -w / 2 + (w * (i + 1)) / n, d / 2, LINE);
+  };
+
+  /* ── 편의·안전, 차량 ── */
+  function van(C, w, d, h, body, o) {
+    const S = C.S, cab = Math.min(1.9, w * 0.3), bx = w / 2 - cab, y0 = 0.4;
+    S.box(-w / 2, y0, -d / 2, bx, h, d / 2, body, MAT.gloss, { bottom: true });
+    S.extrude([[bx, y0], [w / 2, y0], [w / 2, h * 0.5], [w / 2 - cab * 0.45, h * 0.86], [bx, h * 0.86]], -d / 2 + 0.03, d / 2 - 0.03, o.cab || body, MAT.gloss, 'z');
+    S.quad([w / 2 - cab * 0.42, h * 0.84, d / 2 - 0.12], [w / 2 - cab * 0.42, h * 0.84, -d / 2 + 0.12], [w / 2 - 0.02, h * 0.52, -d / 2 + 0.12], [w / 2 - 0.02, h * 0.52, d / 2 - 0.12], WINDOW, MAT.window);
+    [-1, 1].forEach((s) => S.quad([bx + 0.12, h * 0.5, s * (d / 2 - 0.025)], [w / 2 - cab * 0.5, h * 0.5, s * (d / 2 - 0.025)], [w / 2 - cab * 0.5, h * 0.8, s * (d / 2 - 0.025)], [bx + 0.12, h * 0.8, s * (d / 2 - 0.025)], WINDOW, MAT.window));
+    const r = Math.min(0.5, h * 0.16);
+    [[-w / 2 + w * 0.2, 1], [-w / 2 + w * 0.2, -1], [w / 2 - cab * 0.55, 1], [w / 2 - cab * 0.55, -1]].forEach(([x, s]) => M.wheel(S, x, s * (d / 2 - 0.15), r, 0.26));
+    [-1, 1].forEach((s) => S.quad([w / 2 + 0.004, y0 + 0.12, s * d * 0.3 - 0.14], [w / 2 + 0.004, y0 + 0.12, s * d * 0.3 + 0.14], [w / 2 + 0.004, y0 + 0.27, s * d * 0.3 + 0.14], [w / 2 + 0.004, y0 + 0.27, s * d * 0.3 - 0.14], hex('#fff7d6'), MAT.emissive));
+    return bx;
+  }
+  E['구급차'] = (C, it, w, d, h) => {
+    const S = C.S, bx = van(C, w, d, h, WHITE, {});
+    [-1, 1].forEach((s) => {
+      S.quad([-w / 2 + 0.05, h * 0.42, s * (d / 2 + 0.004)], [bx, h * 0.42, s * (d / 2 + 0.004)], [bx, h * 0.52, s * (d / 2 + 0.004)], [-w / 2 + 0.05, h * 0.52, s * (d / 2 + 0.004)], hex('#dc2626'));
+      S.quad([-w * 0.12, h * 0.6, s * (d / 2 + 0.004)], [w * 0.0, h * 0.6, s * (d / 2 + 0.004)], [w * 0.0, h * 0.85, s * (d / 2 + 0.004)], [-w * 0.12, h * 0.85, s * (d / 2 + 0.004)], hex('#16a34a'));
+    });
+    S.box(bx - 0.3, h, -d * 0.3, bx + 0.1, h + 0.14, d * 0.3, hex('#ef4444'), MAT.emissive, { bottom: true });
+  };
+  E['트럭'] = (C, it, w, d, h) => { van(C, w, d, h, WHITE, { cab: col(it, '#2563eb') }); };
+  E['자전거'] = (C, it, w, d, h) => {
+    const S = C.S, c = col(it, '#dc2626'), r = Math.min(0.34, h * 0.32), x = w / 2 - r;
+    [-x, x].forEach((p) => { S.tube([p, r, -0.02], [p, r, 0.02], r, r, hex('#1c1d20'), 0, 16, false, false); S.tube([p, r, -0.025], [p, r, 0.025], r * 0.86, r * 0.86, hex('#c9ced6'), MAT.metal, 16); });
+    const bb = [-0.05, r + 0.02, 0], seat = [-0.25, h * 0.78, 0], head = [x - 0.18, h * 0.82, 0];
+    [[[-x, r, 0], bb], [bb, seat], [seat, [-x, r, 0]], [bb, head], [seat, head], [head, [x, r, 0]]].forEach(([a, b]) => S.beam(a, b, 0.035, c, MAT.gloss));
+    S.box(seat[0] - 0.12, seat[1], -0.06, seat[0] + 0.1, seat[1] + 0.05, 0.06, BLACK, 0, { bottom: true });
+    S.beam([head[0], head[1], 0], [head[0] + 0.03, h, 0], 0.03, CHROME, MAT.metal);
+    S.beam([head[0] + 0.03, h, -0.25], [head[0] + 0.03, h, 0.25], 0.03, BLACK, MAT.metal);
+  };
+  E['안내 키오스크'] = (C, it, w, d, h) => {
+    const S = C.S;
+    S.box(-w / 2 - 0.05, 0, -d / 2, w / 2 + 0.05, 0.06, d / 2, DARK, MAT.metal);
+    S.box(-w / 2, 0.06, -0.06, w / 2, h, 0.06, hex('#22252b'));
+    C.face([[-w / 2 + 0.04, h * 0.3, 0.064], [w / 2 - 0.04, h * 0.3, 0.064], [w / 2 - 0.04, h - 0.06, 0.064], [-w / 2 + 0.04, h - 0.06, 0.064]], face(it, (w - 0.08) / (h * 0.7 - 0.06), { bg: hex('#0b1020'), led: true, text: it.text || '안내' }), 'solid', true);
+  };
+  E['분리수거함'] = (C, it, w, d, h) => {
+    const S = C.S, cs = [hex('#2563eb'), hex('#16a34a'), hex('#eab308')], bw = w / 3;
+    cs.forEach((c, i) => {
+      const x0 = -w / 2 + i * bw + 0.03, x1 = x0 + bw - 0.06;
+      S.box(x0, 0, -d / 2, x1, h * 0.86, d / 2, c);
+      S.box(x0 - 0.015, h * 0.86, -d / 2 - 0.015, x1 + 0.015, h, d / 2 + 0.015, shade(c, 0.75));
+      S.quad([x0 + 0.08, h * 0.62, d / 2 + 0.004], [x1 - 0.08, h * 0.62, d / 2 + 0.004], [x1 - 0.08, h * 0.76, d / 2 + 0.004], [x0 + 0.08, h * 0.76, d / 2 + 0.004], BLACK);
+    });
+  };
+  E['경사로'] = (C, it, w, d, h) => {
+    const S = C.S;
+    S.extrude([[d / 2, 0], [-d / 2, 0], [-d / 2, h]], -w / 2, w / 2, hex('#8d939b'), MAT.metal, 'x');
+    [-w / 2 + 0.03, w / 2 - 0.03].forEach((x) => {
+      S.beam([x, 0.9, d / 2], [x, h + 0.9, -d / 2], 0.04, CHROME, MAT.metal);
+      [d / 2, 0, -d / 2].forEach((z) => { const y = h * (0.5 - z / d); S.beam([x, y, z], [x, y + 0.9, z], 0.035, CHROME, MAT.metal); });
+    });
+  };
+
+  /* ── 건물·조경 ── */
+  E['바위'] = (C, it, w, d, h) => {
+    const S = C.S, g = hex('#8b8a86');
+    S.ball(0, 0, 0, w / 2, h, d / 2, g, MAT.stone, 9, 5, true);
+    S.ball(w * 0.22, 0, d * 0.12, w * 0.3, h * 0.62, d * 0.34, shade(g, 0.9), MAT.stone, 8, 4, true);
+    S.ball(-w * 0.25, 0, -d * 0.15, w * 0.24, h * 0.5, d * 0.28, shade(g, 1.1), MAT.stone, 8, 4, true);
+  };
+  E['생울타리'] = (C, it, w, d, h) => {
+    const S = C.S, g = hex('#3d8b3d');
+    S.box(-w / 2, 0, -d / 2, w / 2, h * 0.86, d / 2, g, MAT.foliage);
+    const n = Math.max(2, Math.round(w / (d * 1.1)));
+    for (let i = 0; i < n; i++) S.ball(-w / 2 + ((i + 0.5) * w) / n, h * 0.8, 0, (w / n) * 0.58, h * 0.24, d * 0.56, i % 2 ? g : shade(g, 1.12), MAT.foliage, 8, 5);
+  };
+  E['버스 정류장'] = (C, it, w, d, h) => {
+    const S = C.S, G = C.G, gl = hex('#cfe3f1');
+    [-w / 2 + 0.08, w / 2 - 0.08].forEach((x) => { S.box(x - 0.05, 0, -d / 2 + 0.05, x + 0.05, h - 0.1, -d / 2 + 0.15, DARK, MAT.metal); S.box(x - 0.05, 0, d / 2 - 0.5, x + 0.05, h - 0.1, d / 2 - 0.4, DARK, MAT.metal); });
+    S.box(-w / 2 - 0.2, h - 0.1, -d / 2 - 0.1, w / 2 + 0.2, h, d / 2 - 0.1, hex('#3a3f47'), MAT.metal, { bottom: true });
+    G.quad([-w / 2 + 0.1, 0.2, -d / 2 + 0.1], [w / 2 - 0.1, 0.2, -d / 2 + 0.1], [w / 2 - 0.1, h - 0.15, -d / 2 + 0.1], [-w / 2 + 0.1, h - 0.15, -d / 2 + 0.1], gl, MAT.glass);
+    G.quad([-w / 2 + 0.08, 0.2, -d / 2 + 0.1], [-w / 2 + 0.08, 0.2, d / 2 - 0.45], [-w / 2 + 0.08, h - 0.15, d / 2 - 0.45], [-w / 2 + 0.08, h - 0.15, -d / 2 + 0.1], gl, MAT.glass);
+    S.box(-w / 2 + 0.5, 0.42, -d / 2 + 0.25, w * 0.1, 0.47, -d / 2 + 0.65, WOOD, MAT.grain, { bottom: true });
+    [-w / 2 + 0.6, w * 0.0].forEach((x) => S.box(x - 0.03, 0, -d / 2 + 0.3, x + 0.03, 0.42, -d / 2 + 0.6, DARK, MAT.metal));
+    const ax = w / 2 - 1.3;
+    S.box(ax, 0.3, -d / 2 + 0.12, w / 2 - 0.15, h - 0.3, -d / 2 + 0.2, DARK);
+    C.face([[ax + 0.04, 0.34, -d / 2 + 0.204], [w / 2 - 0.19, 0.34, -d / 2 + 0.204], [w / 2 - 0.19, h - 0.34, -d / 2 + 0.204], [ax + 0.04, h - 0.34, -d / 2 + 0.204]], face(it, (1.15 - 0.08) / (h - 0.68), { bg: hex('#f4f6f8'), text: it.text || '버스\n정류장' }), 'solid', true);
+  };
+
+  /* ── 나무: 은행·단풍·야자수 ── */
+  const tree0 = E['나무'];
+  E['나무'] = (C, it, w, d, h) => {
+    const S = C.S, r = Math.min(w, d) / 2;
+    if (it.style === '야자수') {
+      const top = [r * 0.25, h * 0.88, 0];
+      S.tube([0, 0, 0], [r * 0.12, h * 0.45, 0], r * 0.09, r * 0.07, hex('#8a6a4a'), MAT.grain, 8, false, false);
+      S.tube([r * 0.12, h * 0.45, 0], top, r * 0.07, r * 0.055, hex('#8a6a4a'), MAT.grain, 8, false, false);
+      for (let i = 0; i < 9; i++) {
+        const a = (i / 9) * 2 * PI + 0.2, dx = Math.cos(a), dz = Math.sin(a), g = i % 2 ? hex('#2f8a3a') : hex('#3fa049');
+        const m1 = [top[0] + dx * r * 0.55, top[1] + h * 0.07, dz * r * 0.55], m2 = [top[0] + dx * r * 1.0, top[1] - h * 0.1, dz * r * 1.0], px = -dz * r * 0.13, pz = dx * r * 0.13;
+        S.quad([top[0] - px * 0.3, top[1], -pz * 0.3], [top[0] + px * 0.3, top[1], pz * 0.3], [m1[0] + px, m1[1], m1[2] + pz], [m1[0] - px, m1[1], m1[2] - pz], g, MAT.foliage);
+        S.quad([m1[0] - px, m1[1], m1[2] - pz], [m1[0] + px, m1[1], m1[2] + pz], [m2[0] + px * 0.2, m2[1], m2[2] + pz * 0.2], [m2[0] - px * 0.2, m2[1], m2[2] - pz * 0.2], g, MAT.foliage);
+      }
+      S.ball(top[0], top[1] - 0.05, 0, r * 0.1, r * 0.1, r * 0.1, hex('#6b4a2b'), 0, 6, 4);
+      return;
+    }
+    if (it.style === '은행나무' || it.style === '단풍나무') {
+      const pal = it.style === '은행나무' ? [hex('#f2c230'), hex('#f5d04a'), hex('#e3ad1c')] : [hex('#d9482b'), hex('#e8702a'), hex('#b8321f')];
+      const th = h * 0.42;
+      S.cyl(0, 0, 0, r * 0.1, th, r * 0.065, WOOD_DARK, 0, 8);
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 5) * 2 * PI + C.rnd(), top = i === 5, rr = top ? 0 : r * (0.36 + C.rnd() * 0.12), br = r * (top ? 0.62 : 0.5 + C.rnd() * 0.14);
+        S.ball(Math.cos(a) * rr, h * (top ? 0.78 : 0.56 + C.rnd() * 0.14), Math.sin(a) * rr, br, br * 0.82, br, pal[i % 3], MAT.foliage, 10, 6);
+      }
+      return;
+    }
+    tree0(C, it, w, d, h);
+  };
+
+  /* ── 사람: 어린이·선수, 옷 색 ── */
+  const person0 = M.person;
+  E['사람'] = (C, it, w, d) => {
+    const n = Math.max(1, it.count || 1), per = Math.max(1, Math.min(n, it.perRow || 10)), rows = Math.ceil(n / per), cw = w / per;
+    const lod = C.lod || C.crowd > 60, kid = it.style === '어린이', team = it.color ? hex(it.color) : null;
+    for (let i = 0; i < n; i++) {
+      const r = Math.floor(i / per), c = i % per, inRow = r === rows - 1 ? n - per * (rows - 1) : per;
+      C.at(-w / 2 + (w - inRow * cw) / 2 + (c + 0.5) * cw + (C.rnd() - 0.5) * 0.08, -d / 2 + 0.2 + r * 0.6, (C.rnd() - 0.5) * 16);
+      figure(C.S, it.style, C.rnd, lod, kid ? 0.66 + C.rnd() * 0.1 : 1, team);
+    }
+    C.at(0, 0);
+  };
+  /** 사람 한 명. q: 키 비율(어린이 0.7쯤), team: 옷 색 */
+  function figure(S, style, rnd, lod, q, team) {
+    if (q === 1 && !team && style !== '선수') return person0(S, style, rnd, lod);
+    const k = (0.94 + rnd() * 0.11) * q, y = (v) => v * k, x = (v) => v * Math.max(0.78, q);
+    const skin = [hex('#f1c9a5'), hex('#e8b88f'), hex('#d9a47a')][Math.floor(rnd() * 3)], hair = [hex('#1b1512'), hex('#2a1e17'), hex('#3a2a1e')][Math.floor(rnd() * 3)];
+    const sport = style === '선수';
+    const top = team || (sport ? hex('#dc2626') : [hex('#2563eb'), hex('#f59e0b'), hex('#16a34a'), hex('#db2777'), hex('#0891b2')][Math.floor(rnd() * 5)]);
+    const pants = sport ? WHITE : style === '정장' ? shade(top, 0.9) : [hex('#1f2937'), hex('#3b4a6b'), hex('#57534e')][Math.floor(rnd() * 3)];
+    if (lod) {
+      S.box(-x(0.16), 0, -0.09, x(0.16), y(0.86), 0.09, pants);
+      S.box(-x(0.21), y(0.86), -0.11, x(0.21), y(1.44), 0.11, top);
+      S.box(-x(0.09), y(1.46), -0.1, x(0.09), y(1.69), 0.1, skin, 0, { top: hair });
+      return;
+    }
+    [-0.09, 0.09].forEach((p) => {
+      S.box(x(p) - 0.05, 0, -0.09, x(p) + 0.05, 0.06, 0.14, sport ? hex('#f97316') : BLACK);
+      S.tube([x(p), 0.06, 0], [x(p), y(0.52), 0], 0.05, 0.06, sport ? skin : pants, 0, 8, false, false);
+      S.tube([x(p), y(0.52), 0], [x(p), y(0.9), 0], 0.062, 0.085, pants, 0, 8, false, false);
+    });
+    S.ball(0, y(0.93), 0, x(0.175), 0.14 * k, 0.125, pants, 0, 8, 5);
+    S.ball(0, y(1.17), 0, x(0.2), 0.31 * k, 0.13, top, 0, 8, 6);
+    [-1, 1].forEach((s) => {
+      S.tube([s * x(0.215), y(1.38), 0], [s * x(0.24), y(1.12), 0.01], 0.055, 0.05, top, 0, 8, false, false);
+      S.tube([s * x(0.24), y(1.12), 0.01], [s * x(0.245), y(0.9), 0.02], 0.045, 0.04, sport ? skin : top, 0, 8, false, false);
+      S.ball(s * x(0.248), y(0.855), 0.025, 0.04, 0.05, 0.035, skin, 0, 6, 4);
+    });
+    if (sport) S.quad([-0.05, y(1.1), 0.134], [0.05, y(1.1), 0.134], [0.05, y(1.3), 0.128], [-0.05, y(1.3), 0.128], WHITE);
+    S.cyl(0, y(1.42), 0, 0.048, y(1.5), 0.044, skin, 0, 6);
+    const hs = q < 1 ? 1.08 : 1;
+    S.ball(0, y(1.59), 0.005, 0.092 * hs, 0.112 * hs, 0.102 * hs, skin, 0, 8, 6);
+    S.ball(0, y(1.625), -0.022, 0.099 * hs, 0.092 * hs, 0.103 * hs, hair, 0, 8, 5);
+  }
+  M.figure = figure;
+})();
+
+/* ── 2.1: 건물 종류, 앞면 사진, 부스 뒷벽 그림, 트러스 현수막, 담장 종류 ── */
+(function () {
+  'use strict';
+  const App = window.App;
+  const { MAT, hex, shade } = App.gl3d;
+  const M = App.models3d, E = M.EVENT, col = M.col, face = M.faceCanvas;
+  const { WHITE, DARK, STEEL, CHROME, WOOD, WOOD_DARK, WINDOW } = M.COLORS;
+  const FRAME = hex('#f3f4f6');
+
+  /** 벽 한 면에 층마다 창을 늘어놓음. P(u, y, e): 그 면의 점 (u: 면을 따라, e: 바깥으로) */
+  function grid(S, len, floors, fh, P, o = {}) {
+    const n = Math.max(1, Math.floor((len - 1) / (o.pitch || 3.2))), gap = len / n, ww = Math.min(o.ww || 2.0, gap * 0.64);
+    for (let f = 0; f < floors; f++) {
+      const y0 = f * fh + Math.min(o.sill || 1.0, fh * 0.3), y1 = f * fh + fh - Math.min(0.55, fh * 0.16);
+      for (let i = 0; i < n; i++) {
+        const u = -len / 2 + gap * (i + 0.5);
+        if (o.skip && o.skip(u, f)) continue;
+        S.quad(P(u - ww / 2 - 0.06, y0 - 0.06, 0.02), P(u + ww / 2 + 0.06, y0 - 0.06, 0.02), P(u + ww / 2 + 0.06, y1 + 0.06, 0.02), P(u - ww / 2 - 0.06, y1 + 0.06, 0.02), FRAME);
+        S.quad(P(u - ww / 2, y0, 0.035), P(u + ww / 2, y0, 0.035), P(u + ww / 2, y1, 0.035), P(u - ww / 2, y1, 0.035), WINDOW, MAT.window);
+      }
+    }
+  }
+  const sides = (w, d) => ({
+    front: (u, y, e) => [u, y, d / 2 + e], back: (u, y, e) => [-u, y, -d / 2 - e],
+    right: (u, y, e) => [w / 2 + e, y, -u], left: (u, y, e) => [-w / 2 - e, y, u],
+  });
+  function parapet(S, w, d, h, c) {
+    const t = 0.25, ph = 0.6;
+    S.box(-w / 2 - 0.08, h, d / 2 - t, w / 2 + 0.08, h + ph, d / 2 + 0.08, c);
+    S.box(-w / 2 - 0.08, h, -d / 2 - 0.08, w / 2 + 0.08, h + ph, -d / 2 + t, c);
+    S.box(-w / 2 - 0.08, h, -d / 2 + t, -w / 2 + t, h + ph, d / 2 - t, c);
+    S.box(w / 2 - t, h, -d / 2 + t, w / 2 + 0.08, h + ph, d / 2 - t, c);
+  }
+  /** 옥상의 설비 (실외기·계단실) */
+  function rooftop(S, w, d, h) {
+    if (w < 8 || d < 6) return;
+    S.cube(-w * 0.28, h, -d * 0.12, Math.min(4, w * 0.16), 2.4, Math.min(3.5, d * 0.4), hex('#d8d4ca'), 0, { top: hex('#8f9296') });
+    for (let i = 0; i < 3; i++) S.cube(w * 0.18 + i * 1.5, h, d * 0.1, 1.1, 0.9, 0.9, hex('#c9ced6'), MAT.metal);
+  }
+
+  const building0 = E['건물'];
+  E['건물'] = (C, it, w, d, h) => {
+    const S = C.S, P = sides(w, d), floors = Math.max(1, it.floors || Math.round(h / 3.5)), fh = h / floors;
+    const full = it.faceOn === '앞면 전체' && (it.text || it.imageId);
+    const st = it.style || '일반 건물';
+    if (st === '일반 건물' && !full) { building0(C, it, w, d, h); rooftop(S, w, d, h); return; }
+    if (full) {
+      // 앞면 가득 사진·글자: 나머지 세 면은 창, 앞면은 넣은 그림
+      const c = col(it, '#efe7d6');
+      S.box(-w / 2, 0, -d / 2, w / 2, h, d / 2, c, 0, { top: hex('#8f9296'), topMat: MAT.concrete });
+      parapet(S, w, d, h, shade(c, 0.93));
+      grid(S, w, floors, fh, P.back); grid(S, d, floors, fh, P.right); grid(S, d, floors, fh, P.left);
+      C.face([[-w / 2, 0, d / 2 + 0.01], [w / 2, 0, d / 2 + 0.01], [w / 2, h, d / 2 + 0.01], [-w / 2, h, d / 2 + 0.01]], face(it, w / h, { bg: c, plain: true }));
+      return;
+    }
+    const sign = () => {
+      if (!it.text && !it.imageId) return;
+      const sw = Math.min(w * 0.6, Math.max(5, w * 0.4)), sh = Math.min(1.2, fh * 0.3), sy = Math.min(h - sh - 0.1, Math.min(fh * 0.86, 3.2) + 0.5), z = d / 2;
+      S.box(-sw / 2 - 0.06, sy - 0.06, z, sw / 2 + 0.06, sy + sh + 0.06, z + 0.14, hex('#1f2937'));
+      C.face([[-sw / 2, sy, z + 0.145], [sw / 2, sy, z + 0.145], [sw / 2, sy + sh, z + 0.145], [-sw / 2, sy + sh, z + 0.145]], face(it, sw / sh, { bg: hex('#1e3a8a'), plain: true }));
+    };
+    if (st === '유리 건물') {
+      const g = it.color ? hex(it.color) : hex('#3f76a8');
+      S.box(-w / 2, 0, -d / 2, w / 2, h, d / 2, g, MAT.window, { top: hex('#8f9296'), topMat: MAT.concrete });
+      for (let f = 0; f <= floors; f++) S.box(-w / 2 - 0.04, Math.max(0, f * fh - 0.14), -d / 2 - 0.04, w / 2 + 0.04, f * fh + 0.14, d / 2 + 0.04, hex('#dfe4ea'), MAT.metal, { bottom: true });
+      const fin = (len, Pf) => { const n = Math.max(2, Math.round(len / 1.6)); for (let i = 0; i <= n; i++) { const u = -len / 2 + (len * i) / n; S.quad(Pf(u - 0.04, 0, 0.05), Pf(u + 0.04, 0, 0.05), Pf(u + 0.04, h, 0.05), Pf(u - 0.04, h, 0.05), hex('#e6eaef'), MAT.metal); } };
+      fin(w, P.front); fin(w, P.back); fin(d, P.right); fin(d, P.left);
+      parapet(S, w, d, h, hex('#dfe4ea'));
+      const ew = Math.min(6, w * 0.3);
+      S.box(-ew / 2 - 0.4, 3.0, d / 2, ew / 2 + 0.4, 3.2, d / 2 + 2.0, hex('#e5e7eb'), MAT.metal, { bottom: true });
+      S.quad([-ew / 2, 0.02, d / 2 + 0.06], [ew / 2, 0.02, d / 2 + 0.06], [ew / 2, 2.9, d / 2 + 0.06], [-ew / 2, 2.9, d / 2 + 0.06], hex('#1f3f5f'), MAT.window);
+      rooftop(S, w, d, h);
+      sign();
+      return;
+    }
+    if (st === '주택') {
+      const c = col(it, '#f2e9d8'), hw = h * 0.68, roof = hex('#8f4a3a');
+      S.box(-w / 2, 0, -d / 2, w / 2, hw, d / 2, c);
+      S.box(-w / 2 - 0.03, 0, -d / 2 - 0.03, w / 2 + 0.03, 0.4, d / 2 + 0.03, hex('#a5a29b'), MAT.concrete);
+      // 박공 지붕 (용마루가 가로로)
+      S.extrude([[-d / 2 - 0.5, hw - 0.12], [d / 2 + 0.5, hw - 0.12], [0, h]], -w / 2 - 0.4, w / 2 + 0.4, roof, MAT.brick, 'x');
+      S.cube(w * 0.28, hw, -d * 0.15, 0.7, (h - hw) * 0.95, 0.7, hex('#b9aa98'), MAT.brick);
+      const hf = Math.max(1, Math.round(hw / 3)), fhh = hw / hf;
+      grid(S, w, hf, fhh, P.front, { pitch: 3.6, ww: 1.5, skip: (u, f) => f === 0 && Math.abs(u) < 1.4 });
+      grid(S, w, hf, fhh, P.back, { pitch: 3.6, ww: 1.5 }); grid(S, d, hf, fhh, P.right, { pitch: 4, ww: 1.3 }); grid(S, d, hf, fhh, P.left, { pitch: 4, ww: 1.3 });
+      S.box(-0.55, 0, d / 2, 0.55, 2.2, d / 2 + 0.06, WOOD_DARK, MAT.grain);
+      S.box(-1.1, 0, d / 2, 1.1, 0.18, d / 2 + 1.0, hex('#b8b5ae'), MAT.concrete);
+      S.box(-1.2, 2.4, d / 2, 1.2, 2.5, d / 2 + 1.1, roof, 0, { bottom: true });
+      sign();
+      return;
+    }
+    if (st === '창고·체육관') {
+      const c = col(it, '#d5dbe2'), hw = h * 0.72, roof = hex('#5f84ad'), n = 12, pr = [];
+      S.box(-w / 2, 0, -d / 2, w / 2, hw, d / 2, c, MAT.metal);
+      for (let i = 0; i <= n; i++) { const a = Math.PI - (i / n) * Math.PI; pr.push([Math.cos(a) * (d / 2 + 0.3), hw + Math.sin(a) * (h - hw)]); }
+      S.extrude(pr, -w / 2 - 0.3, w / 2 + 0.3, roof, MAT.metal, 'x');
+      const dn = w > 14 ? 2 : 1, dw = Math.min(5, w * 0.24), dh = Math.min(4.2, hw * 0.75);
+      for (let i = 0; i < dn; i++) {
+        const x = dn === 1 ? 0 : (i ? 1 : -1) * w * 0.22;
+        S.quad([x - dw / 2, 0, d / 2 + 0.03], [x + dw / 2, 0, d / 2 + 0.03], [x + dw / 2, dh, d / 2 + 0.03], [x - dw / 2, dh, d / 2 + 0.03], hex('#8c949e'), MAT.metal);
+        for (let k = 1; k < 8; k++) S.quad([x - dw / 2, (dh * k) / 8, d / 2 + 0.035], [x + dw / 2, (dh * k) / 8, d / 2 + 0.035], [x + dw / 2, (dh * k) / 8 + 0.03, d / 2 + 0.035], [x - dw / 2, (dh * k) / 8 + 0.03, d / 2 + 0.035], hex('#6f7780'));
+      }
+      [P.right, P.left, P.back].forEach((Pf, i) => { const len = i < 2 ? d : w; S.quad(Pf(-len / 2 + 1, hw - 1.4, 0.02), Pf(len / 2 - 1, hw - 1.4, 0.02), Pf(len / 2 - 1, hw - 0.5, 0.02), Pf(-len / 2 + 1, hw - 0.5, 0.02), WINDOW, MAT.window); });
+      S.box(-w / 2 - 0.03, 0, -d / 2 - 0.03, w / 2 + 0.03, 0.5, d / 2 + 0.03, shade(roof, 0.9), MAT.metal);
+      sign();
+      return;
+    }
+    // 아파트
+    const c = col(it, '#ebe6dc'), z = d / 2, units = Math.max(1, Math.round(w / 9));
+    S.box(-w / 2, 0, -z, w / 2, h, z, c, 0, { top: hex('#8f9296'), topMat: MAT.concrete });
+    for (let f = 0; f < floors; f++) {
+      const y = f * fh;
+      S.quad([-w / 2 + 0.4, y + 0.25, z + 0.02], [w / 2 - 0.4, y + 0.25, z + 0.02], [w / 2 - 0.4, y + fh - 0.35, z + 0.02], [-w / 2 + 0.4, y + fh - 0.35, z + 0.02], WINDOW, MAT.window);
+      if (f) {
+        S.box(-w / 2 + 0.3, y - 0.06, z, w / 2 - 0.3, y + 0.08, z + 0.9, WHITE, 0, { bottom: true });
+        S.box(-w / 2 + 0.3, y + 0.08, z + 0.84, w / 2 - 0.3, y + 1.0, z + 0.9, hex('#dfe6ec'), MAT.window);
+      }
+    }
+    for (let i = 0; i <= units; i++) { const x = -w / 2 + (w * i) / units; S.box(x - 0.18, 0, z, x + 0.18, h, z + 0.95, c); }
+    grid(S, w, floors, fh, P.back, { pitch: 4.5, ww: 1.6 }); grid(S, d, floors, fh, P.right, { pitch: 6, ww: 1.2 }); grid(S, d, floors, fh, P.left, { pitch: 6, ww: 1.2 });
+    parapet(S, w, d, h, shade(c, 0.9));
+    S.cube(0, h, 0, Math.min(6, w * 0.3), 2.6, Math.min(5, d * 0.6), shade(c, 0.95), 0, { top: hex('#8f9296') });
+    S.cyl(w * 0.3, h, 0, 1.0, h + 1.6, 1.0, hex('#c9ced6'), MAT.metal, 14);
+    S.box(-2.2, 2.8, z + 0.95, 2.2, 3.0, z + 2.6, hex('#e5e7eb'), MAT.concrete, { bottom: true });
+    S.quad([-1.6, 0.02, z + 0.97], [1.6, 0.02, z + 0.97], [1.6, 2.7, z + 0.97], [-1.6, 2.7, z + 0.97], hex('#1f3f5f'), MAT.window);
+    sign();
+  };
+
+  // 부스: 뒷벽 가득 그림
+  const booth0 = E['부스'];
+  E['부스'] = (C, it, w, d, h) => {
+    if (it.faceOn !== '뒷벽' || !(it.text || it.imageId)) return booth0(C, it, w, d, h);
+    booth0(C, { ...it, text: ' ', imageId: null }, w, d, h);
+    const z = -d / 2 + 0.05;
+    C.face([[-w / 2 + 0.06, 0.1, z], [w / 2 - 0.06, 0.1, z], [w / 2 - 0.06, h - 0.1, z], [-w / 2 + 0.06, h - 0.1, z]], face(it, (w - 0.12) / (h - 0.2), { bg: WHITE, plain: true }));
+  };
+
+  // 트러스: 가로대 아래 현수막
+  const truss0 = E['트러스'];
+  E['트러스'] = (C, it, w, d, h) => {
+    truss0(C, it, w, d, h);
+    if (!it.text && !it.imageId) return;
+    const q = Math.min(0.4, d), bw = w - 2 * q - 0.2, bh = Math.min(1.2, h * 0.28), y1 = h - q - 0.05;
+    const c = col(it, WHITE), cv = face(it, bw / bh, { bg: c, plain: !it.color });
+    C.S.box(-bw / 2, y1 - bh, -0.008, bw / 2, y1, 0.008, c, 0, { bottom: true });
+    C.face([[-bw / 2, y1 - bh, 0.012], [bw / 2, y1 - bh, 0.012], [bw / 2, y1, 0.012], [-bw / 2, y1, 0.012]], cv);
+    C.face([[bw / 2, y1 - bh, -0.012], [-bw / 2, y1 - bh, -0.012], [-bw / 2, y1, -0.012], [bw / 2, y1, -0.012]], cv);
+  };
+
+  // 담장: 나무 울타리·철제 난간, 색, 벽 그림
+  const fence0 = E['담장'];
+  E['담장'] = (C, it, w, d, h) => {
+    const S = C.S;
+    if (it.style === '나무 울타리') {
+      const c = col(it, WOOD), n = Math.max(2, Math.round(w / 0.16)), pn = Math.max(1, Math.round(w / 2));
+      for (let i = 0; i <= pn; i++) { const x = -w / 2 + (w * i) / pn; S.box(x - 0.05, 0, -0.06, x + 0.05, h, 0.04, shade(c, 0.85), MAT.grain); }
+      [h * 0.25, h * 0.75].forEach((y) => S.box(-w / 2, y - 0.04, -0.03, w / 2, y + 0.04, 0.0, shade(c, 0.9), MAT.grain, { bottom: true }));
+      if (C.lod) S.box(-w / 2, 0.08, 0, w / 2, h, 0.025, c, MAT.grain);
+      else for (let i = 0; i < n; i++) { const x = -w / 2 + ((i + 0.5) * w) / n; S.box(x - 0.055, 0.08, 0, x + 0.055, h - (i % 2) * 0.04, 0.025, c, MAT.grain, { bottom: true }); }
+    } else if (it.style === '철제 난간') {
+      const c = col(it, '#2f343b'), pn = Math.max(1, Math.round(w / 2)), n = Math.max(2, Math.round(w / (C.lod ? 0.4 : 0.13)));
+      for (let i = 0; i <= pn; i++) { const x = -w / 2 + (w * i) / pn; S.box(x - 0.03, 0, -0.03, x + 0.03, h + 0.06, 0.03, c, MAT.metal); }
+      [0.12, h].forEach((y) => S.box(-w / 2, y - 0.02, -0.02, w / 2, y + 0.02, 0.02, c, MAT.metal, { bottom: true }));
+      for (let i = 0; i < n; i++) { const x = -w / 2 + ((i + 0.5) * w) / n; S.box(x - 0.008, 0.12, -0.008, x + 0.008, h, 0.008, c, MAT.metal, { bottom: true }); }
+    } else if (it.color && it.style !== '판넬') {
+      const c = hex(it.color);
+      S.box(-w / 2, 0, -d / 2, w / 2, h - 0.08, d / 2, c, MAT.concrete);
+      S.box(-w / 2 - 0.03, h - 0.08, -d / 2 - 0.04, w / 2 + 0.03, h, d / 2 + 0.04, shade(c, 0.75), MAT.concrete);
+    } else fence0(C, it, w, d, h);
+    if (it.text || it.imageId) {
+      const z = (it.style === '판넬' || it.style === '나무 울타리' ? 0.03 : it.style === '철제 난간' ? 0.035 : d / 2) + 0.008;
+      if (it.style === '철제 난간') S.box(-w / 2 + 0.1, 0.2, 0.025, w / 2 - 0.1, h - 0.08, 0.035, WHITE, 0, { bottom: true });
+      C.face([[-w / 2 + 0.1, 0.2, z], [w / 2 - 0.1, 0.2, z], [w / 2 - 0.1, h - 0.1, z], [-w / 2 + 0.1, h - 0.1, z]], face(it, (w - 0.2) / (h - 0.3), { bg: col(it, '#f4f1ea'), plain: true }));
+    }
+  };
 })();

@@ -115,8 +115,51 @@
       for (const end of ['start', 'end']) if (G.dist(ev.world, w[end]) <= r) return { id: w.id, end };
       return null;
     }
+    /** 조감도 물건 하나를 골랐을 때의 손잡이: 돌리기(동그라미), 크기(네 변의 네모) */
+    itemHandleAt(ev) {
+      if (App.selection.size !== 1) return null;
+      const it = App.doc.get(App.selection.list()[0]);
+      if (!App.model.handled(it)) return null;
+      const scale = App.plan.view.scale, r = (ev.touch ? 22 : 13) / scale;
+      const h = App.model.itemHandles(it, scale);
+      if (G.dist(ev.world, h.rotate) <= r * 1.15) return { id: it.id, item: 'rotate' };
+      if (App.catalog.resizable(it)) for (const q of h.sizes) if (G.dist(ev.world, q) <= r) return { id: it.id, item: 'size', axis: q.axis, sign: q.sign };
+      return null;
+    }
+    startItemHandle(p) {
+      p.mode = 'ihandle';
+      p.orig = App.model.clone(App.doc.get(p.handle.id));
+      App.doc.begin(p.handle.item === 'rotate' ? '돌리기' : '크기 조절');
+    }
+    updateItemHandle(p, ev) {
+      const o = p.orig, hd = p.handle;
+      p.at = ev.world;
+      if (hd.item === 'rotate') {
+        // 가운데에서 손잡이 쪽이 물건의 등 방향. 15도씩 딱딱 (Shift: 1도씩)
+        const step = ev.shift ? 1 : 15;
+        const deg = ((Math.round(((Math.atan2(ev.world.y - o.y, ev.world.x - o.x) * 180) / Math.PI + 90) / step) * step) % 360 + 360) % 360;
+        p.tag = `${deg}°`;
+        App.doc.update(o.id, { rotation: deg });
+        return;
+      }
+      const a = (o.rotation * Math.PI) / 180, c = Math.cos(a), s = Math.sin(a);
+      const dx = ev.world.x - o.x, dy = ev.world.y - o.y;
+      const l = hd.axis === 'x' ? dx * c + dy * s : -dx * s + dy * c; // 가운데에서 그 방향으로 잰 거리
+      const full0 = hd.axis === 'x' ? o.size : o.depth, square = App.catalog.square(o);
+      let want = square ? Math.abs(l) * 2 : l * hd.sign + full0 / 2; // 반대쪽 변은 제자리
+      if (App.settings.snapGrid) want = Math.round(want / App.snap.step()) * App.snap.step();
+      const patch = App.catalog.sizedBy(o, hd.axis, Math.max(100, want));
+      const now = { ...o, ...patch };
+      if (!square) {
+        const grow = (((hd.axis === 'x' ? now.size : now.depth) - full0) / 2) * hd.sign;
+        patch.x = o.x + (hd.axis === 'x' ? c : -s) * grow;
+        patch.y = o.y + (hd.axis === 'x' ? s : c) * grow;
+      }
+      p.tag = `${App.units.formatLength(now.size)} × ${App.units.formatLength(now.depth)}`;
+      App.doc.update(o.id, patch);
+    }
     down(ev) {
-      const handle = this.handleAt(ev);
+      const handle = this.handleAt(ev) || this.itemHandleAt(ev);
       this.press = { ev, handle, hit: handle ? null : hitAt(ev), mode: null };
       this.hoverId = null;
     }
@@ -127,7 +170,8 @@
         if (!dragged(ev, p.ev)) return;
         const hitEl = p.hit && App.doc.get(p.hit);
         const wallItem = hitEl && hitEl.type === 'item' && (App.catalog.itemDef(hitEl.kind) || {}).wall && !hitEl.group;
-        if (p.handle && p.handle.index != null) this.startVertex(p);
+        if (p.handle && p.handle.item) this.startItemHandle(p);
+        else if (p.handle && p.handle.index != null) this.startVertex(p);
         else if (p.handle) this.startStretch(p);
         else if (hitEl && isLocked(hitEl.id) && !ev.alt && (!App.selection.has(hitEl.id) || App.selection.size === 1)) {
           p.mode = 'locked'; // 잠긴 것을 끌면 움직이지 않고 알려 줌
@@ -142,6 +186,7 @@
       if (p.mode === 'move') this.updateMove(p, ev);
       else if (p.mode === 'stretch') this.updateStretch(p, ev);
       else if (p.mode === 'vertex') this.updateVertex(p, ev);
+      else if (p.mode === 'ihandle') this.updateItemHandle(p, ev);
       else if (p.mode === 'slide') this.updateSlide(p, ev);
       else if (p.mode === 'remount') this.updateRemount(p, ev);
       else p.cur = ev;
@@ -154,14 +199,19 @@
       const sel = App.selection;
       if (!p.mode) {
         const hitEl = p.hit && App.doc.get(p.hit);
-        if (p.handle) { /* 손잡이를 누르기만 함: 선택 그대로 */ }
+        if (p.handle && p.handle.item === 'rotate') {
+          // 돌리기 손잡이를 톡 누르면 15도씩
+          const it = App.doc.get(p.handle.id);
+          if (it) App.doc.transact('돌리기', () => App.doc.update(it.id, { rotation: ((it.rotation || 0) + 15) % 360 }));
+        }
+        else if (p.handle) { /* 손잡이를 누르기만 함: 선택 그대로 */ }
         else if (hitEl && hitEl.type === 'text' && !ev.shift && sel.size === 1 && sel.has(p.hit)) {
           App.textEditor.open({ x: hitEl.x, y: hitEl.y }, hitEl); // 고른 메모를 한 번 더 누르면 고치기
         }
         else if (p.hit) ev.shift ? sel.toggleAll(withGroups([p.hit])) : sel.set(withGroups([p.hit]));
         else if (!ev.shift) sel.clear();
         if (ev.touch) App.ui.emit('picked', !!p.hit); // 휴대폰: 누른 것의 속성이 보이게 서랍을 올림
-      } else if (['move', 'stretch', 'vertex', 'slide', 'remount'].includes(p.mode)) {
+      } else if (['move', 'stretch', 'vertex', 'ihandle', 'slide', 'remount'].includes(p.mode)) {
         App.doc.commit();
       } else if (p.mode === 'box') {
         const crossing = ev.x < p.ev.x; // 오른쪽에서 왼쪽으로 끌면 걸친 것도 선택
@@ -314,7 +364,7 @@
     }
 
     cancel() {
-      if (this.press && ['move', 'stretch', 'vertex', 'slide', 'remount'].includes(this.press.mode)) App.doc.rollback();
+      if (this.press && ['move', 'stretch', 'vertex', 'ihandle', 'slide', 'remount'].includes(this.press.mode)) App.doc.rollback();
       this.press = null;
       render();
     }
@@ -347,6 +397,7 @@
         }
       }
       if (p.mode === 'vertex' && p.target) App.draw.snapMarker(plan, p.target);
+      if (p.mode === 'ihandle' && p.tag) App.draw.textTag(plan, p.at, p.tag);
       if (p.mode === 'stretch' && p.target) {
         App.draw.snapMarker(plan, p.target);
         App.draw.lengthTag(plan, p.fixed, p.target, p.lastEv && p.lastEv.touch);

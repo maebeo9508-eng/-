@@ -426,6 +426,7 @@
       $('#btnFile').setAttribute('aria-expanded', 'false');
       fn();
     });
+    menuItem('#menuSearch', search); // 좁은 휴대폰에서는 찾기 버튼 대신 파일 메뉴에
     menuItem('#menuShortcuts', shortcuts);
   }
 

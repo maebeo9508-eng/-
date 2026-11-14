@@ -14,6 +14,8 @@
     showRulers: false,    // 위·왼쪽 눈금자
     showWallLengths: true, // 벽마다 중심선 길이 글자 (치수를 넣었으면 꺼서 깔끔하게)
     showDistances: true,   // 기호·가구·기둥을 고르거나 옮길 때 벽까지 거리
+    itemNames: true,       // 조감도 모드: 물건 이름표
+    planPictures: true,    // 조감도 물건을 위에서 본 그림으로 (끄면 기호)
     snapGrid: true,
     snapEnd: true,
     snapMid: true,

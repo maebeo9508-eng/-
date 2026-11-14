@@ -93,6 +93,7 @@
     busy,
     openLength,
     closeTop,
+    openPicker,
   });
 
   /* ── 도구 바 ───────────────────────────── */
@@ -535,10 +536,16 @@
     App.catalog.ensureCurrent();
     const current = App.current[`${cat}Kind`];
     let list = App.catalog.ITEM_KINDS[cat];
+    pal.classList.toggle('is-pictures', cat === 'event');
     if (cat === 'event') {
       const groups = App.catalog.eventPalette();
-      cats.innerHTML = groups.map((g) => `<button type="button" class="cat-btn" data-cat="${escHtml(g.cat)}" aria-pressed="${g.cat === App.current.eventCat}">${escHtml(g.cat)}</button>`).join('');
+      cats.innerHTML = '<button type="button" class="cat-btn cat-all" data-picker="1" title="모든 물건을 그림으로 보고 고르기">▦ 전체 보기</button>'
+        + groups.map((g) => `<button type="button" class="cat-btn" data-cat="${escHtml(g.cat)}" aria-pressed="${g.cat === App.current.eventCat}">${escHtml(g.cat)}</button>`).join('');
       list = (groups.find((g) => g.cat === App.current.eventCat) || groups[0]).kinds;
+      // 조감도 물건은 3D 미리보기 그림으로 (아직 못 그렸으면 기호로 두었다가 바뀜)
+      App.sprites.prefer(list.map((d) => d.kind));
+      pal.innerHTML = list.map((d) => picCard(d, d.kind === current)).join('');
+      return;
     }
     pal.innerHTML = list.map((d) => {
       const name = d.kind || d.line;
@@ -546,6 +553,175 @@
       return `<button type="button" class="pal-btn" data-kind="${escHtml(name)}" aria-pressed="${name === current}" title="${escHtml(name)}${d.line ? ' (선 그리기)' : ''}">
         <span class="ico" style="--ico:url('${icon}')"></span><span>${escHtml(name)}</span></button>`;
     }).join('');
+  }
+
+  /** 물건 한 칸: 미리보기 그림과 이름 */
+  function picCard(d, pressed) {
+    const url = App.sprites.thumb(d.kind);
+    const pic = url ? `<img class="pal-thumb" src="${url}" alt="" draggable="false">` : `<span class="pal-thumb pal-wait" data-wait="${escHtml(d.kind)}"><span class="ico" style="--ico:url('${App.draw.itemIcon(d.kind)}')"></span></span>`;
+    return `<button type="button" class="pal-btn pal-pic" data-kind="${escHtml(d.kind)}" aria-pressed="${pressed}" title="${escHtml(d.kind)}">${pic}<span>${escHtml(d.kind)}</span></button>`;
+  }
+  /** 그림이 다 만들어지면 기다리던 칸을 그림으로 바꿈 */
+  function fillThumbs(root) {
+    root.querySelectorAll('.pal-wait[data-wait]').forEach((w) => {
+      const url = App.sprites.thumb(w.dataset.wait);
+      if (!url) return;
+      const img = document.createElement('img');
+      img.className = 'pal-thumb';
+      img.alt = '';
+      img.draggable = false;
+      img.src = url;
+      w.replaceWith(img);
+    });
+  }
+
+  /** 모든 물건을 분류별 그림으로 보고 고르는 창 */
+  /** 물건 찾기에서 같이 걸리는 말 (이름에 없는 비슷한 말) */
+  const PICK_TAGS = {
+    몽골텐트: '천막 캐노피', '대형 텐트': '천막 캐노피', 파라솔: '우산 그늘막', 무대: '스테이지 단상', 트러스: '게이트 아치 구조물', 부스: '전시 판매대',
+    에어아치: '게이트 출발 결승', '돔 텐트': '천막 에어돔', 파고라: '그늘막 정자', 관람석: '스탠드 좌석 객석 응원석', 컨테이너: '사무실 창고', 매표소: '티켓 안내소',
+    '의자 배열': '좌석 객석', 벤치: '의자', 'VIP 소파': '의자 귀빈', 스피커: '음향', 라인어레이: '스피커 음향', '모니터 스피커': '음향', '콘솔 데스크': '음향 믹서',
+    'LED 스크린': '전광판 화면', '조명 타워': '라이트', 스크린: '빔 프로젝터 화면', 난로: '히터 난방', 카메라: '촬영 방송 중계',
+    백월: '배경', 현수막: '배너 플래카드', 포토월: '포토존 배경', X배너: '입간판', 윙배너: '깃발', 'A형 입간판': '배너 안내판', '풍선 아치': '장식', '풍선 다발': '장식',
+    '입체 글자': '조형물 포토존 간판', 화분: '꽃 화환 화단', 데스크: '안내 접수 등록', '이동식 화장실': '간이', 푸드트럭: '음식 먹거리', 펜스: '울타리 바리케이드 안전',
+    차단봉: '벨트 줄 안전', 러버콘: '꼬깔 라바콘 안전', 구급차: '응급 의료 앰뷸런스', 축구장: '운동장 경기장 구장', 풋살장: '축구 경기장',
+    농구장: '코트 경기장 체육관', 배구장: '코트 경기장 체육관', 테니스장: '코트 경기장', 배드민턴장: '코트 경기장 체육관', '육상 트랙': '달리기 운동장 마라톤',
+    골대: '축구 골', 농구대: '골대', 시상대: '단상 포디움 메달', 점수판: '스코어 전광판', '선수 벤치': '대기석 덕아웃', 트로피: '우승컵 축구컵',
+    사람: '관객 인원', 승용차: '차 자동차', 버스: '차', 트럭: '차 화물', 건물: '빌딩 집', 나무: '조경 가로수', 담장: '울타리 벽 난간',
+    '주차 구획': '주차장', 가로등: '조명', 생울타리: '조경 나무', 횡단보도: '도로',
+  };
+  /** 찾기에 쓰는 글: 이름 + 분류 + 모양들 + 비슷한 말 (빈칸 없이) */
+  function pickText(kind) {
+    const d = App.catalog.itemDef(kind) || {};
+    return `${kind} ${d.cat || ''} ${(d.styles || []).join(' ')} ${PICK_TAGS[kind] || ''}`.replace(/\s/g, '');
+  }
+
+  async function openPicker() {
+    const groups = App.catalog.eventPalette();
+    const r = await dialog({
+      title: '물건 고르기',
+      html: `
+        <div class="field-box picker-search"><input id="pickerSearch" type="search" placeholder="찾기 (예: 천막, 축구, 의자, 조명)" autocomplete="off" enterkeyhint="search"></div>
+        <div class="picker" id="pickerBody">
+          ${groups.map((g) => `<section class="picker-sec" data-sec><h3>${escHtml(g.cat)} <small>${g.kinds.length}</small></h3>
+            <div class="picker-grid">${g.kinds.map((d) => picCard(d, d.kind === App.current.eventKind)).join('')}</div></section>`).join('')}
+          <p class="props-meta picker-none" hidden>찾는 물건이 없습니다.</p>
+        </div>`,
+      actions: [{ id: 'close', label: '닫기', primary: true }],
+      onOpen(body) {
+        body.dataset.keys = 'local';
+        const pick = (kind) => {
+          const d = App.catalog.itemDef(kind);
+          App.current.eventKind = kind;
+          App.current.eventCat = (d && d.cat) || '안내·장식';
+          ui.emit('current');
+          document.querySelector('#dialogFoot [data-id="close"]').click();
+          setTool('event');
+          hint(`${kind}: 놓을 곳을 누르세요`, 3500);
+        };
+        body.addEventListener('click', (e) => {
+          const b = e.target.closest('[data-kind]');
+          if (b) pick(b.dataset.kind);
+        });
+        body.querySelector('#pickerSearch').addEventListener('input', (e) => {
+          const q = e.target.value.trim().replace(/\s/g, '');
+          let any = false;
+          body.querySelectorAll('[data-sec]').forEach((sec) => {
+            let n = 0;
+            sec.querySelectorAll('[data-kind]').forEach((b) => {
+              const hit = !q || pickText(b.dataset.kind).includes(q);
+              b.hidden = !hit;
+              if (hit) n++;
+            });
+            sec.hidden = !n;
+            any = any || n > 0;
+          });
+          body.querySelector('.picker-none').hidden = any;
+        });
+      },
+    });
+    return r;
+  }
+
+  /* ── 조감도 모드: 고른 것을 바로 돌리고 복제하는 막대 ── */
+  function renderQuick() {
+    const bar = $('#quickBar');
+    const els = App.selection.list().map((id) => App.doc.get(id)).filter(Boolean);
+    const show = App.modes.is('event') && els.length > 0 && ui.tool === 'select';
+    bar.hidden = !show;
+    if (!show) return;
+    const items = els.filter((e) => e.type === 'item' && !e.wallId && !e.locked);
+    const one = els.length === 1 ? els[0] : null;
+    const name = one ? (one.type === 'item' ? one.kind : one.name || App.model.TYPES[one.type].label) : `${els.length}개 고름`;
+    const key = `${name}|${items.length}|${els.length}`;
+    if (bar.dataset.key === key) return;
+    bar.dataset.key = key;
+    bar.innerHTML = `
+      <span class="quick-name">${escHtml(name)}</span>
+      ${items.length ? `<button type="button" class="btn" data-q="rot-" title="왼쪽으로 15° 돌리기" aria-label="왼쪽으로 15도 돌리기">↺ 15°</button>
+        <button type="button" class="btn" data-q="rot+" title="오른쪽으로 15° 돌리기" aria-label="오른쪽으로 15도 돌리기">↻ 15°</button>` : ''}
+      <button type="button" class="btn" data-q="rot90" title="90° 돌리기 (Q)">90°</button>
+      <button type="button" class="btn" data-q="dup" title="복제 (Ctrl+D)">복제</button>
+      <button type="button" class="btn" data-q="array" title="같은 간격으로 여러 개 늘어놓기">줄 세우기</button>
+      <button type="button" class="btn btn-danger" data-q="del" title="삭제 (Del)">삭제</button>`;
+  }
+  function quickAction(act) {
+    const ids = App.selection.list().filter((id) => App.doc.has(id));
+    const items = ids.map((id) => App.doc.get(id)).filter((e) => e.type === 'item' && !e.wallId && !e.locked);
+    if (act === 'rot-' || act === 'rot+') {
+      const d = act === 'rot+' ? 15 : -15;
+      App.doc.transact('돌리기', () => items.forEach((it) => App.doc.update(it.id, { rotation: (((it.rotation || 0) + d) % 360 + 360) % 360 })));
+    } else if (act === 'rot90') App.actions.rotateSelection();
+    else if (act === 'dup') App.edit.duplicate();
+    else if (act === 'del') App.actions.deleteSelection();
+    else if (act === 'array') arrayDialog(ids);
+  }
+  /** 줄 세우기: 고른 것을 같은 간격으로 여러 개 */
+  async function arrayDialog(ids) {
+    const b = App.doc.bounds(ids);
+    if (!b) return;
+    const w = Math.round((b.maxX - b.minX) / 100) * 100, h = Math.round((b.maxY - b.minY) / 100) * 100;
+    const one = ids.length === 1 ? App.doc.get(ids[0]) : null;
+    // 물건 하나면 그 물건의 실제 폭 기준 (돌려 놓았어도)
+    const span = one && one.type === 'item' ? { x: Math.round(App.model.TYPES.item.extent(one, { x: 1, y: 0 }) * 2), y: Math.round(App.model.TYPES.item.extent(one, { x: 0, y: 1 }) * 2) } : { x: w, y: h };
+    const r = await dialog({
+      title: '줄 세우기',
+      html: `
+        <div class="field-grid">
+          <div class="field"><label class="field-label" for="arrN">모두 몇 개</label><div class="field-box"><input id="arrN" type="text" inputmode="numeric" value="5"><span class="field-unit">개</span></div></div>
+          <div class="field"><label class="field-label" for="arrGap">사이 틈</label><div class="field-box"><input id="arrGap" type="text" inputmode="decimal" value="${App.units.inputLength(1000)}"><span class="field-unit">${App.units.lengthLabel()}</span></div></div>
+        </div>
+        <div class="field"><span class="field-label">방향</span>
+          <div class="seg seg-inline" role="radiogroup" id="arrDir">
+            ${[['right', '오른쪽 →'], ['down', '아래 ↓'], ['left', '← 왼쪽'], ['up', '위 ↑']].map(([id, t], i) => `<button type="button" class="seg-btn" role="radio" data-dir="${id}" aria-checked="${i === 0}">${t}</button>`).join('')}
+          </div></div>
+        <p class="props-meta">고른 것을 포함해 같은 간격으로 늘어놓습니다. 사이 틈은 물건과 물건 사이의 빈 거리입니다.</p>`,
+      actions: [{ id: 'cancel', label: '취소' }, { id: 'ok', label: '늘어놓기', primary: true }],
+      onOpen(body) {
+        body.querySelector('#arrDir').addEventListener('click', (e) => {
+          const t = e.target.closest('[data-dir]');
+          if (t) body.querySelectorAll('[data-dir]').forEach((x) => x.setAttribute('aria-checked', String(x === t)));
+        });
+      },
+    });
+    if (r.id !== 'ok') return;
+    const n = Math.max(2, Math.min(200, parseInt(r.body.querySelector('#arrN').value, 10) || 0));
+    const gap = App.units.parseLength(r.body.querySelector('#arrGap').value);
+    const dir = (r.body.querySelector('[data-dir][aria-checked="true"]') || {}).dataset.dir || 'right';
+    if (!(gap >= 0)) { toast('사이 틈을 숫자로 넣으세요.'); return; }
+    const v = { right: [1, 0], left: [-1, 0], down: [0, 1], up: [0, -1] }[dir];
+    const step = (v[0] ? span.x : span.y) + gap;
+    const src = App.edit.expand(ids);
+    const made = [];
+    App.doc.transact('줄 세우기', () => {
+      for (let i = 1; i < n; i++) App.edit.clones(src, v[0] * step * i, v[1] * step * i).forEach((c) => { App.doc.add(c); made.push(c.id); });
+    });
+    const all = [...ids, ...made.filter((id) => App.doc.has(id))];
+    App.selection.set(all);
+    // 늘어놓은 것이 화면 밖으로 나갔으면 다 보이게 맞춤
+    const nb = App.doc.bounds(all), vr = App.plan.view.worldRect(App.plan.width, App.plan.height);
+    if (nb && (nb.minX < vr.minX || nb.maxX > vr.maxX || nb.minY < vr.minY || nb.maxY > vr.maxY)) App.plan.fitToContent();
+    toast(`${n}개를 ${App.units.formatLength(step)} 간격으로 늘어놓았습니다.`);
   }
 
   function closeToolMenu() {
@@ -564,6 +740,7 @@
     });
     // 조감도 물건 분류 탭: 그 분류의 첫 물건을 바로 고름
     $('#paletteCats').addEventListener('click', (e) => {
+      if (e.target.closest('[data-picker]')) { openPicker(); return; }
       const b = e.target.closest('[data-cat]');
       if (!b) return;
       App.current.eventCat = b.dataset.cat;
@@ -624,6 +801,26 @@
     });
     ui.on('tool', updateToolOption);
     ui.on('mode', updateToolOption);
+    // 미리보기 그림이 만들어지면 기다리던 칸을 채움
+    ui.on('sprites', () => { fillThumbs($('#palette')); const pk = document.getElementById('pickerBody'); if (pk) fillThumbs(pk); });
+    // 빠른 막대
+    $('#quickBar').addEventListener('click', (e) => { const b = e.target.closest('[data-q]'); if (b) quickAction(b.dataset.q); });
+    const quick = () => queueMicrotask(renderQuick);
+    App.selection.onChange(quick);
+    App.doc.onChange(quick);
+    ui.on('tool', quick);
+    ui.on('mode', quick);
+    // 이름표 켜고 끄기
+    const names = $('#btnNames');
+    const syncNames = () => names.setAttribute('aria-pressed', String(App.settings.itemNames !== false));
+    names.addEventListener('click', () => {
+      App.settings.itemNames = App.settings.itemNames === false;
+      App.saveSettings();
+      syncNames();
+      App.plan.requestRender();
+    });
+    ui.on('settings', syncNames); // 설정 화면에서 바꿨을 때도 맞춤
+    syncNames();
     ui.on('settings', updateToolOption);
     App.doc.onChange(updateToolOption);
 

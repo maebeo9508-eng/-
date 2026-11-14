@@ -241,9 +241,81 @@
     },
     { kind: '가로등', cat: '건물·조경', size: 300, depth: 300, h3: 5000 },
   ];
+  /* ── 2.1: 더 많은 물건 (운동 경기·건물·장식 등) ── */
+  const GOAL = { variant: { label: '골대·네트', values: ['있음', '없음'], default: '있음' } };
+  // 경기장: 크기는 경기 선(라인) 기준. 바닥은 선 바깥으로 여유를 두고 깔림
+  const court = (kind, w, d, h, sizes) => ({ kind, cat: '운동·경기', size: w, depth: d, h3: h, pass: true, flat: true, colors: '바닥 색', options: GOAL, ...(sizes ? { sizes } : {}) });
+  ITEM_KINDS.event.push(
+    // 구조물
+    { kind: '돔 텐트', cat: '구조물', size: 8000, depth: 8000, h3: 4200, pass: true, colors: '천막 색', sizes: [['Ø6m', 6000, 6000], ['Ø8m', 8000, 8000], ['Ø12m', 12000, 12000]] },
+    { kind: '파고라', cat: '구조물', size: 4000, depth: 3000, h3: 2600, pass: true, colors: '색', sizes: [['3×3', 3000, 3000], ['4×3', 4000, 3000], ['6×4', 6000, 4000]] },
+    { kind: '관람석', cat: '구조물', size: 8000, depth: 4000, h3: 2200, back: true, colors: '의자 색', numbers: { tiers: N('단 수', '단', 5, 2, 20) }, sizes: [['6m', 6000, 4000], ['8m', 8000, 4000], ['12m', 12000, 5000], ['20m', 20000, 6000]] },
+    {
+      kind: '컨테이너', cat: '구조물', size: 6000, depth: 2400, h3: 2600, back: true, colors: '색', face: '옆면 글자', sizes: [['3m', 3000, 2400], ['6m', 6000, 2400], ['12m', 12000, 2400]],
+      options: { variant: { label: '모양', values: ['사무실형', '창고형', '매점형'], default: '사무실형' } },
+    },
+    { kind: '매표소', cat: '구조물', size: 2400, depth: 1800, h3: 2700, back: true, colors: '색', face: '간판 글자' },
+    // 좌석
+    { kind: '벤치', cat: '좌석', size: 1800, depth: 600, h3: 850, back: true, colors: '색' },
+    { kind: 'VIP 소파', cat: '좌석', size: 2000, depth: 900, h3: 850, back: true, colors: '색', sizes: [['1인', 900, 900], ['2인', 1500, 900], ['3인', 2000, 900]] },
+    { kind: '피크닉 테이블', cat: '좌석', size: 1800, depth: 1600, h3: 760, colors: '색' },
+    // 장비
+    { kind: '카메라', cat: '장비', size: 900, depth: 900, h3: 1700 },
+    { kind: '스크린', cat: '장비', size: 3000, depth: 600, h3: 2800, back: true, face: '화면 글자', sizes: [['2.4m', 2400, 600], ['3m', 3000, 600], ['4m', 4000, 600]] },
+    { kind: '난로', cat: '장비', size: 600, depth: 600, h3: 2200 },
+    // 안내·장식
+    { kind: '윙배너', cat: '안내·장식', size: 700, depth: 500, h3: 3500, colors: '색', face: '글자' },
+    { kind: 'A형 입간판', cat: '안내·장식', size: 600, depth: 700, h3: 1000, colors: '색', face: '글자' },
+    { kind: '풍선 아치', cat: '안내·장식', size: 4000, depth: 600, h3: 3000, pass: true, colors: '풍선 색', sizes: [['3m', 3000, 600], ['4m', 4000, 600], ['6m', 6000, 600]] },
+    { kind: '풍선 다발', cat: '안내·장식', size: 800, depth: 800, h3: 2400, colors: '풍선 색' },
+    { kind: '입체 글자', cat: '안내·장식', size: 4000, depth: 500, h3: 1200, colors: '글자 색', face: '글자', sizes: [['2m', 2000, 400], ['4m', 4000, 500], ['6m', 6000, 600]] },
+    { kind: '분수', cat: '안내·장식', size: 3000, depth: 3000, h3: 1500, sizes: [['Ø2m', 2000, 2000], ['Ø3m', 3000, 3000], ['Ø5m', 5000, 5000]] },
+    { kind: '조형물', cat: '안내·장식', size: 1500, depth: 1500, h3: 3000, colors: '색', styles: ['구', '기둥', '고리'] },
+    { kind: '바닥 화살표', cat: '안내·장식', size: 1000, depth: 2500, h3: 10, pass: true, flat: true, colors: '색' },
+    // 편의·안전
+    { kind: '구급차', cat: '편의·안전', size: 5600, depth: 2100, h3: 2500 },
+    { kind: '안내 키오스크', cat: '편의·안전', size: 600, depth: 500, h3: 1800, back: true, face: '화면 글자' },
+    { kind: '분리수거함', cat: '편의·안전', size: 1800, depth: 600, h3: 1000, back: true },
+    { kind: '경사로', cat: '편의·안전', size: 1200, depth: 3000, h3: 450, sizes: [['폭 1.2m', 1200, 3000], ['폭 1.5m', 1500, 4000]] },
+    // 운동·경기
+    court('축구장', 105000, 68000, 2440, [['정규 105×68', 105000, 68000], ['8인제 68×50', 68000, 50000], ['유소년 50×30', 50000, 30000]]),
+    court('풋살장', 40000, 20000, 2000, [['40×20', 40000, 20000], ['30×15', 30000, 15000]]),
+    court('농구장', 28000, 15000, 3950),
+    court('배구장', 18000, 9000, 2430),
+    court('테니스장', 23770, 10970, 1070),
+    court('배드민턴장', 13400, 6100, 1550),
+    { kind: '육상 트랙', cat: '운동·경기', size: 176000, depth: 92000, h3: 10, pass: true, flat: true, numbers: { lanes: N('레인 수', '레인', 8, 4, 10) }, sizes: [['400m', 176000, 92000], ['200m', 88000, 46000]] },
+    { kind: '골대', cat: '운동·경기', size: 7320, depth: 2000, h3: 2440, back: true, sizes: [['정규 7.32m', 7320, 2000], ['유소년 5m', 5000, 1500], ['풋살 3m', 3000, 1000]] },
+    { kind: '농구대', cat: '운동·경기', size: 1800, depth: 2500, h3: 3950, back: true },
+    { kind: '시상대', cat: '운동·경기', size: 3000, depth: 1000, h3: 900, back: true },
+    { kind: '점수판', cat: '운동·경기', size: 3000, depth: 400, h3: 2600, back: true, face: '점수판 글자' },
+    { kind: '선수 벤치', cat: '운동·경기', size: 5000, depth: 1500, h3: 2200, back: true, colors: '색' },
+    { kind: '트로피', cat: '운동·경기', size: 1200, depth: 1200, h3: 2600, colors: '색' },
+    // 사람·차량
+    { kind: '트럭', cat: '사람·차량', size: 7500, depth: 2400, h3: 3200, colors: '차 색' },
+    { kind: '자전거', cat: '사람·차량', size: 1800, depth: 600, h3: 1100, colors: '색' },
+    // 건물·조경
+    { kind: '바위', cat: '건물·조경', size: 1500, depth: 1200, h3: 900 },
+    { kind: '생울타리', cat: '건물·조경', size: 5000, depth: 600, h3: 1200, sizes: [['3m', 3000, 600], ['5m', 5000, 600], ['10m', 10000, 600]] },
+    { kind: '버스 정류장', cat: '건물·조경', size: 4000, depth: 1800, h3: 2600, back: true, face: '광고판 글자' },
+    { kind: '횡단보도', cat: '건물·조경', size: 6000, depth: 3000, h3: 10, pass: true, flat: true },
+  );
+  // 있던 종류에 모양·선택을 더함
+  {
+    const ev = (k) => ITEM_KINDS.event.find((d) => d.kind === k);
+    ev('트러스').face = '현수막 글자';
+    Object.assign(ev('건물'), {
+      styles: ['일반 건물', '유리 건물', '주택', '창고·체육관', '아파트'],
+      options: { faceOn: { label: '글자·이미지 붙이는 곳', values: ['간판', '앞면 전체'], default: '간판' } },
+    });
+    ev('부스').options = { faceOn: { label: '글자·이미지 붙이는 곳', values: ['간판', '뒷벽'], default: '간판' } };
+    ev('나무').styles.push('은행나무', '단풍나무', '야자수');
+    Object.assign(ev('담장'), { styles: ['돌담', '벽돌', '판넬', '나무 울타리', '철제 난간'], colors: '색', face: '벽 그림·글자' });
+    Object.assign(ev('사람'), { styles: ['정장', '일반', '스태프', '어린이', '선수'], colors: '옷 색' });
+  }
   // 벽에 붙이는 액자·벽보: 인테리어(가구)와 조감도 팔레트 양쪽에서 씀. 폭 size, 그림 높이 h3, 걸리는 높이 height(가운데)
   ITEM_KINDS.furn.push({ kind: '액자·벽보', size: 900, depth: 40, h3: 600, wall: true, height: 1500, face: '글자', sizes: [['A2 가로', 594, 40], ['900', 900, 40], ['1200', 1200, 40], ['1800', 1800, 40]] });
-  const EVENT_CATS = ['구조물', '좌석', '장비', '안내·장식', '편의·안전', '사람·차량', '건물·조경'];
+  const EVENT_CATS = ['구조물', '좌석', '장비', '안내·장식', '편의·안전', '운동·경기', '사람·차량', '건물·조경'];
   // 조감도 물건 색 (첫 칸은 종류의 기본 색)
   const ITEM_COLORS = [
     ['#ffffff', '흰색'], ['#d92d20', '빨강'], ['#f97316', '주황'], ['#facc15', '노랑'], ['#16a34a', '초록'], ['#0ea5e9', '하늘'],
@@ -254,6 +326,7 @@
   const SURFACES = [
     ['', '색만', null], ['grass', '잔디', '#3f9b4b'], ['asphalt', '아스팔트', '#5b5f66'], ['paver', '보도블록', '#b98f73'],
     ['soil', '흙·모래', '#c9a877'], ['deck', '나무 데크', '#a9744b'], ['concrete', '콘크리트', '#b9bcc0'], ['water', '물', '#3b8fd9'], ['carpet', '카펫', null],
+    ['sand', '모래 (해변)', '#e6d3a3'], ['turf', '인조 잔디', '#3e8f4a'], ['track', '우레탄 (트랙·코트)', '#b5513c'], ['court', '체육관 마루', '#d2a66a'],
   ];
   // 가구·조감도 물건은 높이 0(바닥)에 놓이고, 실제 크기로 그리는 것(깊이가 있는 것)의 기호 비율은 깊이 ÷ 폭
   [...ITEM_KINDS.furn, ...ITEM_KINDS.event].forEach((d) => { if (d.height === undefined) d.height = 0; });
@@ -300,6 +373,30 @@
       const def = catalog.itemDef(it.kind);
       return def && def.resize ? { ...patch, ...def.resize({ ...it, ...patch }) } : patch;
     },
+    /** 크기 손잡이를 쓸 수 있는 물건 (인원처럼 숫자로만 정해지는 것은 뺌) */
+    resizable(it) {
+      return it.depth != null && it.kind !== '사람';
+    },
+    /** 늘 정사각형(둥근 것)으로 두는 종류: 기본이 정사각형이고 규격도 모두 정사각형 */
+    square(it) {
+      const d = catalog.itemDef(it.kind);
+      return !!d && d.depth === d.size && (!d.sizes || d.sizes.every(([, w, dd]) => w === dd));
+    },
+    /** 손잡이로 폭·깊이를 바꿀 때의 값: 의자 배열은 한 줄 의자 수·줄 수, 주차 구획은 칸 수가 따라 바뀜 */
+    sizedBy(it, axis, mm) {
+      const v = Math.max(200, Math.round(mm / 50) * 50);
+      if (it.kind === '의자 배열') {
+        if (axis === 'x') {
+          const cols = Math.max(1, Math.round((mm - (it.aisles || 0) * (it.aisleW || 1200)) / (it.seatW || 500)));
+          return catalog.resized(it, { cols, count: cols * it.rows });
+        }
+        const rows = Math.max(1, Math.round(mm / (it.gap || 900)));
+        return catalog.resized(it, { rows, count: it.cols * rows });
+      }
+      if (it.kind === '주차 구획' && axis === 'x') return catalog.resized(it, { count: Math.max(1, Math.round(mm / 2500)) });
+      if (catalog.square(it)) return { size: v, depth: v };
+      return axis === 'x' ? { size: v } : { depth: v };
+    },
     /** 조감도 팔레트: 분류마다 놓을 수 있는 종류들 */
     eventPalette() {
       return EVENT_CATS.map((cat) => ({
@@ -317,7 +414,7 @@
         if (it.kind === '사람') return `사람 ${it.count || 1}명 · ${it.style || '정장'}`;
         if (it.kind === '주차 구획') return `주차 구획 ${it.count || 1}칸`;
         const parts = [`${it.kind} ${it.kind === '건물' ? `${it.floors || 1}층 ` : ''}${catalog.sizeName(it) || `${num(it.size)}×${num(it.depth)}`}`];
-        if (seats && it.kind !== '의자') parts.push(`의자 ${seats.count}개`);
+        if (seats && it.kind !== '의자') parts.push(/테이블/.test(it.kind) ? `의자 ${seats.count}개` : `${seats.count}석`);
         if (it.style && def.styles && it.style !== (def.styleDefault || def.styles[0])) parts.push(it.style);
         const vo = def.options && def.options.variant;
         if (it.variant && (!vo || it.variant !== vo.default) && !/^의자 \d+개$/.test(it.variant)) parts.push(it.variant);
@@ -346,6 +443,11 @@
         const n = it.chairs != null ? it.chairs : parseInt((String(it.variant || '').match(/\d+/) || [0])[0], 10) || 0;
         return n ? { count: n } : null;
       }
+      if (it.category !== 'event') return null;
+      if (it.kind === '벤치' || it.kind === 'VIP 소파') return { count: Math.max(1, Math.floor(it.size / 600)) };
+      if (it.kind === '피크닉 테이블') return { count: 6 };
+      if (it.kind === '관람석') return { count: Math.max(1, it.tiers || 5) * Math.max(1, Math.floor(it.size / 500)) };
+      if (it.kind === '선수 벤치') return { count: Math.max(1, Math.floor(it.size / 550)) };
       return null;
     },
     /** 의자 배열에서 세로 통로로 나뉜 묶음들: [왼쪽 끝에서 시작, 끝](mm). 묶음마다 열 수는 고르게 */

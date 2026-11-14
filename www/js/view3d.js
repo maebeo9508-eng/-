@@ -21,11 +21,14 @@
     paver: ['보도블록', MAT.paver, '#b89077'],
     soil: ['흙·모래', MAT.soil, '#c2a172'],
     concrete: ['콘크리트', MAT.concrete, '#b9bcc0'],
+    sand: ['모래', MAT.sand, '#e6d3a3'],
+    court: ['체육관 마루', MAT.wood, '#d2a66a'],
     plain: ['밝은 바닥', MAT.concrete, '#e3e5e8'],
   };
   const SURFACE = {
     grass: [MAT.grass, '#4f9a45'], asphalt: [MAT.asphalt, '#5a5d63'], paver: [MAT.paver, '#b89077'], soil: [MAT.soil, '#c2a172'],
     deck: [MAT.wood, '#a9744b'], concrete: [MAT.concrete, '#b9bcc0'], water: [MAT.water, '#2f86cf'],
+    sand: [MAT.sand, '#e6d3a3'], turf: [MAT.track, '#3e8f4a'], track: [MAT.track, '#b5513c'], court: [MAT.wood, '#d2a66a'],
   };
   const WALL = hex('#f1eee8'), WALL_TOP = hex('#9aa0a8'), CURB = hex('#d8d6d0'), FRAME = hex('#f4f4f2');
 
@@ -45,6 +48,78 @@
     return GROUNDS[g] ? g : App.modes.is('event') ? 'asphalt' : 'plain';
   };
 
+  const newLayers = (n = 256) => ({ solid: new Mesh(n * 16), ceil: new Mesh(64), glass: new Mesh(64), decals: [new Mesh(n), new Mesh(64), new Mesh(n), new Mesh(64)], blobs: new Mesh(64) });
+
+  /** 물건 모형을 넣을 그릇: 자리(place)를 정하고 모형 함수에 넘김 */
+  function makeCtx(L, textured, o = {}) {
+    const S = L.solid, meshes = [L.solid, L.glass, L.decals[2], L.ceil, L.blobs];
+    return {
+      S, G: L.glass, D: L.decals[2], T: L.ceil, B: L.blobs, lod: !!o.lod, crowd: o.crowd || 0, rnd: Math.random,
+      base: { x: 0, z: 0, rot: 0, y: 0, c: 1, s: 0 },
+      place(x, z, rot, y) {
+        const r = (rot * Math.PI) / 180;
+        this.base = { x, z, rot, y, c: Math.cos(r), s: Math.sin(r) };
+        this.at(0, 0);
+      },
+      at(lx, lz, deg = 0, ly = 0) {
+        const b = this.base;
+        const wx = b.x + lx * b.c - lz * b.s, wz = b.z + lx * b.s + lz * b.c;
+        meshes.forEach((m) => m.at(wx, wz, b.rot + deg, b.y + ly));
+      },
+      world() { meshes.forEach((m) => m.at(0, 0, 0, 0)); },
+      face(pts, canvas, layer = 'solid', emissive = false) {
+        const m = new Mesh(8);
+        m.tx = S.tx; m.ty = S.ty; m.tz = S.tz; m.c = S.c; m.s = S.s;
+        m.quad(pts[0], pts[1], pts[2], pts[3], [1, 1, 1], emissive ? MAT.emissive : MAT.plain);
+        textured.push({ mesh: m, source: canvas, layer });
+      },
+    };
+  }
+
+  // 밤에 불빛이 번지는 물건: [앞쪽으로 떨어진 거리, 반지름, 색]
+  const POOLS = { '가로등': [1.15, 7, '#ffe2a8'], '조명 타워': [3, 10, '#fff1cf'], '난로': [0, 2.6, '#ff9a4d'], 'LED 스크린': [2.5, 5, '#9fb6ff'], '점수판': [2, 4, '#9fb6ff'], '버스 정류장': [0.3, 4, '#fff1cf'], '매표소': [1, 3.5, '#fff1cf'] };
+
+  /** 물건 하나의 모형을 그릇의 지금 자리에 넣음 (바닥 그늘·밤 불빛 포함) */
+  function itemModel(C, it, o = {}) {
+    const def = App.catalog.itemDef(it.kind);
+    if (!def) return;
+    const M3 = App.models3d, S = C.S;
+    const w = it.size / 1000, d = (it.depth != null ? it.depth : it.size * (def.aspect || 1)) / 1000, h = App.catalog.itemHeight3(it) / 1000;
+    try {
+      if (it.category === 'event' && M3.EVENT[it.kind]) M3.EVENT[it.kind](C, it, w, d, h);
+      else if (M3.FURN[it.kind] && (it.category === 'furn' || it.category === 'event')) M3.FURN[it.kind](C, it, w, d, h);
+      else if (it.category === 'furn') S.box(-w / 2, 0, -d / 2, w / 2, h, d / 2, hex('#b08d6a'), MAT.grain);
+      else M3.symbol(C, it, def, Math.min(o.low && it.height != null ? LOW_WALL - 0.1 : 99, App.measure.itemHeight(it) / 1000));
+    } catch (err) {
+      console.warn('3D 모형을 만들지 못함:', it.kind, err);
+    }
+    if (o.blobs === false || it.depth == null || def.wall || (it.category !== 'event' && it.category !== 'furn')) return;
+    C.at(0, 0);
+    if (!def.flat) {
+      // 바닥에 닿는 자리의 옅은 그늘 (큰 것일수록 옅게)
+      const m = 0.25 + Math.min(w, d) * 0.12, k = Math.max(0.35, Math.min(1, 1.25 - Math.max(w, d) / 18));
+      C.B.quad([-w / 2 - m, 0.012, d / 2 + m], [w / 2 + m, 0.012, d / 2 + m], [w / 2 + m, 0.012, -d / 2 - m], [-w / 2 - m, 0.012, -d / 2 - m], [k, k, k], MAT.blob);
+    }
+    const pool = POOLS[it.kind];
+    if (pool) C.B.quad([-pool[1], 0.014, pool[0] + pool[1]], [pool[1], 0.014, pool[0] + pool[1]], [pool[1], 0.014, pool[0] - pool[1]], [-pool[1], 0.014, pool[0] - pool[1]], hex(pool[2]), MAT.pool);
+  }
+
+  /** 물건 하나만 따로 조립 (평면에 얹을 위에서 본 그림, 고르는 창의 미리보기) */
+  function buildItem(it, o = {}) {
+    const L = newLayers(64), textured = [];
+    const C = makeCtx(L, textured, { lod: o.lod, crowd: it.kind === '사람' ? it.count || 1 : 0 });
+    C.rnd = seeded(o.seed || it.id || it.kind);
+    C.place(0, 0, 0, 0);
+    itemModel(C, it, { blobs: o.blobs });
+    const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+    [L.solid, L.glass, L.decals[2], ...textured.map((t) => t.mesh)].forEach((m) => {
+      if (!m.n) return;
+      for (let i = 0; i < 3; i++) { min[i] = Math.min(min[i], m.min[i]); max[i] = Math.max(max[i], m.max[i]); }
+    });
+    if (min[0] === Infinity) return null;
+    return { layers: L, textured, bounds: { min, max } };
+  }
+
   /* ── 장면 조립 ──
      o: { low: 벽 낮추기, routes: 동선 표시, lod: 간단히 }
      돌려주는 값: { layers: { solid, ceil, glass, decals[4] }, textured, bounds, center(도면 mm), radius(m), stats } 또는 null(그릴 것이 없음) */
@@ -60,33 +135,13 @@
     const P = (p) => [X(p.x), Z(p.y)];
     const event = App.modes.is('event');
 
-    const L = { solid: new Mesh(8192), ceil: new Mesh(256), glass: new Mesh(256), decals: [new Mesh(256), new Mesh(256), new Mesh(256), new Mesh(256)] };
+    const L = newLayers(512);
     const textured = [];
     const S = L.solid;
-    const meshes = [L.solid, L.glass, L.decals[2], L.ceil];
     const people = els.reduce((n, e) => n + (e.type === 'item' && e.kind === '사람' ? e.count || 1 : 0), 0);
     const seats = els.reduce((n, e) => n + (e.type === 'item' && e.category === 'event' ? (App.catalog.seats(e) || { count: 0 }).count : 0), 0);
-    const C = {
-      S, G: L.glass, D: L.decals[2], T: L.ceil, lod: !!o.lod || seats > 1500, crowd: people, rnd: Math.random,
-      base: { x: 0, z: 0, rot: 0, y: 0, c: 1, s: 0 },
-      place(x, z, rot, y) {
-        const r = (rot * Math.PI) / 180;
-        this.base = { x, z, rot, y, c: Math.cos(r), s: Math.sin(r) };
-        this.at(0, 0);
-      },
-      at(lx, lz, deg = 0, ly = 0) {
-        const b = this.base;
-        const wx = b.x + lx * b.c - lz * b.s, wz = b.z + lx * b.s + lz * b.c;
-        meshes.forEach((m) => m.at(wx, wz, b.rot + deg, b.y + ly));
-      },
-      face(pts, canvas, layer = 'solid', emissive = false) {
-        const m = new Mesh(8);
-        m.tx = S.tx; m.ty = S.ty; m.tz = S.tz; m.c = S.c; m.s = S.s;
-        m.quad(pts[0], pts[1], pts[2], pts[3], [1, 1, 1], emissive ? MAT.emissive : MAT.plain);
-        textured.push({ mesh: m, source: canvas, layer });
-      },
-    };
-    const world = () => meshes.forEach((m) => m.at(0, 0, 0, 0));
+    const C = makeCtx(L, textured, { lod: !!o.lod || seats > 1500, crowd: people });
+    const world = () => C.world();
     const fit = []; // 조감도 시점을 맞출 때 화면에 들어와야 하는 점들
     const mark = (pts, h) => pts.forEach((p) => {
       fit.push([X(p.x), 0, Z(p.y)]);
@@ -148,12 +203,24 @@
       const ol = App.joins.outline(w).pts; // [시작 왼쪽, 끝 왼쪽, 끝 오른쪽, 시작 오른쪽]
       const at = (s, off) => [X(w.start.x + d.x * s + n.x * off), Z(w.start.y + d.y * s + n.y * off)];
       const cut = (s) => (s <= 0.5 ? [P(ol[0]), P(ol[3])] : s >= len - 0.5 ? [P(ol[1]), P(ol[2])] : [at(s, h), at(s, -h)]);
+      const wc = w.color ? hex(w.color) : WALL; // 벽 색
+      const photo = w.imageId && App.images.get(w.imageId) ? new Mesh(32) : null; // 벽에 붙인 사진: 벽 한 면 전체에 한 장
       const piece = (s0, s1, y0, y1) => {
         if (s1 - s0 < 0.5 || y1 - y0 < 0.005) return;
         const [a, a2] = cut(s0), [b, b2] = cut(s1);
         const pts = [a, b, b2, a2];
-        S.prism(pts, y0, y1, WALL, MAT.plain, WALL_TOP);
-        if (y0 > 0.01) S.poly(pts, y0, WALL);
+        S.prism(pts, y0, y1, wc, MAT.plain, WALL_TOP);
+        if (y0 > 0.01) S.poly(pts, y0, wc);
+        if (!photo) return;
+        const e = h + 4, side = w.imageSide || 'both', v = (y) => 1 - y / H; // 사진은 그 면을 마주 보고 섰을 때 바로 읽히게 붙임
+        if (side !== 'right') {
+          const p = at(s0, e), q = at(s1, e);
+          photo.quadUV([p[0], y0, p[1]], [q[0], y0, q[1]], [q[0], y1, q[1]], [p[0], y1, p[1]], [[s0 / len, v(y0)], [s1 / len, v(y0)], [s1 / len, v(y1)], [s0 / len, v(y1)]], [1, 1, 1]);
+        }
+        if (side !== 'left') {
+          const p = at(s1, -e), q = at(s0, -e);
+          photo.quadUV([p[0], y0, p[1]], [q[0], y0, q[1]], [q[0], y1, q[1]], [p[0], y1, p[1]], [[1 - s1 / len, v(y0)], [1 - s0 / len, v(y0)], [1 - s0 / len, v(y1)], [1 - s1 / len, v(y1)]], [1, 1, 1]);
+        }
       };
       const ops = App.measure.openingsOf(w.id).map((op) => ({ op, g: App.model.openingGeom(op) })).filter((x) => x.g && App.layers.visible(x.op))
         .sort((a, b) => a.g.c - b.g.c);
@@ -168,6 +235,7 @@
         opening(op, g, H);
       });
       piece(s, len, 0, H);
+      if (photo && photo.n) textured.push({ mesh: photo, source: App.models3d.faceCanvas({ imageId: w.imageId }, len / 1000 / H, { bg: wc, plain: true, fit: w.imageFit || 'fit', tile: 1.2 / Math.max(1.2, H) }), layer: 'solid' });
     });
 
     /** 문·창문: 틀, 문짝(열어 둔 모습), 유리 */
@@ -247,21 +315,10 @@
       }
       return 0;
     };
-    const M3 = App.models3d;
     items.forEach((it) => {
-      const def = App.catalog.itemDef(it.kind);
-      if (!def) return;
-      const w = it.size / 1000, d = (it.depth != null ? it.depth : it.size * (def.aspect || 1)) / 1000, h = App.catalog.itemHeight3(it) / 1000;
       C.rnd = seeded(it.id);
       C.place(X(it.x), Z(it.y), it.rotation || 0, stageUnder(it));
-      try {
-        if (it.category === 'event' && M3.EVENT[it.kind]) M3.EVENT[it.kind](C, it, w, d, h);
-        else if (M3.FURN[it.kind] && (it.category === 'furn' || it.category === 'event')) M3.FURN[it.kind](C, it, w, d, h);
-        else if (it.category === 'furn') S.box(-w / 2, 0, -d / 2, w / 2, h, d / 2, hex('#b08d6a'), MAT.wood);
-        else M3.symbol(C, it, def, Math.min(o.low && it.height != null ? LOW_WALL - 0.1 : 99, App.measure.itemHeight(it) / 1000));
-      } catch (err) {
-        console.warn('3D 모형을 만들지 못함:', it.kind, err);
-      }
+      itemModel(C, it, { low: o.low });
     });
     world();
 
@@ -295,6 +352,7 @@
       for (let i = 0; i < 3; i++) { min[i] = Math.min(min[i], m.min[i]); max[i] = Math.max(max[i], m.max[i]); }
     });
     if (min[0] === Infinity) return null;
+    if (o.blobs === false) L.blobs = new Mesh(8);
     min[1] = Math.min(min[1], 0);
     const radius = Math.hypot(max[0] - min[0], max[2] - min[2]) / 2;
     return {
@@ -406,6 +464,14 @@
     let lo = 1.5, hi = 2500;
     for (let i = 0; i < 24; i++) { const mid = (lo + hi) / 2; if (fits(mid)) hi = mid; else lo = mid; }
     cam.dist = hi;
+    requestDraw();
+  }
+  /** 지금 방향 그대로, 장면이 다 들어오게 거리만 다시 맞춤 */
+  function refit() {
+    const yaw = cam.yaw, pitch = cam.pitch;
+    resetView(pitch > 1.4);
+    cam.yaw = yaw;
+    if (pitch <= 1.4) cam.pitch = pitch;
     requestDraw();
   }
 
@@ -683,6 +749,7 @@
         <span class="v3-gap"></span>
         <button type="button" class="btn" data-v3="reset" aria-pressed="true" title="비스듬히 내려다보는 조감도 시점으로">조감도</button>
         <button type="button" class="btn" data-v3="top" title="위에서 내려다보기">위에서</button>
+        <button type="button" class="btn" data-v3="turn" title="보는 방향을 90도씩 돌리기 (앞 → 오른쪽 → 뒤 → 왼쪽)" aria-label="돌려 보기">↻<span class="pc-only"> 돌려 보기</span></button>
         <button type="button" class="btn" data-v3="walk" aria-pressed="false" title="사람 눈높이로 입구부터 걸어서 둘러보기"><span class="ico ico-sm" data-icon="walk"></span>걷기</button>
         <button type="button" class="btn" data-v3="shot" title="지금 시점을 큰 그림 파일로 (긴 쪽 2560px)">사진<span class="pc-only"> 저장</span></button>
         <button type="button" class="btn" data-v3="settings" aria-expanded="false" aria-label="3D 설정" title="햇빛·바닥·화질"><span class="ico ico-sm" data-icon="gear"></span></button>
@@ -745,6 +812,7 @@
         if (act === 'close') { close(true); return; }
         else if (act === 'reset') { if (mode === 'walk') stopWalk(); resetView(false); }
         else if (act === 'top') { if (mode === 'walk') stopWalk(); resetView(true); }
+        else if (act === 'turn') { if (mode === 'walk') walk.a += Math.PI / 2; else { cam.yaw -= Math.PI / 2; refit(); } }
         else if (act === 'walk') { if (mode === 'walk') { stopWalk(); resetView(false); } else startWalk(); }
         else if (act === 'shot') saveImage();
         else if (act === 'settings') toggleSettings(settings.hidden);
@@ -825,7 +893,7 @@
   const isOpen = () => !!el && !el.hidden;
 
   App.view3d = {
-    open, close, isOpen, build, GROUNDS,
+    open, close, isOpen, build, buildItem, seeded, GROUNDS,
     /** 시험용 */
     get gl() { return R ? R.gl : null; },
     get renderer() { return R; },

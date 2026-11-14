@@ -1,6 +1,6 @@
 /* 서비스 워커: 앱 파일을 모두 기기에 담아 두고 인터넷 없이도 열리게 한다 (비행기 모드 포함).
    파일을 고치면 VERSION을 올려야 기기에 담긴 앱이 새것으로 바뀜 (settings.js의 APP_VERSION과 같이) */
-const VERSION = '2.0.0';
+const VERSION = '2.1.0';
 const CACHE = `hjdm-${VERSION}`;
 
 const FILES = [
@@ -11,7 +11,7 @@ const FILES = [
   'js/icons.js', 'js/storage.js', 'js/geom.js', 'js/measure.js', 'js/model.js', 'js/catalog.js', 'js/joins.js', 'js/dims.js',
   'js/canvas.js', 'js/draw.js', 'js/snap.js', 'js/dxf.js', 'js/dwg.js', 'js/underlay.js', 'js/images.js', 'js/rooms.js', 'js/routes.js',
   'js/input.js', 'js/tools.js', 'js/modes.js', 'js/ui.js', 'js/props.js', 'js/catalog-ui.js', 'js/export.js',
-  'js/summary.js', 'js/edit.js', 'js/settings.js', 'js/projects.js', 'js/gl3d.js', 'js/models3d.js', 'js/view3d.js', 'js/keys.js', 'js/main.js',
+  'js/summary.js', 'js/edit.js', 'js/settings.js', 'js/projects.js', 'js/gl3d.js', 'js/models3d.js', 'js/view3d.js', 'js/sprites.js', 'js/keys.js', 'js/main.js',
   'js/dwg-worker.js',
   'lib/libredwg/libredwg.js', 'lib/libredwg/libredwg.wasm', 'lib/libredwg/LICENSE',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png', 'icons/apple-touch-icon.png', 'icons/favicon-32.png',
