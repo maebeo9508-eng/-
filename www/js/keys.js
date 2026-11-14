@@ -82,7 +82,7 @@
       } else if (/^Key[A-Z]$/.test(e.code)) {
         const letter = e.code.slice(3);
         const tool = App.ui.TOOLS.find((t) => t.key === letter);
-        if (tool) App.ui.pickTool(tool.id);
+        if (tool && App.modes.tools().includes(tool.id)) App.ui.pickTool(tool.id); // 지금 모드의 도구만
       }
     });
   }

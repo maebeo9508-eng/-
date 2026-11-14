@@ -156,6 +156,9 @@
     text: {
       size: { label: '글자 크기', min: 10, max: 5000, get: (t) => t.size, set: (t, v) => ({ size: v }) },
     },
+    route: {
+      width: { label: '통로 폭', min: 300, max: 30000, get: (r) => r.width, set: (r, v) => ({ width: v }) },
+    },
     dim: {
       manual: {
         label: '표시 값 (비우면 자동)', min: 0, max: 1000000, allowEmpty: true,
@@ -518,8 +521,8 @@
   };
 
   /** 정수 칸 (회로 수 등). 길이가 아니라 단위 변환 없음 */
-  function intField(key, o) {
-    const v = commonText((e) => e[key] ?? null);
+  function intField(key, o, get = (e) => e[key] ?? null) {
+    const v = commonText(get);
     return `
       <div class="field" data-int="${key}">
         <label class="field-label" for="f-num-${key}">${esc(o.label)}</label>
@@ -593,38 +596,72 @@
       </div>`;
   }
 
-  /** 가구·행사 물건: 종류, 규격, 폭·깊이(의자 배열은 의자 수·줄 수), 높이, 회전, 위치 */
+  const ANGLE = { label: '회전 각도', unit: '°', min: 0, max: 359 };
+  /** 정수 칸의 범위: 회전 각도, 의자 배열의 총 의자 수, 그 밖에는 종류에 정해 둔 숫자 값 */
+  function intSpec(key) {
+    const def = commonDef();
+    if (key === 'rotation') return ANGLE;
+    if (key === 'count' && def && def.kind === '의자 배열') return { label: '총 의자 수', min: 1, max: 40000 };
+    return (def && def.numbers && def.numbers[key]) || null;
+  }
+
+  /** 가구·조감도 물건: 종류, 모양·색, 규격·크기(의자 배열·사람 등은 수량), 높이, 글자·이미지, 회전, 위치 */
   function furnForm(cat = 'furn') {
     const single = els.length === 1;
     const event = cat === 'event';
-    const title = event ? '행사' : '가구';
+    const title = event ? '조감도 물건' : '가구';
     const kind = commonText((e) => e.kind);
     const def = kind ? App.catalog.itemDef(kind) : null;
     const counts = {};
     els.forEach((e) => { const k = App.catalog.itemLabel(e); counts[k] = (counts[k] || 0) + 1; });
     const seats = els.reduce((n, e) => n + ((App.catalog.seats(e) || {}).count || 0), 0);
+    const kinds = event
+      ? App.catalog.ITEM_KINDS.event.filter((d) => !def || d.cat === def.cat)
+      : App.catalog.ITEM_KINDS.furn;
+    const auto = def && def.resize ? def.resize(els[0]) : {}; // 숫자 값으로 정해지는 크기 (그 칸은 감춤)
+    const numbers = def && def.numbers ? Object.entries(def.numbers) : [];
+    const img = single && els[0].imageId ? App.images.url(els[0].imageId) : null;
+    const mounted = els.filter((e) => e.wallId && App.doc.has(e.wallId));
     return `
       ${head(title, single ? App.catalog.itemLabel(els[0]) : `${els.length}개 선택`)}
-      ${selectField('f-itemKind', '종류', App.catalog.ITEM_KINDS[cat].map((d) => [d.kind, d.kind]), kind)}
+      ${selectField('f-itemKind', '종류', kinds.map((d) => [d.kind, d.kind]), kind)}
       ${def && def.options ? Object.entries(def.options).map(([key, o]) =>
         selectField(`f-opt-${key}`, esc(o.label), o.values.map((v) => [v, v]), commonText((e) => e[key] ?? null))).join('') : ''}
-      ${def && def.grid
-        ? `<div class="field-grid">${Object.entries(def.numbers).map(([key, o]) => intField(key, o)).join('')}</div>
-           <p class="props-meta">의자 한 칸은 폭 ${def.grid.w}mm입니다. 의자는 기호의 아래쪽(앞)을 보고 앉습니다. 무대 쪽을 보도록 돌려 주세요.</p>`
-        : sizeRows(def)}
-      ${event ? `<div class="field-grid">${numberField('h3')}</div>` : ''}
-      ${seats ? `<div class="stats">${stat('좌석', `${seats.toLocaleString('ko-KR')}석`, single && def && def.grid ? `${App.units.formatLength(els[0].size)} × ${App.units.formatLength(els[0].depth)} 자리` : '')}</div>` : ''}
-      ${selectField('f-rotation', '회전', [['0', '0°'], ['90', '90°'], ['180', '180°'], ['270', '270°']], commonText((e) => String(e.rotation)),
-        '<button type="button" class="btn" data-act="rotate">90° 돌리기</button>')}
-      ${single ? `<div class="field-group-label">가운데 위치</div><div class="field-grid">${numberField('x')}${numberField('y')}</div>` : ''}
+      ${def && def.styles ? selectField('f-opt-style', def.kind === '나무' || def.kind === '담장' || def.kind === '화분' || def.kind === '사람' ? '모양' : '의자 모양', def.styles.map((v) => [v, v]), commonText((e) => e.style ?? null)) : ''}
+      ${def && def.colors ? selectField('f-itemColor', esc(def.colors), [['', '기본 색'], ...App.catalog.ITEM_COLORS], commonText((e) => e.color || '')) : ''}
+      ${kind === '의자 배열' ? `<div class="field-grid">${intField('count', { label: '총 의자 수', unit: '개' }, (e) => App.catalog.seats(e).count)}</div>` : ''}
+      ${numbers.length ? `<div class="field-grid">${numbers.map(([key, o]) => intField(key, o)).join('')}</div>` : ''}
+      ${kind === '의자 배열' ? '<p class="props-meta">총 의자 수를 넣으면 줄 수가 맞춰지고, 모자라는 자리는 맨 뒷줄에서 빠집니다. 의자는 기호의 아래쪽(앞)을 보고 앉습니다. 놓을 때 가까운 무대 쪽을 보게 돌려 놓습니다.</p>' : ''}
+      ${'size' in auto ? '' : sizeRows(def)}
+      ${event && def && !def.flat && !('h3' in auto) ? `<div class="field-grid">${numberField('h3')}</div>` : ''}
+      ${!event && def && def.face ? `<div class="field-grid">${numberField('h3', '그림 높이')}${numberField('height', '걸리는 높이 (가운데)')}</div>` : ''}
+      ${def && def.face ? `
+        <div class="field-group-label">${esc(def.face)}·이미지 (3D에서 앞면에 보임)</div>
+        <div class="field">
+          <label class="field-label" for="f-faceText">글자 (줄을 바꿔 여러 줄)</label>
+          <textarea id="f-faceText" class="field-text" rows="2" ${commonText((e) => e.text || '') === null ? 'placeholder="여러 값"' : 'placeholder="예: 2026 가을 축제"'}>${esc(commonText((e) => e.text || '') || '')}</textarea>
+        </div>
+        ${img ? `<img class="face-thumb" src="${esc(img)}" alt="넣은 이미지">` : ''}
+        <div class="btn-row">
+          <button type="button" class="btn" data-act="face-image">${img ? '이미지 바꾸기' : '이미지 넣기 (사진첩)'}</button>
+          ${els.some((e) => e.imageId) ? '<button type="button" class="btn" data-act="face-image-clear">이미지 빼기</button>' : ''}
+        </div>
+        <p class="props-meta">이미지를 넣으면 글자 대신 이미지가 보입니다. 글자만 넣으면 자동으로 현수막 모양으로 꾸며 줍니다.</p>` : ''}
+      ${seats ? `<div class="stats">${stat('좌석', `${seats.toLocaleString('ko-KR')}석`, single && 'size' in auto ? `${App.units.formatLength(els[0].size)} × ${App.units.formatLength(els[0].depth)} 자리` : '')}</div>` : ''}
+      <div class="field-grid">${intField('rotation', ANGLE)}
+        <div class="field"><span class="field-label">&nbsp;</span><button type="button" class="btn" data-act="rotate">90° 돌리기</button></div>
+      </div>
+      ${single && !mounted.length ? `<div class="field-group-label">가운데 위치</div><div class="field-grid">${numberField('x')}${numberField('y')}</div>` : ''}
       ${gapRows()}
       ${pairRows()}
       <div class="stats">
         ${single ? stat('방', roomName(els[0].room)) : Object.entries(counts).map(([k, n]) => stat(k, `${n}개`)).join('')}
+        ${mounted.length ? stat('벽에 붙음', `${mounted.length}개`, '벽을 옮기면 따라갑니다') : ''}
       </div>
-      <p class="props-meta">벽 가까이로 끌면 벽면에 딱 붙습니다. 아래 미세 이동 화살표로 1mm까지 맞출 수 있습니다.${event ? ' 오른쪽 아래 3D 버튼으로 조감도를 볼 수 있습니다.' : ''}</p>
+      ${mounted.length ? '<button type="button" class="btn" data-act="detach">벽에서 떼기</button>' : ''}
+      <p class="props-meta">벽 가까이로 끌면 벽면에 딱 붙습니다. 아래 미세 이동 화살표로 1mm까지 맞출 수 있습니다.${event ? ' 오른쪽 아래 3D 버튼으로 조감도를 보고 걸어서 둘러볼 수 있습니다.' : ''}</p>
       ${commonFields(single)}
-      ${deleteButton(title === '행사' ? '물건' : '가구')}`;
+      ${deleteButton(event ? '물건' : '가구')}`;
   }
 
   function itemForm() {
@@ -721,13 +758,52 @@
           <label class="field-label" for="f-zoneName">이름</label>
           <div class="field-box"><input id="f-zoneName" type="text" maxlength="${NAME_MAX}" enterkeyhint="done" autocomplete="off" value="${esc(els[0].name)}"></div>
         </div>` : ''}
-      ${selectField('f-zoneColor', '색', App.catalog.COLORS.map(([hex, name]) => [hex, name]), commonText((z) => z.color))}
+      ${selectField('f-zoneSurface', '바닥 (3D 조감도에서 보이는 재질)', App.catalog.SURFACES.map(([id, name]) => [id, name]), commonText((z) => z.surface || ''))}
+      ${els.every((z) => !z.surface || z.surface === 'carpet') ? selectField('f-zoneColor', '색', App.catalog.COLORS.map(([hex, name]) => [hex, name]), commonText((z) => z.color)) : ''}
       <div class="stats">
         ${stat(single ? '면적' : '면적 합계', App.units.formatArea(area))}
         ${single ? stat('둘레', App.units.formatLength(G.perimeter(els[0].points))) : ''}
+        ${App.modes.is('event') ? stat('서서 볼 수 있는 인원 (어림)', `여유 있게 ${Math.floor(area / 1e6).toLocaleString('ko-KR')}명 · 빽빽하게 ${Math.floor(area / 5e5).toLocaleString('ko-KR')}명`, '1㎡에 1~2명으로 어림한 값') : ''}
       </div>
+      <p class="props-meta">동그란 꼭짓점을 끌면 모양을 고칠 수 있습니다.</p>
       ${commonFields(single)}
       ${deleteButton('영역')}`;
+  }
+
+  /** 동선: 이름, 종류, 통로 폭, 길이·걸리는 시간, 걸리는 곳 */
+  function routeForm() {
+    const single = els.length === 1;
+    const R = App.routes, U = App.units;
+    const results = els.map((r) => R.check(r));
+    const total = results.reduce((s, x) => s + x.length, 0);
+    const issues = results.reduce((n, x) => n + x.issues.length, 0);
+    const kind = commonText((r) => r.kind);
+    const color = commonText((r) => r.color);
+    const colors = [...R.KINDS.map((k) => [k.color, `${k.kind} 색`]), ...App.catalog.COLORS.filter(([hex]) => !R.KINDS.some((k) => k.color === hex))];
+    return `
+      ${head('동선', single ? '' : `${els.length}개 선택`)}
+      ${single ? `
+        <div class="field">
+          <label class="field-label" for="f-routeName">이름</label>
+          <div class="field-box"><input id="f-routeName" type="text" maxlength="${NAME_MAX}" enterkeyhint="done" autocomplete="off" value="${esc(els[0].name)}"></div>
+        </div>` : ''}
+      ${selectField('f-routeKind', '종류', R.KINDS.map((k) => [k.kind, k.kind]), kind)}
+      ${selectField('f-routeColor', '색', colors, color)}
+      <div class="field-grid">${numberField('width')}</div>
+      <div class="stats">
+        ${stat(single ? '길이' : '길이 합계', U.formatRun(total))}
+        ${single ? stat('걸리는 시간', R.timeText(results[0].time), `${els[0].kind} 빠르기 초속 ${R.def(els[0].kind).speed} m`) : ''}
+        ${stat('걸리는 곳', issues ? `${issues}곳` : '없음', issues ? '도면에 빨갛게 표시' : '통로 폭만큼 비어 있음')}
+      </div>
+      ${single && issues ? results[0].issues.map((x, i) => `<button type="button" class="btn btn-list route-issue${x.blocked ? ' is-blocked' : ''}" data-act="route-issue" data-i="${i}"><span>${esc(R.issueText(els[0], x))}</span></button>`).join('') : ''}
+      <div class="btn-row">
+        ${single ? '<button type="button" class="btn btn-primary" data-act="route-walk">3D로 이 길 걸어 보기</button>' : ''}
+        <button type="button" class="btn" data-act="route-reverse">방향 뒤집기</button>
+        <button type="button" class="btn" data-act="route-check">동선 체크 (전체)</button>
+      </div>
+      <p class="props-meta">동그란 꼭짓점을 끌면 길 모양을 고칠 수 있습니다. 동선 가운데에서 통로 폭의 절반 안에 물건·기둥·벽이 있으면 걸리는 곳으로 표시합니다. 문 자리, 텐트·현수막 아래는 지나갈 수 있습니다.</p>
+      ${commonFields(single)}
+      ${deleteButton('동선')}`;
   }
 
   function textForm() {
@@ -822,7 +898,12 @@
       elec: '위쪽 팔레트에서 기호를 고른 뒤 누르세요. 콘센트·스위치·분전반은 벽 가까이 누르면 벽면에 붙습니다.',
       mech: '위쪽 팔레트에서 기호를 고른 뒤 누르세요. 배관·덕트를 고르면 선을 그립니다.',
       line: '위쪽에서 선 종류를 고른 뒤 끌거나 점을 차례로 눌러 그리세요. 기구 가운데와 끝점에 붙습니다.',
-      zone: '끌면 사각형, 점을 차례로 누르면 다각형 영역이 됩니다. 처음 점을 다시 누르면 닫힙니다.',
+      zone: App.modes.is('event')
+        ? '위쪽에서 바닥(잔디·아스팔트·보도블록 등)을 고른 뒤 끌면 사각형, 점을 차례로 누르면 다각형이 됩니다. 3D 조감도에서 그 바닥으로 보입니다.'
+        : '끌면 사각형, 점을 차례로 누르면 다각형 영역이 됩니다. 처음 점을 다시 누르면 닫힙니다.',
+      event: '위쪽에서 분류(구조물·좌석·장비 등)와 물건을 고른 뒤 놓을 곳을 누르세요. 놓은 뒤 여기서 크기·색·의자 수·글자·이미지를 고칩니다.',
+      route: '입구부터 점을 차례로 눌러 사람이 다니는 길을 그리세요. 통로 폭 안에 물건이나 벽이 걸리면 빨갛게 표시됩니다. 3D에서는 이 길을 따라 걸어 볼 수 있습니다.',
+      furn: '위쪽에서 가구를 고른 뒤 놓을 곳을 누르세요. 벽 가까이면 등을 벽에 대고 붙습니다.',
       text: '글자를 넣을 곳을 누르고 입력하세요. Enter로 확정합니다.',
       dim: '잴 두 점을 차례로 누르거나 끌어 치수를 넣으세요.',
       wall: '위쪽에서 벽 종류(다루끼·경량 스터드·덧방 등)를 고른 뒤 그리세요. 그린 벽을 ‘선택’ 도구로 누르면 자재 물량이 여기에 나옵니다.',
@@ -835,7 +916,9 @@
     return `
       <div class="empty">
         <div class="empty-title">선택한 항목 없음</div>
-        <p>${tips[App.tools.id] || '도면에서 벽, 문, 창문, 기둥, 방을 누르면 크기와 자재 물량을 여기서 보고 고칠 수 있습니다.'}</p>
+        <p>${tips[App.tools.id] || (App.modes.is('event')
+          ? '도면에서 물건·영역·동선을 누르면 크기·색·의자 수·글자·이미지를 여기서 고칠 수 있습니다. 아래쪽 ‘물건’ 도구로 텐트·무대·의자를 놓고, 오른쪽 아래 3D 버튼으로 조감도를 보세요.'
+          : '도면에서 벽, 문, 창문, 기둥, 방을 누르면 크기와 자재 물량을 여기서 보고 고칠 수 있습니다.')}</p>
       </div>
       ${underlays.length ? `
         <div class="field-group-label">가져온 도면</div>
@@ -856,6 +939,7 @@
     else if (type === 'item') pane.innerHTML = itemForm();
     else if (type === 'line') pane.innerHTML = lineForm();
     else if (type === 'zone') pane.innerHTML = zoneForm();
+    else if (type === 'route') pane.innerHTML = routeForm();
     else if (type === 'text') pane.innerHTML = textForm();
     else if (type === 'dim') pane.innerHTML = dimForm();
     else if (type === 'underlay') pane.innerHTML = underlayForm();
@@ -933,8 +1017,8 @@
     pane.addEventListener('input', (e) => {
       if (e.target.id === 'f-opacity') document.getElementById('o-opacity').textContent = `${e.target.value}%`;
       const intBox = e.target.closest('.field[data-int]');
-      const def = intBox && commonDef();
-      if (def) showError(intBox, validateInt(e.target.value, def.numbers[intBox.dataset.int]).error);
+      const spec = intBox && intSpec(intBox.dataset.int);
+      if (spec) showError(intBox, validateInt(e.target.value, spec).error);
       const box = e.target.closest('.field[data-field]');
       if (!box) return;
       showError(box, validate(e.target.value, fields[box.dataset.field]).error);
@@ -998,7 +1082,7 @@
         const def = App.catalog.itemDef(t.value);
         if (def) {
           apply('종류 변경', () => ({
-            kind: def.kind, size: def.size, gang: null, variant: null, circuits: null, h3: null, ...App.catalog.itemDefaults(def),
+            kind: def.kind, size: def.size, gang: null, variant: null, circuits: null, h3: null, style: null, ...App.catalog.itemDefaults(def),
             ...(def.depth ? { depth: def.depth } : {}),
             ...(def.wall ? {} : { wallId: null, t: null, side: null }),
           }));
@@ -1011,9 +1095,9 @@
       }
       if (id.startsWith('f-num-')) {
         const box = t.closest('.field');
-        const def = commonDef();
-        if (!def) return;
-        const key = id.slice(6), o = def.numbers[key];
+        const key = id.slice(6);
+        const o = intSpec(key);
+        if (!o) return;
         if (t.value.trim() === '' && els.length > 1) return;
         const r = validateInt(t.value, o);
         if (r.error) {
@@ -1023,16 +1107,23 @@
           return;
         }
         showError(box, '');
-        // 의자 배열: 의자 수·줄 수·줄 간격에 맞춰 자리 크기도 같이
+        // 의자 배열: 총 의자 수를 넣으면 줄 수를 맞추고, 한 줄 의자 수·줄 수를 바꾸면 꽉 채운 수로. 그다음 자리 크기도 같이
         apply(`${o.label} 변경`, (el) => {
           const patch = { [key]: r.value };
-          if (def.grid) {
-            const n = { ...el, ...patch };
-            patch.size = n.cols * def.grid.w;
-            patch.depth = n.rows * (n.gap || def.grid.d);
+          if (el.kind === '의자 배열') {
+            if (key === 'count') patch.rows = Math.max(1, Math.ceil(r.value / Math.max(1, el.cols || 1)));
+            else if (key === 'cols' || key === 'rows') patch.count = (key === 'cols' ? r.value : el.cols) * (key === 'rows' ? r.value : el.rows);
           }
-          return patch;
+          return key === 'rotation' ? patch : App.catalog.resized(el, patch);
         });
+        return;
+      }
+      if (id === 'f-itemColor') {
+        if (t.value !== '' || commonText((e) => e.color || '') !== null) apply('색 변경', () => ({ color: t.value || null }));
+        return;
+      }
+      if (id === 'f-faceText') {
+        apply('글자 변경', () => ({ text: t.value.replace(/\s+$/, '') }));
         return;
       }
       if (id === 'f-wallFinish' || id === 'f-floorFinish') {
@@ -1060,6 +1151,30 @@
       }
       if (id === 'f-zoneColor') {
         if (t.value) apply('영역 색 변경', () => ({ color: t.value }));
+        return;
+      }
+      if (id === 'f-zoneSurface') {
+        if (t.value !== '' || commonText((z) => z.surface || '') !== null) apply('바닥 변경', () => ({ surface: t.value }));
+        return;
+      }
+      if (id === 'f-routeKind') {
+        // 종류를 바꾸면 색과 통로 폭도 그 종류의 기본값으로
+        const k = t.value && App.routes.KINDS.find((x) => x.kind === t.value);
+        if (k) apply('동선 종류 변경', () => ({ kind: k.kind, color: k.color, width: k.width }));
+        return;
+      }
+      if (id === 'f-routeColor') {
+        if (t.value) apply('동선 색 변경', () => ({ color: t.value }));
+        return;
+      }
+      if (id === 'f-routeName') {
+        const value = t.value.trim().slice(0, NAME_MAX);
+        if (!value) {
+          t.value = els[0].name;
+          App.ui.toast('동선 이름을 비워 둘 수 없습니다.');
+          return;
+        }
+        apply('동선 이름 변경', () => ({ name: value }));
         return;
       }
       if (id === 'f-zoneName' || id === 'f-content') {
@@ -1175,6 +1290,22 @@
         case 'rotate': App.actions.rotateSelection(); break;
         case 'detach': apply('벽에서 떼기', (it) => (it.wallId ? { wallId: null, t: null, side: null } : {})); break;
         case 'gap-dims-edge': App.dims.clearanceDims(els[0], 'edge'); break;
+        case 'face-image':
+          App.images.pick().then((id) => { if (id) apply('이미지 넣기', () => ({ imageId: id })); });
+          break;
+        case 'face-image-clear': apply('이미지 빼기', () => ({ imageId: null })); break;
+        case 'route-check': App.routes.report(); break;
+        case 'route-reverse': apply('방향 뒤집기', (r) => ({ points: r.points.slice().reverse() })); break;
+        case 'route-walk': App.view3d.open({ walk: true, routeId: els[0].id }); break;
+        case 'route-issue': {
+          const x = App.routes.check(els[0]).issues[Number(act.dataset.i)];
+          if (x) {
+            const m = Math.max(3000, els[0].width * 2);
+            App.plan.fitToContent({ minX: x.at.x - m, minY: x.at.y - m, maxX: x.at.x + m, maxY: x.at.y + m });
+            if (App.ui.mobile.matches) App.ui.sheet.collapse();
+          }
+          break;
+        }
         case 'edit-finish': App.catalogUI.open('finish', commonText((r) => r.wallFinishId) || commonText((r) => r.floorFinishId)); break;
         case 'finish-all': {
           const { wallFinishId = null, floorFinishId = null } = els[0];
@@ -1200,6 +1331,8 @@
 
     App.selection.onChange(refresh);
     App.doc.onChange(refresh);
+    App.ui.on('images', refresh); // 넣은 이미지를 다 읽으면 미리 보기가 나오게
+    App.ui.on('mode', refresh);
     App.ui.on('tool', () => queueMicrotask(refresh));
     refresh();
   }

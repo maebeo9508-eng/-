@@ -66,6 +66,31 @@
     };
   }
 
+  /** 조감도 물건·영역을 지금 구조로: 새로 생긴 값(모양·의자 수·통로 등)에 기본값을 채우고, 없어진 종류는 이어받은 종류로 */
+  function migrateItem(e) {
+    if (e.type === 'zone' && e.surface == null) e.surface = '';
+    if (e.type !== 'item' || e.category !== 'event') return;
+    if (e.kind === '배너·포토월') e.kind = '포토월';
+    const def = App.catalog.itemDef(e.kind);
+    if (!def) return;
+    if (def.kind === '의자 배열') {
+      // 예전: 자리 크기 안에 의자를 고르게 폄 → 지금: 의자 간격·줄 간격으로 자리 크기가 정해짐
+      const cols = Math.max(1, e.cols || 1), rows = Math.max(1, e.rows || 1);
+      if (e.seatW == null) e.seatW = Math.round(e.size / cols);
+      if (e.gap == null) e.gap = Math.round(e.depth / rows);
+      if (e.aisles == null) e.aisles = 0;
+      if (e.aisleW == null) e.aisleW = 1200;
+      if (e.count == null) e.count = cols * rows;
+    }
+    if ((def.kind === '원형 테이블' || def.kind === '테이블') && e.chairs == null) {
+      e.chairs = parseInt((String(e.variant || '').match(/\d+/) || [0])[0], 10) || 0; // 예전에는 '의자 8개' 같은 선택 값
+      e.variant = null;
+    }
+    Object.entries(def.numbers || {}).forEach(([k, o]) => { if (e[k] == null) e[k] = o.default; });
+    Object.entries(def.options || {}).forEach(([k, o]) => { if (!o.values.includes(e[k])) e[k] = o.default; });
+    if (def.styles && !def.styles.includes(e.style)) e.style = def.styleDefault || def.styles[0];
+  }
+
   /** 저장된 데이터를 지금 구조로 맞춤. 모르는 요소 종류는 빼고 개수를 알려 줌 */
   function migrate(data) {
     if (!data || typeof data !== 'object' || !Array.isArray(data.elements)) throw new Error('도면 데이터가 아닙니다.');
@@ -77,6 +102,7 @@
     if (!elements.some((e) => e.type === 'wallType')) elements.push(...App.catalog.defaultElements());
     // 마감재(아트보드·데코타일 등)가 생기기 전에 만든 도면에는 기본 마감재를 넣음
     else if (!elements.some((e) => e.type === 'preset' && e.kind === 'finish')) elements.push(...App.catalog.defaultFinishes());
+    elements.forEach(migrateItem);
     // (dataVersion 1 이후 구조가 바뀌면 여기서 옛 데이터를 고침)
     return { ...data, elements, dropped, newer: version > App.model.DATA_VERSION };
   }
@@ -94,6 +120,8 @@
         id: current.id, name: current.name, createdAt: current.createdAt, updatedAt: data.savedAt,
         count: drawnCount(data.elements),
         underlays: [...new Set(data.elements.filter((e) => e.type === 'underlay').map((e) => e.dataId))],
+        images: [...App.images.used(data.elements)],
+        mode: data.current.mode,
       });
       S().write(KEY_INDEX, list);
       S().write(KEY_CURRENT, current.id);
@@ -134,6 +162,7 @@
       App.doc.reset(m.elements);
       quietVersion = App.doc.version;
       App.current = { ...(m.current || {}) };
+      App.current.mode = App.modes.infer(m.current, m.elements); // 예전 도면은 내용을 보고 모드를 정함
       App.catalog.ensureCurrent();
       current = { id: meta.id, name: meta.name, createdAt: meta.createdAt };
       const v = m.view;
@@ -152,6 +181,7 @@
     App.ui.updateHistory();
     App.ui.emit('project');
     setState('saved');
+    App.images.loadAll(m.elements); // 넣은 이미지(현수막·벽보 등)를 미리 읽어 둠
     const missing = await App.underlay.loadAll();
     if (missing) App.ui.toast(`가져온 도면 ${missing}개의 밑그림 데이터를 이 기기에서 찾지 못했습니다. 지우고 다시 불러오세요.`);
     if (m.dropped) App.ui.toast(`이 앱이 모르는 항목 ${m.dropped}개는 빼고 열었습니다.`);
@@ -174,19 +204,40 @@
 
   /* ── 템플릿 ── */
   const TEMPLATES = [
-    { id: 'blank', name: '빈 도면', desc: '벽 종류·문·창문 목록만 들어 있습니다.' },
-    { id: 'room', name: '방 1개', desc: '3 × 4 m 방 하나와 문이 그려져 있습니다.' },
-    { id: 'studio', name: '원룸 예시', desc: '방·욕실, 문·창문, 콘센트·스위치·조명, 전선관까지 들어 있어 집계를 바로 볼 수 있습니다.' },
+    { id: 'blank', mode: 'interior', name: '빈 도면', desc: '벽 종류·문·창문 목록만 들어 있습니다.' },
+    { id: 'room', mode: 'interior', name: '방 1개', desc: '3 × 4 m 방 하나와 문이 그려져 있습니다.' },
+    { id: 'studio', mode: 'interior', name: '원룸 예시', desc: '방·욕실, 문·창문, 콘센트·스위치·조명, 전선관까지 들어 있어 집계를 바로 볼 수 있습니다.' },
+    { id: 'furnished', mode: 'interior', name: '원룸 + 가구 예시', desc: '원룸 예시에 침대·소파·식탁·액자까지 놓았습니다. 3D로 걸어서 둘러보기 좋습니다.' },
+    { id: 'event-blank', mode: 'event', name: '빈 행사장', desc: '아무것도 없는 바닥에서 시작합니다. 물건·영역·동선을 놓아 보세요.' },
+    { id: 'ceremony', mode: 'event', name: '야외 기념식 예시', desc: '건물 앞마당에 무대·백월·의자 300석·텐트·스피커·주차장·동선까지 놓았습니다. 3D 조감도와 걸어서 둘러보기를 바로 볼 수 있습니다.' },
+    { id: 'seminar', mode: 'event', name: '실내 세미나 예시', desc: '강당에 무대·LED 화면·의자 배열·등록 데스크와 입장·대피 동선을 놓았습니다.' },
   ];
 
   /** 템플릿 요소 만들기: 빈 도면에서 시작해 도면 API로 그린 뒤 결과를 돌려줌 */
   function templateElements(id) {
     const doc = App.doc;
     doc.reset(App.catalog.defaultElements());
-    App.current = {};
+    const tpl = TEMPLATES.find((t) => t.id === id) || TEMPLATES[0];
+    App.current = { mode: tpl.mode, ground: tpl.mode === 'event' ? 'asphalt' : '' };
     App.catalog.ensureCurrent();
-    if (id === 'blank') return [...doc.all()];
+    if (id === 'blank' || id === 'event-blank') return [...doc.all()];
     const T = App.model.TYPES, C = App.catalog;
+    /** 조감도 물건 놓기: 가운데 (x, y), 회전(도), 고칠 값들 (크기·글자·색 등, 숫자 값을 바꾸면 자리 크기도 맞춤) */
+    const put = (kind, x, y, rotation = 0, patch = {}) => {
+      const def = C.itemDef(kind);
+      const it = T.item.create({ x, y }, def.category, def, rotation, null);
+      Object.assign(it, patch);
+      if (def.resize) Object.assign(it, def.resize(it));
+      if (it.kind === '의자 배열') it.count = patch.count || it.cols * it.rows;
+      doc.add(it);
+      return it;
+    };
+    const zone = (x0, y0, x1, y1, name, surface, color = '#2f9e44') =>
+      doc.add(T.zone.create([{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }], name, color, surface));
+    const route = (kind, name, pts) => {
+      const d = App.routes.def(kind);
+      return doc.add(T.route.create(pts.map(([x, y]) => ({ x, y })), name, d.kind, d.color, d.width));
+    };
     const wall = (a, b) => {
       const w = T.wall.create({ x: a[0], y: a[1] }, { x: b[0], y: b[1] });
       doc.add(w);
@@ -215,13 +266,106 @@
       return it;
     };
 
+    if (id === 'ceremony') {
+      // 건물 앞마당의 야외 기념식 (대지 60 × 44 m). 위쪽이 건물, 아래쪽이 입구
+      doc.transact('템플릿', () => {
+        zone(2000, 14000, 16000, 36000, '잔디 1', 'grass');
+        zone(44000, 14000, 58000, 36000, '잔디 2', 'grass');
+        zone(22000, 22300, 38000, 32700, '카펫 1', 'carpet', '#e03131');
+        put('건물', 30000, 6000, 0, { size: 30000, depth: 10000, floors: 2, text: '시민 문화센터', color: '#f5f0e1' });
+        put('주차 구획', 52500, 6500, 0, { count: 5 });
+        put('승용차', 48750, 6400, 90, { color: '#ffffff' });
+        put('승용차', 53750, 6400, 90, { color: '#1e3a8a' });
+        put('무대', 30000, 17500, 0, { size: 9000, depth: 5400 });
+        put('백월', 30000, 15100, 0, { size: 9000, depth: 400, h3: 3200, text: '2026 시민 문화센터\n개관 기념식', color: '#1e3a8a' });
+        put('계단', 26400, 20650, 0);
+        put('연단', 27600, 18700, 0);
+        put('사람', 27600, 18100, 0, { style: '정장' });
+        put('모니터 스피커', 29000, 19700, 180);
+        put('모니터 스피커', 31300, 19700, 180);
+        put('라인어레이', 24000, 19300, 0);
+        put('라인어레이', 36000, 19300, 0);
+        put('LED 스크린', 40500, 17000, 0, { text: '실시간 중계' });
+        put('발전기', 41500, 12800, 0);
+        put('의자 배열', 30000, 27500, 180, { cols: 20, rows: 8, seatW: 600, gap: 1000, aisles: 1, aisleW: 1500, style: '의자 커버' });
+        put('콘솔 데스크', 35500, 34300, 180);
+        put('사람', 30000, 12600, 0, { count: 10, perRow: 10, style: '정장' });
+        put('대형 텐트', 9000, 25000, 90, { size: 20000, depth: 10000 });
+        [[6500, 19000], [11500, 19000], [6500, 25000], [11500, 25000], [6500, 31000], [11500, 31000]].forEach(([x, y]) => put('원형 테이블', x, y, 0, { chairs: 8 }));
+        [18500, 24000, 29500].forEach((y) => put('몽골텐트', 51000, y, 90, { variant: '뒤·양옆' }));
+        put('푸드트럭', 51000, 33800, 90);
+        put('이동식 화장실', 56500, 39300, 0);
+        put('이동식 화장실', 55100, 39300, 0);
+        put('쓰레기통', 46500, 33500, 0);
+        put('소화기', 23300, 21000, 0);
+        put('데스크', 23500, 37600, 0, { text: '등록 · 안내' });
+        put('사람', 23500, 37000, 0, { style: '스태프' });
+        put('포토월', 37500, 37000, 0, { text: 'PHOTO ZONE', color: '#ec4899' });
+        put('X배너', 33300, 39600, 0, { text: '행사장\n안내' });
+        put('에어아치', 30000, 41000, 0, { text: '환영합니다', color: '#2563eb' });
+        put('담장', 9000, 42500, 0, { size: 14000 });
+        put('담장', 51000, 42500, 0, { size: 14000 });
+        [[4000, 16000], [4000, 34000], [14000, 16000], [56000, 16000], [56000, 34000], [46000, 16000]].forEach(([x, y], i) => put('나무', x, y, 0, { style: i % 3 === 2 ? '벚나무' : '활엽수' }));
+        put('가로등', 19500, 38500, 0);
+        put('가로등', 40500, 38500, 0);
+        put('화분', 25200, 22000, 0, { style: '축하 화환' });
+        put('화분', 34800, 22000, 0, { style: '축하 화환' });
+        route('관람객', '관람객 동선 1', [[30000, 44500], [30000, 35800], [30000, 23600]]);
+        route('비상 대피', '비상 대피 동선 1', [[38300, 27500], [42000, 27500], [42000, 44500]]);
+      });
+      return [...doc.all()];
+    }
+    if (id === 'seminar') {
+      // 강당 18 × 12 m. 위쪽이 무대, 아래쪽 벽에 문 두 개
+      const concrete = C.wallTypes().find((t) => t.name.includes('콘크리트'));
+      let bottom;
+      doc.transact('템플릿', () => {
+        const pts = [[0, 0], [18000, 0], [18000, 12000], [0, 12000]];
+        const ws = pts.map((p, i) => {
+          const q = pts[(i + 1) % pts.length];
+          const w = T.wall.create({ x: p[0], y: p[1] }, { x: q[0], y: q[1] }, { typeId: concrete ? concrete.id : undefined, height: 4000 });
+          w.height = 4000;
+          return doc.add(w);
+        });
+        bottom = ws[2];
+        const wide = { width: 1800, height: 2100, style: '자동문' };
+        doc.add(T.door.create(bottom.id, 0.75, wide, 1, 'start')); // x = 4500 (벽은 오른쪽에서 왼쪽으로 그려짐)
+        doc.add(T.door.create(bottom.id, 0.25, wide, 1, 'start')); // x = 13500
+      });
+      doc.transact('방', () => {
+        App.rooms.faces().forEach((f) => {
+          const r = T.room.create(f.points, f.wallIds, '강당');
+          r.ceilingHeight = 4000;
+          r.wallHeight = 4000;
+          doc.add(r);
+        });
+      });
+      doc.transact('물건', () => {
+        put('무대', 9000, 2000, 0, { size: 5400, depth: 3600, h3: 450 });
+        put('LED 스크린', 9000, 420, 0, { text: '2026 신제품 발표회' });
+        put('연단', 7200, 2900, 0);
+        put('사람', 7200, 2300, 0, { style: '정장' });
+        put('스피커', 5400, 3300, 0);
+        put('스피커', 12600, 3300, 0);
+        put('의자 배열', 9000, 7300, 180, { cols: 14, rows: 5, seatW: 550, gap: 950, aisles: 1, aisleW: 1500, style: '연회 의자' });
+        put('데스크', 1300, 8600, 270, { text: '등록' });
+        put('X배너', 6300, 13300, 0, { text: '세미나\n입장' });
+        put('포토월', 1750, 11450, 180, { size: 2400, text: 'PHOTO' });
+        put('화분', 600, 600, 0);
+        put('화분', 17400, 600, 0);
+        put('소화기', 17500, 11500, 0);
+        route('관람객', '관람객 동선 1', [[4500, 13800], [4500, 10800], [9000, 10800], [9000, 4600]]);
+        route('비상 대피', '비상 대피 동선 1', [[14300, 7300], [16300, 7300], [16300, 10600], [13500, 10600], [13500, 13800]]);
+      });
+      return [...doc.all()];
+    }
     if (id === 'room') {
       doc.transact('템플릿', () => {
         const [, , bottom] = ring([[0, 0], [3000, 0], [3000, 4000], [0, 4000]]);
         doc.add(T.door.create(bottom.id, 0.75, preset('door', '방문'), 1, 'start'));
       });
       doc.transact('방', () => addRooms([{ at: { x: 1500, y: 2000 }, name: '방 1' }]));
-    } else if (id === 'studio') {
+    } else if (id === 'studio' || id === 'furnished') {
       let top, right, bottom, left, part;
       doc.transact('템플릿', () => {
         [top, right, bottom, left] = ring([[0, 0], [6600, 0], [6600, 5400], [0, 5400]]);
@@ -247,6 +391,25 @@
         doc.add(T.line.create({ x: sw.x, y: sw.y }, { x: sw.x, y: light.y }, conduit));
         doc.add(T.line.create({ x: sw.x, y: light.y }, { x: light.x, y: light.y }, conduit));
       });
+      if (id === 'furnished') {
+        doc.transact('가구', () => {
+          // 등(기호 위쪽)을 벽에 대도록 돌려 놓음: 0 위쪽 벽, 90 오른쪽 벽, 180 아래쪽 벽, 270 왼쪽 벽
+          put('침대', 5560, 900, 90, { size: 1500, depth: 2000 });
+          put('옷장', 6270, 3400, 90, { size: 1800, depth: 600 });
+          put('소파', 1300, 480, 0, { size: 2000, depth: 850 });
+          put('TV장', 900, 3070, 180, { size: 1500, depth: 400 });
+          put('식탁', 3300, 1800, 0, { size: 1200, depth: 800 });
+          put('냉장고', 2650, 4990, 180, { size: 700, depth: 750 });
+          put('싱크대', 5300, 5070, 180, { size: 1800, depth: 600 });
+          put('변기', 380, 4700, 270);
+          put('세면대', 700, 3555, 0);
+          const def = C.itemDef('액자·벽보');
+          const m = App.model.mountPoint(left, 0.6, 1, def.depth);
+          const frame = T.item.create(m, def.category, def, m.rotation, { wallId: left.id, t: 0.6, side: 1 });
+          frame.text = '우리 집';
+          doc.add(frame);
+        });
+      }
     }
     return [...doc.all()];
   }
@@ -280,6 +443,11 @@
       if (u) underlays[e.dataId] = u;
     });
     data.underlays = underlays;
+    data.images = {};
+    for (const id of App.images.used(data.elements)) {
+      const rec = await App.images.exportData(id);
+      if (rec) data.images[id] = rec;
+    }
     const name = `${safeFile(current.name)}_${App.exporter.stamp()}.json`;
     App.exporter.download(name, JSON.stringify(data), 'application/json');
     App.ui.toast(`‘${name}’을 저장했습니다. 다른 기기에서는 ‘파일 → 백업 불러오기’로 열 수 있습니다.`);
@@ -300,6 +468,7 @@
     let lost = 0;
     try {
       for (const u of Object.values(data.underlays || {})) if (!(await App.underlay.importData(u))) lost++;
+      for (const rec of Object.values(data.images || {})) if (!(await App.images.importData(rec))) lost++;
     } finally {
       App.ui.busy(false);
     }
@@ -309,7 +478,7 @@
     const meta = { id: newId(), name, createdAt: data.createdAt || new Date().toISOString() };
     const m = await apply(data, meta);
     saveNow();
-    App.ui.toast(`‘${name}’ 도면을 열었습니다.${lost ? ' 밑그림 일부는 이 기기에 저장하지 못했습니다.' : ''}`);
+    App.ui.toast(`‘${name}’ 도면을 열었습니다.${lost ? ' 밑그림·이미지 일부는 이 기기에 저장하지 못했습니다.' : ''}`);
     if (m.newer) App.ui.toast('더 새 버전의 앱에서 만든 파일입니다. 일부 항목이 빠졌을 수 있습니다.');
     return meta.id;
   }
@@ -355,8 +524,17 @@
       if (list.length) await open(list[0].id);
       else await create('새 도면', 'blank');
     }
-    App.underlay.cleanup(usedUnderlays());
+    cleanupBlobs();
   }
+
+  /** 어느 도면에서도 쓰지 않는 밑그림·이미지 데이터를 지움 */
+  const cleanupBlobs = () => {
+    App.underlay.cleanup(usedUnderlays());
+    const used = new Set();
+    index().forEach((p) => (p.images || []).forEach((id) => used.add(id)));
+    App.images.used(App.doc.all()).forEach((id) => used.add(id));
+    App.images.cleanup(used);
+  };
 
   const usedUnderlays = () => {
     const used = new Set();
@@ -372,7 +550,11 @@
   }
 
   async function newDialog() {
-    let pick = 'blank';
+    // 지금 쓰는 모드의 템플릿부터 보여 줌. 위쪽에서 모드를 바꿀 수 있음
+    let mode = App.modes.get();
+    let pick = TEMPLATES.find((t) => t.mode === mode).id;
+    const tplHtml = () => TEMPLATES.filter((t) => t.mode === mode).map((t) => `<button type="button" class="tpl" role="radio" data-tpl="${t.id}" aria-checked="${t.id === pick}">
+      <b>${t.name}</b><small>${t.desc}</small></button>`).join('');
     const r = await App.ui.dialog({
       title: '새 도면',
       html: `
@@ -380,14 +562,22 @@
           <label class="field-label" for="d-pname">이름</label>
           <div class="field-box"><input id="d-pname" type="text" maxlength="${NAME_MAX}" autocomplete="off" value="${esc(defaultName())}"></div>
         </div>
-        <div class="tpl-list" role="radiogroup" aria-label="시작 모양">
-          ${TEMPLATES.map((t) => `<button type="button" class="tpl" role="radio" data-tpl="${t.id}" aria-checked="${t.id === pick}">
-            <b>${t.name}</b><small>${t.desc}</small></button>`).join('')}
+        <div class="seg seg-mode" role="tablist" aria-label="모드">
+          ${App.modes.LIST.map((m) => `<button type="button" class="seg-btn" role="tab" data-newmode="${m.id}" aria-selected="${m.id === mode}">${m.title}</button>`).join('')}
         </div>
-        <p class="props-meta">지금 도면은 자동 저장되어 ‘도면 목록’에 남습니다.</p>`,
+        <div class="tpl-list" role="radiogroup" aria-label="시작 모양">${tplHtml()}</div>
+        <p class="props-meta">지금 도면은 자동 저장되어 ‘도면 목록’에 남습니다. 모드는 나중에 화면 왼쪽 위에서 바꿀 수 있습니다.</p>`,
       actions: [{ id: 'cancel', label: '취소' }, { id: 'ok', label: '만들기', primary: true }],
       onOpen(body) {
-        body.querySelector('.tpl-list').addEventListener('click', (e) => {
+        body.addEventListener('click', (e) => {
+          const m = e.target.closest('[data-newmode]');
+          if (m) {
+            mode = m.dataset.newmode;
+            pick = TEMPLATES.find((t) => t.mode === mode).id;
+            body.querySelectorAll('[data-newmode]').forEach((x) => x.setAttribute('aria-selected', String(x === m)));
+            body.querySelector('.tpl-list').innerHTML = tplHtml();
+            return;
+          }
           const b = e.target.closest('[data-tpl]');
           if (!b) return;
           pick = b.dataset.tpl;
@@ -398,7 +588,7 @@
     if (r.id !== 'ok') return;
     const name = r.body.querySelector('#d-pname').value.trim() || defaultName();
     await create(name, pick);
-    App.ui.toast(`‘${name}’ 도면을 만들었습니다.`);
+    App.ui.toast(`‘${name}’ 도면을 만들었습니다.${TEMPLATES.find((t) => t.id === pick).mode === 'event' ? ' 오른쪽 아래 3D 버튼으로 조감도를 볼 수 있습니다.' : ''}`);
   }
 
   function listHtml() {
@@ -525,7 +715,7 @@
       }
     }
     if (!opened) await create('새 도면', 'blank');
-    App.underlay.cleanup(usedUnderlays());
+    cleanupBlobs();
   }
 
   App.projects = {

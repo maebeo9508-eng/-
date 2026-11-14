@@ -138,38 +138,129 @@
       { kind: '신발장', size: 1000, depth: 380, h3: 1200, back: true },
     ],
   };
-  /* 행사: 행사장 배치와 조감도용. 실제 크기(폭 size × 깊이 depth)로 그리고, h3은 3D 높이(물건마다 고칠 수 있음).
-     기호의 위쪽(-y)이 등, 아래쪽(+y)이 앞 (의자는 앞을 보고 앉음). grid: 의자 배열의 의자 한 칸 크기 */
+  /* 조감도(행사) 물건: 실제 크기(폭 size × 깊이 depth)로 그리고, h3은 3D 높이(물건마다 고칠 수 있음).
+     기호의 위쪽(-y)이 등, 아래쪽(+y)이 앞 (의자는 앞을 보고 앉음, 스피커·화면은 앞을 향함).
+     cat: 팔레트 분류, sizes: 규격 [이름, 폭, 깊이], numbers: 정수 값, styles: 모양, colors: 색을 고를 수 있음(값은 색 이름표),
+     face: 앞면에 글자나 이미지를 넣을 수 있음, pass: 동선이 지나갈 수 있음(동선 체크에서 장애물로 안 봄),
+     resize(it): 숫자 값이 바뀌면 자리 크기를 다시 계산 */
+  const CHAIR_STYLES = ['접이식', '연회 의자', '플라스틱', '의자 커버', '스툴'];
+  const N = (label, unit, def, min, max) => ({ label, unit, default: def, min, max });
   ITEM_KINDS.event = [
-    { kind: '몽골텐트', size: 5000, depth: 5000, h3: 2500, sizes: [['3×3', 3000, 3000], ['4×4', 4000, 4000], ['5×5', 5000, 5000], ['6×3', 6000, 3000], ['10×10', 10000, 10000]] },
-    { kind: '무대', size: 7200, depth: 4800, h3: 900, back: true, sizes: [['3.6×2.4', 3600, 2400], ['5.4×3.6', 5400, 3600], ['7.2×4.8', 7200, 4800], ['9×5.4', 9000, 5400], ['12×7.2', 12000, 7200]] },
-    { kind: '트러스', size: 8000, depth: 400, h3: 4000, sizes: [['4m', 4000, 400], ['6m', 6000, 400], ['8m', 8000, 400], ['10m', 10000, 400], ['12m', 12000, 400]] },
-    { kind: '부스', size: 3000, depth: 3000, h3: 2500, back: true, sizes: [['2×2', 2000, 2000], ['3×3', 3000, 3000], ['6×3', 6000, 3000], ['9×3', 9000, 3000]] },
+    // ── 구조물
     {
-      kind: '원형 테이블', size: 1500, depth: 1500, h3: 750, sizes: [['Ø1200', 1200, 1200], ['Ø1500', 1500, 1500], ['Ø1800', 1800, 1800]],
-      options: { variant: { label: '의자', values: ['의자 없음', '의자 6개', '의자 8개', '의자 10개'], default: '의자 8개' } },
+      kind: '몽골텐트', cat: '구조물', size: 5000, depth: 5000, h3: 2500, pass: true, colors: '천막 색',
+      sizes: [['3×3', 3000, 3000], ['4×4', 4000, 4000], ['5×5', 5000, 5000], ['6×3', 6000, 3000], ['10×10', 10000, 10000]],
+      options: { variant: { label: '옆 천막', values: ['없음', '뒤', '뒤·양옆'], default: '없음' } },
     },
-    { kind: '테이블', size: 1800, depth: 600, h3: 750, sizes: [['1200×600', 1200, 600], ['1500×600', 1500, 600], ['1800×600', 1800, 600], ['1800×750', 1800, 750]] },
     {
-      kind: '의자 배열', size: 5000, depth: 4500, h3: 850, grid: { w: 500, d: 900 },
+      kind: '대형 텐트', cat: '구조물', size: 10000, depth: 5000, h3: 3000, pass: true, colors: '천막 색',
+      sizes: [['5×10', 10000, 5000], ['10×10', 10000, 10000], ['10×15', 15000, 10000], ['10×20', 20000, 10000], ['15×30', 30000, 15000]],
+      options: { variant: { label: '지붕', values: ['뾰족 지붕', '박공 지붕'], default: '뾰족 지붕' } },
+    },
+    { kind: '파라솔', cat: '구조물', size: 2500, depth: 2500, h3: 2300, pass: true, colors: '천 색', sizes: [['Ø2000', 2000, 2000], ['Ø2500', 2500, 2500], ['Ø3000', 3000, 3000]] },
+    {
+      kind: '무대', cat: '구조물', size: 7200, depth: 4800, h3: 900, back: true, colors: '바닥 색',
+      sizes: [['3.6×2.4', 3600, 2400], ['5.4×3.6', 5400, 3600], ['7.2×4.8', 7200, 4800], ['9×5.4', 9000, 5400], ['12×7.2', 12000, 7200]],
+      options: { variant: { label: '지붕', values: ['없음', '트러스 지붕'], default: '없음' } },
+    },
+    { kind: '계단', cat: '구조물', size: 1200, depth: 900, h3: 900, sizes: [['폭 900', 900, 900], ['폭 1200', 1200, 900], ['폭 1800', 1800, 900]] },
+    { kind: '트러스', cat: '구조물', size: 8000, depth: 400, h3: 4000, pass: true, sizes: [['4m', 4000, 400], ['6m', 6000, 400], ['8m', 8000, 400], ['10m', 10000, 400], ['12m', 12000, 400]] },
+    { kind: '부스', cat: '구조물', size: 3000, depth: 3000, h3: 2500, back: true, colors: '간판 색', face: '간판 글자', sizes: [['2×2', 2000, 2000], ['3×3', 3000, 3000], ['6×3', 6000, 3000], ['9×3', 9000, 3000]] },
+    { kind: '에어아치', cat: '구조물', size: 6000, depth: 1000, h3: 4000, pass: true, colors: '색', face: '글자', sizes: [['4m', 4000, 1000], ['6m', 6000, 1000], ['8m', 8000, 1000]] },
+    // ── 좌석
+    {
+      kind: '의자 배열', cat: '좌석', size: 5000, depth: 4500, h3: 850, styles: CHAIR_STYLES, colors: '의자 색',
       numbers: {
-        cols: { label: '한 줄 의자 수', unit: '개', default: 10, min: 1, max: 200 },
-        rows: { label: '줄 수', unit: '줄', default: 5, min: 1, max: 200 },
-        gap: { label: '줄 간격', unit: 'mm', default: 900, min: 450, max: 5000 },
+        cols: N('한 줄 의자 수', '개', 10, 1, 200), rows: N('줄 수', '줄', 5, 1, 200), gap: N('줄 간격', 'mm', 900, 450, 5000),
+        seatW: N('의자 간격', 'mm', 500, 400, 2000), aisles: N('세로 통로 수', '개', 0, 0, 8), aisleW: N('통로 폭', 'mm', 1200, 600, 5000),
       },
+      resize: (it) => ({ size: it.cols * it.seatW + it.aisles * it.aisleW, depth: it.rows * it.gap }),
     },
-    { kind: '펜스', size: 2000, depth: 100, h3: 1100, sizes: [['1.5m', 1500, 100], ['2m', 2000, 100], ['2.5m', 2500, 100]] },
-    { kind: 'LED 스크린', size: 4000, depth: 300, h3: 3000, back: true, sizes: [['3m', 3000, 300], ['4m', 4000, 300], ['6m', 6000, 300], ['8m', 8000, 300]] },
-    { kind: '배너·포토월', size: 3000, depth: 300, h3: 2400, back: true, sizes: [['X배너', 600, 300], ['포토월 3m', 3000, 300], ['포토월 5m', 5000, 300]] },
-    { kind: '스피커', size: 600, depth: 500, h3: 1800 },
-    { kind: '데스크', size: 1800, depth: 600, h3: 1000, back: true },
-    { kind: '이동식 화장실', size: 1200, depth: 1200, h3: 2300, back: true },
-    { kind: '푸드트럭', size: 6000, depth: 2200, h3: 2800 },
-    { kind: '레드카펫', size: 1200, depth: 6000, h3: 10 },
+    { kind: '의자', cat: '좌석', size: 450, depth: 450, h3: 850, styles: CHAIR_STYLES, colors: '의자 색' },
+    {
+      kind: '원형 테이블', cat: '좌석', size: 1500, depth: 1500, h3: 750, styles: CHAIR_STYLES, styleDefault: '연회 의자', colors: '테이블보 색',
+      sizes: [['Ø1200', 1200, 1200], ['Ø1500', 1500, 1500], ['Ø1800', 1800, 1800]],
+      numbers: { chairs: N('의자 수', '개', 8, 0, 14) },
+    },
+    {
+      kind: '테이블', cat: '좌석', size: 1800, depth: 600, h3: 750, styles: CHAIR_STYLES, colors: '테이블보 색',
+      sizes: [['1200×600', 1200, 600], ['1500×600', 1500, 600], ['1800×600', 1800, 600], ['1800×750', 1800, 750]],
+      numbers: { chairs: N('의자 수', '개', 0, 0, 20) },
+    },
+    { kind: '스탠딩 테이블', cat: '좌석', size: 700, depth: 700, h3: 1100, colors: '테이블보 색' },
+    // ── 장비
+    { kind: '스피커', cat: '장비', size: 500, depth: 450, h3: 1900 },
+    { kind: '라인어레이', cat: '장비', size: 1100, depth: 800, h3: 3200, numbers: { units: N('스피커 단 수', '단', 5, 2, 12) } },
+    { kind: '모니터 스피커', cat: '장비', size: 600, depth: 450, h3: 350 },
+    { kind: '콘솔 데스크', cat: '장비', size: 2000, depth: 1000, h3: 1100, back: true },
+    { kind: 'LED 스크린', cat: '장비', size: 4000, depth: 300, h3: 3000, back: true, face: '화면 글자', sizes: [['3m', 3000, 300], ['4m', 4000, 300], ['6m', 6000, 300], ['8m', 8000, 300]] },
+    { kind: '조명 타워', cat: '장비', size: 600, depth: 600, h3: 5000 },
+    { kind: '발전기', cat: '장비', size: 2000, depth: 1000, h3: 1200 },
+    // ── 안내·장식
+    { kind: '백월', cat: '안내·장식', size: 6000, depth: 400, h3: 3000, back: true, colors: '띠 색', face: '행사 제목', sizes: [['3m', 3000, 400], ['4.8m', 4800, 400], ['6m', 6000, 400], ['9m', 9000, 400]] },
+    { kind: '현수막', cat: '안내·장식', size: 5000, depth: 100, h3: 3000, pass: true, colors: '띠 색', face: '현수막 글자', sizes: [['3m', 3000, 100], ['5m', 5000, 100], ['7m', 7000, 100], ['10m', 10000, 100]] },
+    { kind: '포토월', cat: '안내·장식', size: 3000, depth: 300, h3: 2400, back: true, colors: '띠 색', face: '포토월 글자', sizes: [['2.4m', 2400, 300], ['3m', 3000, 300], ['5m', 5000, 300]] },
+    { kind: 'X배너', cat: '안내·장식', size: 600, depth: 500, h3: 1800, back: true, colors: '띠 색', face: '배너 글자' },
+    { kind: '안내판', cat: '안내·장식', size: 600, depth: 450, h3: 1500, back: true, colors: '띠 색', face: '안내 글자' },
+    { kind: '깃발', cat: '안내·장식', size: 600, depth: 600, h3: 5000, colors: '깃발 색' },
+    { kind: '연단', cat: '안내·장식', size: 700, depth: 500, h3: 1150, colors: '색' },
+    { kind: '레드카펫', cat: '안내·장식', size: 1200, depth: 6000, h3: 10, pass: true, flat: true, colors: '카펫 색' },
+    // 바닥에 까는 그림: 배치도·위성 사진·로고·바닥 래핑 (이미지를 넣어 씀)
+    { kind: '바닥 이미지', cat: '안내·장식', size: 4000, depth: 3000, h3: 10, pass: true, flat: true, face: '글자', sizes: [['2×2', 2000, 2000], ['4×3', 4000, 3000], ['10×10', 10000, 10000], ['30×20', 30000, 20000]] },
+    { kind: '테이프 커팅', cat: '안내·장식', size: 6000, depth: 300, h3: 1000, colors: '리본 색', sizes: [['4m', 4000, 300], ['6m', 6000, 300], ['8m', 8000, 300]] },
+    { kind: '화분', cat: '안내·장식', size: 600, depth: 600, h3: 1200, styles: ['화분', '축하 화환', '꽃 화단'], colors: '꽃 색' },
+    // ── 편의·안전
+    { kind: '데스크', cat: '편의·안전', size: 1800, depth: 600, h3: 1000, back: true, colors: '색', face: '앞면 글자' },
+    { kind: '이동식 화장실', cat: '편의·안전', size: 1200, depth: 1200, h3: 2300, back: true, colors: '색' },
+    { kind: '푸드트럭', cat: '편의·안전', size: 6000, depth: 2200, h3: 2800, colors: '차 색' },
+    { kind: '쓰레기통', cat: '편의·안전', size: 600, depth: 600, h3: 900, colors: '색' },
+    { kind: '펜스', cat: '편의·안전', size: 2000, depth: 100, h3: 1100, sizes: [['2m', 2000, 100], ['4m', 4000, 100], ['6m', 6000, 100], ['10m', 10000, 100], ['20m', 20000, 100]] },
+    { kind: '차단봉', cat: '편의·안전', size: 4000, depth: 350, h3: 950, colors: '벨트 색', sizes: [['2m', 2000, 350], ['4m', 4000, 350], ['6m', 6000, 350], ['10m', 10000, 350]] },
+    { kind: '러버콘', cat: '편의·안전', size: 400, depth: 400, h3: 700 },
+    { kind: '소화기', cat: '편의·안전', size: 250, depth: 250, h3: 600 },
+    // ── 사람·차량
+    {
+      kind: '사람', cat: '사람·차량', size: 600, depth: 400, h3: 1720, pass: true, styles: ['정장', '일반', '스태프'],
+      numbers: { count: N('인원', '명', 1, 1, 200), perRow: N('한 줄 인원', '명', 10, 1, 100) },
+      resize: (it) => ({ size: Math.min(it.count, it.perRow) * 600, depth: Math.ceil(it.count / it.perRow) * 600 - 200 }),
+    },
+    { kind: '승용차', cat: '사람·차량', size: 4600, depth: 1850, h3: 1450, colors: '차 색' },
+    { kind: '버스', cat: '사람·차량', size: 11000, depth: 2500, h3: 3200, colors: '차 색' },
+    // ── 건물·조경
+    {
+      kind: '건물', cat: '건물·조경', size: 20000, depth: 10000, h3: 7000, back: true, colors: '벽 색', face: '간판 글자',
+      numbers: { floors: N('층수', '층', 2, 1, 30) },
+      resize: (it) => ({ h3: it.floors * 3500 }),
+    },
+    { kind: '나무', cat: '건물·조경', size: 3000, depth: 3000, h3: 5000, styles: ['활엽수', '침엽수', '벚나무'], sizes: [['작게', 2000, 2000], ['보통', 3000, 3000], ['크게', 4500, 4500]] },
+    { kind: '담장', cat: '건물·조경', size: 10000, depth: 300, h3: 1500, styles: ['돌담', '벽돌', '판넬'], sizes: [['5m', 5000, 300], ['10m', 10000, 300], ['20m', 20000, 300], ['30m', 30000, 300]] },
+    {
+      kind: '주차 구획', cat: '건물·조경', size: 12500, depth: 5000, h3: 10, pass: true, flat: true,
+      numbers: { count: N('칸 수', '칸', 5, 1, 100) },
+      resize: (it) => ({ size: it.count * 2500 }),
+    },
+    { kind: '가로등', cat: '건물·조경', size: 300, depth: 300, h3: 5000 },
   ];
-  // 가구·행사 물건은 높이 0(바닥)에 놓이고, 실제 크기로 그리는 것(깊이가 있는 것)의 기호 비율은 깊이 ÷ 폭
-  [...ITEM_KINDS.furn, ...ITEM_KINDS.event].forEach((d) => { d.height = 0; });
-  Object.values(ITEM_KINDS).flat().forEach((d) => { if (d.depth) d.aspect = d.depth / d.size; });
+  // 벽에 붙이는 액자·벽보: 인테리어(가구)와 조감도 팔레트 양쪽에서 씀. 폭 size, 그림 높이 h3, 걸리는 높이 height(가운데)
+  ITEM_KINDS.furn.push({ kind: '액자·벽보', size: 900, depth: 40, h3: 600, wall: true, height: 1500, face: '글자', sizes: [['A2 가로', 594, 40], ['900', 900, 40], ['1200', 1200, 40], ['1800', 1800, 40]] });
+  const EVENT_CATS = ['구조물', '좌석', '장비', '안내·장식', '편의·안전', '사람·차량', '건물·조경'];
+  // 조감도 물건 색 (첫 칸은 종류의 기본 색)
+  const ITEM_COLORS = [
+    ['#ffffff', '흰색'], ['#d92d20', '빨강'], ['#f97316', '주황'], ['#facc15', '노랑'], ['#16a34a', '초록'], ['#0ea5e9', '하늘'],
+    ['#2563eb', '파랑'], ['#1e3a8a', '남색'], ['#7c3aed', '보라'], ['#ec4899', '분홍'], ['#111827', '검정'], ['#9ca3af', '회색'],
+    ['#92400e', '갈색'], ['#d4af37', '금색'], ['#f5f0e1', '아이보리'],
+  ];
+  // 영역의 바닥 종류 (조감도 3D에서 그 재질로, 평면에서는 그 색으로)
+  const SURFACES = [
+    ['', '색만', null], ['grass', '잔디', '#3f9b4b'], ['asphalt', '아스팔트', '#5b5f66'], ['paver', '보도블록', '#b98f73'],
+    ['soil', '흙·모래', '#c9a877'], ['deck', '나무 데크', '#a9744b'], ['concrete', '콘크리트', '#b9bcc0'], ['water', '물', '#3b8fd9'], ['carpet', '카펫', null],
+  ];
+  // 가구·조감도 물건은 높이 0(바닥)에 놓이고, 실제 크기로 그리는 것(깊이가 있는 것)의 기호 비율은 깊이 ÷ 폭
+  [...ITEM_KINDS.furn, ...ITEM_KINDS.event].forEach((d) => { if (d.height === undefined) d.height = 0; });
+  Object.entries(ITEM_KINDS).forEach(([category, list]) => list.forEach((d) => {
+    d.category = category;
+    if (d.depth) d.aspect = d.depth / d.size;
+  }));
   const LINE_CATEGORIES = ['전선관', '배관', '덕트', '기타'];
   const COLORS = [
     ['#e03131', '빨강'], ['#c2255c', '자홍'], ['#e8590c', '주황'], ['#f08c00', '노랑'], ['#2f9e44', '초록'],
@@ -185,6 +276,10 @@
     FRAME_NAMES,
     SHAPE_NAMES,
     ITEM_KINDS,
+    EVENT_CATS,
+    ITEM_COLORS,
+    SURFACES,
+    CHAIR_STYLES,
     LINE_CATEGORIES,
     COLORS,
 
@@ -196,16 +291,37 @@
       const v = { height: def.height ?? null };
       Object.entries(def.options || {}).forEach(([k, o]) => { v[k] = o.default; });
       Object.entries(def.numbers || {}).forEach(([k, o]) => { v[k] = o.default; });
+      if (def.styles) v.style = def.styleDefault || def.styles[0];
+      if (def.kind === '의자 배열') v.count = v.cols * v.rows; // 총 의자 수 (마지막 줄을 덜 채울 때만 줄어듦)
       return v;
+    },
+    /** 숫자 값(의자 수·인원·층수 등)을 바꿀 때: 그 값에 맞춰 자리 크기도 같이 바뀌는 종류면 함께 */
+    resized(it, patch) {
+      const def = catalog.itemDef(it.kind);
+      return def && def.resize ? { ...patch, ...def.resize({ ...it, ...patch }) } : patch;
+    },
+    /** 조감도 팔레트: 분류마다 놓을 수 있는 종류들 */
+    eventPalette() {
+      return EVENT_CATS.map((cat) => ({
+        cat,
+        kinds: [...ITEM_KINDS.event.filter((d) => d.cat === cat), ...(cat === '안내·장식' ? ITEM_KINDS.furn.filter((d) => d.kind === '액자·벽보') : [])],
+      }));
     },
     /** 집계용 이름: '콘센트 2구 · 일반(접지)', '분전반 12회로' */
     itemLabel(it) {
       if (it.category === 'event') {
-        // 행사 물건: 규격 이름이 있으면 그것만 (예: 몽골텐트 5×5), 없으면 폭×깊이. 의자는 좌석 수
+        // 조감도 물건: 규격 이름이 있으면 그것만 (예: 몽골텐트 5×5), 없으면 폭×깊이. 기본값이 아닌 모양·선택만 덧붙임
+        const def = catalog.itemDef(it.kind) || {};
         const seats = catalog.seats(it);
         if (it.kind === '의자 배열') return `의자 배열 ${seats.cols}개×${seats.rows}줄 (${seats.count}석)`;
-        const base = `${it.kind} ${catalog.sizeName(it) || `${num(it.size)}×${num(it.depth)}`}`;
-        return it.variant ? `${base} · ${it.variant}` : base;
+        if (it.kind === '사람') return `사람 ${it.count || 1}명 · ${it.style || '정장'}`;
+        if (it.kind === '주차 구획') return `주차 구획 ${it.count || 1}칸`;
+        const parts = [`${it.kind} ${it.kind === '건물' ? `${it.floors || 1}층 ` : ''}${catalog.sizeName(it) || `${num(it.size)}×${num(it.depth)}`}`];
+        if (seats && it.kind !== '의자') parts.push(`의자 ${seats.count}개`);
+        if (it.style && def.styles && it.style !== (def.styleDefault || def.styles[0])) parts.push(it.style);
+        const vo = def.options && def.options.variant;
+        if (it.variant && (!vo || it.variant !== vo.default) && !/^의자 \d+개$/.test(it.variant)) parts.push(it.variant);
+        return parts.join(' · ');
       }
       if (it.depth != null) {
         // 실제 크기로 그리는 것: 규격 이름(크기가 맞으면)과 폭×깊이
@@ -221,13 +337,43 @@
     seats(it) {
       if (it.kind === '의자 배열') {
         const cols = Math.max(1, it.cols || 1), rows = Math.max(1, it.rows || 1);
-        return { cols, rows, count: cols * rows };
+        // 총 의자 수를 따로 정했으면(마지막 줄이 덜 참) 그 수
+        return { cols, rows, count: it.count != null ? Math.max(1, Math.min(it.count, cols * rows)) : cols * rows };
       }
-      if (it.kind === '원형 테이블') {
-        const n = parseInt((String(it.variant || '').match(/\d+/) || [0])[0], 10) || 0;
+      if (it.kind === '의자') return it.category === 'event' ? { count: 1 } : null; // 가구의 의자는 좌석으로 세지 않음
+      if (it.kind === '원형 테이블' || it.kind === '테이블') {
+        // 예전 도면은 '의자 8개' 같은 선택 값으로 저장되어 있음
+        const n = it.chairs != null ? it.chairs : parseInt((String(it.variant || '').match(/\d+/) || [0])[0], 10) || 0;
         return n ? { count: n } : null;
       }
       return null;
+    },
+    /** 의자 배열에서 세로 통로로 나뉜 묶음들: [왼쪽 끝에서 시작, 끝](mm). 묶음마다 열 수는 고르게 */
+    seatBlocks(it) {
+      const { cols } = catalog.seats(it);
+      const aisles = Math.max(0, Math.min(it.aisles || 0, cols - 1));
+      const aisleW = aisles ? it.aisleW || 1200 : 0;
+      const pw = (it.size - aisles * aisleW) / cols;
+      const out = [];
+      let x = 0;
+      for (let b = 0; b <= aisles; b++) {
+        const n = Math.floor(cols / (aisles + 1)) + (b < cols % (aisles + 1) ? 1 : 0);
+        out.push([x, x + n * pw, n]);
+        x += n * pw + aisleW;
+      }
+      return out;
+    },
+    /** 의자 배열의 자리: 열마다 가운데 위치 xs(왼쪽 끝에서, mm), 줄 간격 ph, 줄마다 채울 열 [from, to) */
+    seatLayout(it) {
+      const { cols, rows, count } = catalog.seats(it);
+      const blocks = catalog.seatBlocks(it);
+      const pw = (blocks[0][1] - blocks[0][0]) / blocks[0][2];
+      const xs = [];
+      blocks.forEach(([x0, , n]) => { for (let i = 0; i < n; i++) xs.push(x0 + (i + 0.5) * pw); });
+      // 덜 찬 줄은 맨 뒷줄(등 쪽, 0번 줄)에 가운데로
+      const last = count - cols * (rows - 1);
+      const from = Math.floor((cols - last) / 2);
+      return { cols, rows, count, xs, pw, ph: it.depth / rows, rowRange: (r) => (r === 0 && last < cols ? [from, from + last] : [0, cols]) };
     },
     /** 3D 높이(mm): 물건마다 고친 값, 없으면 종류의 기본값 */
     itemHeight3(it) {
@@ -239,6 +385,15 @@
       const def = catalog.itemDef(it.kind);
       const hit = def && def.sizes && def.sizes.find(([, w, d]) => w === it.size && d === it.depth);
       return hit ? hit[0] : '';
+    },
+    /** 영역을 칠할 색: 바닥 종류(잔디·아스팔트 등)가 있으면 그 색, 없으면(색만·카펫) 영역 색 */
+    surfaceColor(z) {
+      const s = z.surface && SURFACES.find((x) => x[0] === z.surface);
+      return (s && s[2]) || z.color;
+    },
+    surfaceName(z) {
+      const s = z.surface && SURFACES.find((x) => x[0] === z.surface);
+      return s ? s[1] : '';
     },
     /** 선 분류에 맞는 레이어: 전선관은 전기, 나머지는 설비 */
     lineLayer(category) {
@@ -333,7 +488,10 @@
       if (!cur.elecKind) cur.elecKind = '콘센트';
       if (!cur.mechKind) cur.mechKind = '에어컨 실내기';
       if (!cur.furnKind) cur.furnKind = '침대';
-      if (!cur.eventKind) cur.eventKind = '몽골텐트';
+      if (!cur.eventKind || !catalog.itemDef(cur.eventKind)) cur.eventKind = '몽골텐트';
+      if (!EVENT_CATS.includes(cur.eventCat)) cur.eventCat = (catalog.itemDef(cur.eventKind) || {}).cat || EVENT_CATS[0];
+      if (!App.routes.KINDS.some((k) => k.kind === cur.routeKind)) cur.routeKind = App.routes.KINDS[0].kind;
+      if (cur.zoneSurface == null) cur.zoneSurface = '';
       if (!cur.zoneColor) cur.zoneColor = '#7048e8'; // 선택 표시(주황)·방 바닥(파랑)과 헷갈리지 않는 보라
       if (!cur.textSize) cur.textSize = '200';
       if (!['clear', 'center', 'free'].includes(cur.dimMode)) cur.dimMode = 'clear';
@@ -371,7 +529,7 @@
             App.doc.update(el.id, { wallId: null, t: null, side: null }); // 벽이 없어지면 그 자리에 남김
           } else {
             const def = catalog.itemDef(el.kind) || { aspect: 1 };
-            const m = App.model.mountPoint(w, el.t, el.side, el.size * def.aspect);
+            const m = App.model.mountPoint(w, el.t, el.side, el.depth != null ? el.depth : el.size * def.aspect);
             if (Math.abs(m.x - el.x) > 0.01 || Math.abs(m.y - el.y) > 0.01 || m.rotation !== el.rotation) App.doc.update(el.id, m);
           }
         }

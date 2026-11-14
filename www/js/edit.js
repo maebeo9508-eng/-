@@ -193,6 +193,7 @@
         return { x: p.x, y: p.y };
       }
       case 'zone':
+      case 'route':
         return { points: el.points.map(f) };
       case 'room':
         return { points: el.points.map(f), seed: f(el.seed) };
@@ -314,7 +315,7 @@
       const t = T[el.type];
       if (!t || t.catalog) continue;
       const fields = [];
-      if (el.type === 'room' || el.type === 'zone') fields.push(['이름', el.name]);
+      if (el.type === 'room' || el.type === 'zone' || el.type === 'route') fields.push(['이름', el.name]);
       if (el.type === 'text') fields.push(['글자', el.content]);
       if (el.type === 'item') fields.push(['종류', App.catalog.itemLabel(el)]);
       if (el.type === 'underlay') fields.push(['파일', el.name]);

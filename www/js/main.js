@@ -109,6 +109,7 @@
   });
 
   App.ui.init();
+  App.modes.init();
   App.props.init();
   App.catalogUI.init();
   App.summary.init();

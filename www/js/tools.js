@@ -12,6 +12,7 @@
   const HANDLE_PX = { mouse: 10, touch: 22 }; // 벽 끝 손잡이를 잡는 범위
   const HANDLED = new Set(['wall', 'line', 'dim']); // 양 끝 손잡이로 늘이는 요소
   const STRETCHY = new Set(['wall', 'line']);      // '늘리기'로 이어진 끝이 따라오는 요소
+  const VERTEXED = new Set(['route', 'zone']);     // 꼭짓점마다 손잡이로 모양을 고치는 요소
   const LIVE_ROOM_SYNC_MAX_WALLS = 400;       // 이보다 벽이 많으면 끄는 동안 방 경계를 다시 계산하지 않음
 
   const render = () => App.plan.requestRender();
@@ -102,8 +103,15 @@
     handleAt(ev) {
       if (App.selection.size !== 1) return null;
       const w = App.doc.get(App.selection.list()[0]);
-      if (!w || !HANDLED.has(w.type) || w.locked) return null;
+      if (!w || w.locked) return null;
       const r = (ev.touch ? HANDLE_PX.touch : HANDLE_PX.mouse) / App.plan.view.scale;
+      if (VERTEXED.has(w.type)) {
+        // 동선·영역: 꼭짓점마다 손잡이 (가장 가까운 것)
+        let best = -1, bestD = r;
+        w.points.forEach((q, i) => { const d = G.dist(ev.world, q); if (d <= bestD) { bestD = d; best = i; } });
+        return best >= 0 ? { id: w.id, index: best } : null;
+      }
+      if (!HANDLED.has(w.type)) return null;
       for (const end of ['start', 'end']) if (G.dist(ev.world, w[end]) <= r) return { id: w.id, end };
       return null;
     }
@@ -119,7 +127,8 @@
         if (!dragged(ev, p.ev)) return;
         const hitEl = p.hit && App.doc.get(p.hit);
         const wallItem = hitEl && hitEl.type === 'item' && (App.catalog.itemDef(hitEl.kind) || {}).wall && !hitEl.group;
-        if (p.handle) this.startStretch(p);
+        if (p.handle && p.handle.index != null) this.startVertex(p);
+        else if (p.handle) this.startStretch(p);
         else if (hitEl && isLocked(hitEl.id) && !ev.alt && (!App.selection.has(hitEl.id) || App.selection.size === 1)) {
           p.mode = 'locked'; // 잠긴 것을 끌면 움직이지 않고 알려 줌
           App.selection.set(withGroups([hitEl.id]));
@@ -132,6 +141,7 @@
       }
       if (p.mode === 'move') this.updateMove(p, ev);
       else if (p.mode === 'stretch') this.updateStretch(p, ev);
+      else if (p.mode === 'vertex') this.updateVertex(p, ev);
       else if (p.mode === 'slide') this.updateSlide(p, ev);
       else if (p.mode === 'remount') this.updateRemount(p, ev);
       else p.cur = ev;
@@ -151,7 +161,7 @@
         else if (p.hit) ev.shift ? sel.toggleAll(withGroups([p.hit])) : sel.set(withGroups([p.hit]));
         else if (!ev.shift) sel.clear();
         if (ev.touch) App.ui.emit('picked', !!p.hit); // 휴대폰: 누른 것의 속성이 보이게 서랍을 올림
-      } else if (['move', 'stretch', 'slide', 'remount'].includes(p.mode)) {
+      } else if (['move', 'stretch', 'vertex', 'slide', 'remount'].includes(p.mode)) {
         App.doc.commit();
       } else if (p.mode === 'box') {
         const crossing = ev.x < p.ev.x; // 오른쪽에서 왼쪽으로 끌면 걸친 것도 선택
@@ -256,6 +266,21 @@
       syncRoomsLive();
     }
 
+    /** 동선·영역의 꼭짓점 끌기: 그 점만 옮겨 모양을 고침 */
+    startVertex(p) {
+      p.mode = 'vertex';
+      const el = App.doc.get(p.handle.id);
+      p.exclude = new Set([el.id]);
+      App.doc.begin(`${App.model.TYPES[el.type].label} 모양 고치기`);
+    }
+    updateVertex(p, ev) {
+      const el = App.doc.get(p.handle.id);
+      if (!el) return;
+      const target = App.snap.point(ev.world, { touch: ev.touch, exclude: p.exclude });
+      p.target = target;
+      App.doc.update(el.id, { points: el.points.map((q, i) => (i === p.handle.index ? { x: target.x, y: target.y } : q)) });
+    }
+
     /** 벽에 붙는 기호 끌기: 벽 가까이면 벽면에 붙어 벽을 따라 미끄러지고, 벽에서 멀어지면 떨어져 자유롭게 */
     startRemount(p, el) {
       App.selection.set([el.id]);
@@ -289,7 +314,7 @@
     }
 
     cancel() {
-      if (this.press && ['move', 'stretch', 'slide', 'remount'].includes(this.press.mode)) App.doc.rollback();
+      if (this.press && ['move', 'stretch', 'vertex', 'slide', 'remount'].includes(this.press.mode)) App.doc.rollback();
       this.press = null;
       render();
     }
@@ -321,6 +346,7 @@
           App.draw.distanceTag(plan, g.b, g.wall.end, g.n, g.th);
         }
       }
+      if (p.mode === 'vertex' && p.target) App.draw.snapMarker(plan, p.target);
       if (p.mode === 'stretch' && p.target) {
         App.draw.snapMarker(plan, p.target);
         App.draw.lengthTag(plan, p.fixed, p.target, p.lastEv && p.lastEv.touch);
@@ -910,6 +936,20 @@
     return { ...App.model.mountPoint(w, t, side, depth), mount: { wallId: w.id, t, side } };
   }
 
+  /** 의자가 가장 가까운 무대를 보도록 하는 각도(0·90·180·270). 무대가 없으면 위쪽(화면 위)을 보게 180 */
+  function facingStage(p) {
+    let best = null, bestD = Infinity;
+    for (const el of App.doc.all()) {
+      if (el.type !== 'item' || el.kind !== '무대') continue;
+      const d = Math.hypot(el.x - p.x, el.y - p.y);
+      if (d < bestD) { bestD = d; best = el; }
+    }
+    if (!best) return 180;
+    const dx = best.x - p.x, dy = best.y - p.y;
+    // 앞(+y)이 무대 쪽을 향하게: 0은 아래(+y), 90은 왼쪽(-x), 180은 위(-y), 270은 오른쪽(+x)
+    return Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 270 : 90) : (dy > 0 ? 0 : 180);
+  }
+
   /** 점 p에서 reach 안에 있는 가장 가까운 벽: 등(기호 위쪽)을 그 벽으로 돌리는 각도(0·90·180·270),
       벽에서 p 쪽 방향 n, p와 벽면 사이 거리 gap. 벽이 없으면 null */
   function facingWall(p, reach) {
@@ -941,7 +981,8 @@
     }
     def() {
       const kind = App.current[`${this.category}Kind`];
-      return App.catalog.ITEM_KINDS[this.category].find((d) => (d.kind || d.line) === kind) || null;
+      // 조감도 팔레트에는 다른 분류의 종류(액자·벽보)도 함께 나옴
+      return App.catalog.ITEM_KINDS[this.category].find((d) => (d.kind || d.line) === kind) || (this.category === 'event' ? App.catalog.itemDef(kind) : null);
     }
     activate() {
       this.press = null;
@@ -959,6 +1000,8 @@
       if (mount) return { ...mount, def };
       let p = App.snap.point(ev.world, { touch: ev.touch });
       const ghost = { kind: def.kind, size: def.size, depth: def.depth, rotation: 0, x: 0, y: 0, type: 'item' };
+      // 의자(배열·낱개)는 가까운 무대 쪽을 보게
+      if (def.category === 'event' && (def.kind === '의자 배열' || def.kind === '의자')) ghost.rotation = facingStage(p);
       // 등이 있는 가구(침대·소파·옷장 등)는 가까운 벽 쪽으로 등을 돌리고 그 벽면에 등을 붙임
       const face = def.back && p.kind !== 'end' ? facingWall(p, Math.max(def.size, def.depth) * 0.75 + App.snap.radius(ev.touch)) : null;
       if (face) {
@@ -992,7 +1035,7 @@
       if (!pr || dragged(ev, pr)) return;
       const at = this.placeAt(ev);
       if (!at) return;
-      const it = App.model.TYPES.item.create(at, this.category, at.def, at.rotation, at.mount || null);
+      const it = App.model.TYPES.item.create(at, at.def.category || this.category, at.def, at.rotation, at.mount || null);
       App.doc.transact(`${at.def.kind} 놓기`, () => App.doc.add(it));
       if (this.category === 'furn' || this.category === 'event') {
         App.selection.set([it.id]); // 가구·행사 물건은 놓은 뒤 바로 돌리기·크기·미세 이동을 할 수 있게
@@ -1037,7 +1080,8 @@
       return !!this.points;
     }
     color() {
-      return App.current.zoneColor;
+      const surface = App.modes.is('event') ? App.current.zoneSurface || '' : '';
+      return App.catalog.surfaceColor({ surface, color: App.current.zoneColor });
     }
     snapAt(ev, from) {
       return App.snap.point(ev.world, {
@@ -1093,10 +1137,13 @@
     create(points) {
       let n = 0;
       for (const el of App.doc.all()) {
-        const m = el.type === 'zone' && /^구역 (\d+)$/.exec(el.name);
+        const m = el.type === 'zone' && / (\d+)$/.exec(el.name);
         if (m) n = Math.max(n, Number(m[1]));
       }
-      const z = App.model.TYPES.zone.create(points, `구역 ${n + 1}`, this.color());
+      // 조감도 모드: 바닥 종류(잔디·아스팔트 등)를 골랐으면 그 이름으로
+      const surface = App.modes.is('event') ? App.current.zoneSurface || '' : '';
+      const sdef = surface && App.catalog.SURFACES.find((s) => s[0] === surface);
+      const z = App.model.TYPES.zone.create(points, sdef ? `${sdef[1]} ${n + 1}` : `구역 ${n + 1}`, this.color(), surface);
       App.doc.transact('영역 만들기', () => App.doc.add(z));
       App.selection.set([z.id]);
       App.ui.toast(`${z.name}: ${App.units.formatArea(App.model.TYPES.zone.area(z))}`);
@@ -1147,6 +1194,149 @@
         this.points.forEach((q) => D.pointMarker(plan, q));
       }
       if (this.cursor && !p) D.snapMarker(plan, this.cursor);
+    }
+  }
+
+  /* ── 동선 도구: 점을 차례로 눌러 길을 그림 (끌면 그 자리까지). 같은 점을 한 번 더·더블클릭·'그리기 끝내기'로 끝 ── */
+  class RouteTool {
+    activate() {
+      this.points = null;
+      this.press = null;
+      this.cursor = null;
+      this.lastClick = null;
+    }
+    deactivate() {
+      this.finish();
+    }
+    isChaining() {
+      return !!this.points;
+    }
+    def() {
+      return App.routes.def(App.current.routeKind);
+    }
+    last() {
+      return this.points[this.points.length - 1];
+    }
+    snapAt(ev, from) {
+      return App.snap.point(ev.world, { from, ortho: !!from && App.settings.ortho !== !!ev.shift, touch: ev.touch });
+    }
+    hover(ev) {
+      this.lastHover = ev;
+      this.cursor = ev ? this.snapAt(ev, this.points ? this.last() : null) : null;
+      render();
+    }
+    down(ev) {
+      this.press = { ev, start: this.snapAt(ev, this.points ? this.last() : null), dragging: false };
+      this.cursor = null;
+    }
+    move(ev) {
+      const p = this.press;
+      if (!p) return this.hover(ev);
+      if (!p.dragging && dragged(ev, p.ev)) p.dragging = true;
+      if (p.dragging) {
+        p.end = this.snapAt(ev, this.points ? this.last() : p.start);
+        render();
+      }
+    }
+    add(pt) {
+      if (!this.points) {
+        this.points = [{ x: pt.x, y: pt.y }];
+        App.tools.changed();
+      } else if (!G.samePoint(pt, this.last())) {
+        this.points.push({ x: pt.x, y: pt.y });
+      }
+    }
+    up(ev) {
+      const p = this.press;
+      this.press = null;
+      if (!p) return;
+      if (p.dragging) {
+        if (!this.points) this.add(p.start);
+        this.add(this.snapAt(ev, this.last()));
+        this.lastClick = null;
+      } else {
+        const now = performance.now();
+        const isDouble = this.lastClick && now - this.lastClick.t < DOUBLE_CLICK_MS && screenDist(ev, this.lastClick) < 8;
+        this.lastClick = { t: now, x: ev.x, y: ev.y };
+        if (!this.points) this.add(p.start);
+        else {
+          const pt = this.snapAt(ev, this.last());
+          if (isDouble || G.samePoint(pt, this.last())) this.finish(); // 같은 점을 한 번 더: 끝내기
+          else this.add(pt);
+        }
+      }
+      if (!ev.touch) this.hover(ev);
+      render();
+    }
+    /** 길이를 숫자로: 마지막 점에서 dir 방향으로 len(mm)만큼 */
+    addLength(len, dir) {
+      if (!this.points || !(len > 0)) return false;
+      const a = this.last();
+      this.add({ x: a.x + dir.x * len, y: a.y + dir.y * len });
+      render();
+      return true;
+    }
+    currentDir() {
+      if (!this.points) return null;
+      const a = this.last();
+      if (this.cursor && !G.samePoint(this.cursor, a)) return G.unit({ x: this.cursor.x - a.x, y: this.cursor.y - a.y });
+      if (this.points.length >= 2) {
+        const b = this.points[this.points.length - 2];
+        return G.unit({ x: a.x - b.x, y: a.y - b.y });
+      }
+      return null;
+    }
+    /** 점이 2개 이상이면 동선을 만들고 끝냄 */
+    finish() {
+      const pts = this.points;
+      if (!pts) return;
+      this.points = null;
+      App.tools.changed();
+      render();
+      if (pts.length < 2) {
+        App.ui.hint('동선은 점이 2개 이상이어야 합니다.');
+        return;
+      }
+      const d = this.def();
+      let n = 0;
+      for (const el of App.doc.all()) if (el.type === 'route' && el.kind === d.kind) n++;
+      const r = App.model.TYPES.route.create(pts, `${d.kind} 동선 ${n + 1}`, d.kind, d.color, d.width);
+      App.doc.transact('동선 그리기', () => App.doc.add(r));
+      App.selection.set([r.id]);
+      const res = App.routes.check(r);
+      App.ui.toast(`${r.name}: ${App.units.formatRun(res.length)} · ${App.routes.timeText(res.time)}${res.issues.length ? ` · 걸리는 곳 ${res.issues.length}곳 (빨간 표시)` : ' · 걸리는 곳 없음'}`);
+    }
+    context() {
+      this.finish();
+    }
+    cancel() {
+      this.press = null;
+      render();
+    }
+    escape() {
+      if (this.press) {
+        this.cancel();
+        return true;
+      }
+      if (this.points) {
+        this.finish();
+        return true;
+      }
+      return false;
+    }
+    overlay(plan) {
+      const D = App.draw;
+      const p = this.press;
+      const d = this.def();
+      const end = p && p.dragging && p.end ? p.end : !p ? this.cursor : null;
+      const base = this.points || (p && p.dragging ? [p.start] : null);
+      if (base) {
+        const pts = end ? [...base, end] : base;
+        D.previewRoute(plan, pts, d);
+        if (end) D.lengthTag(plan, base[base.length - 1], end, !!(p && p.ev.touch));
+        base.forEach((q) => D.pointMarker(plan, q));
+      }
+      if (end) D.snapMarker(plan, end);
     }
   }
 
@@ -1236,6 +1426,7 @@
     mech: () => new ItemTool('mech'),
     furn: () => new ItemTool('furn'),
     event: () => new ItemTool('event'),
+    route: () => new RouteTool(),
     zone: () => new ZoneTool(),
     text: () => new TextTool(),
     room: () => new RoomTool(),

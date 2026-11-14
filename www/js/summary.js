@@ -12,17 +12,23 @@
 
   /** 개수·길이로 세는 항목 묶음. 선은 분류(전선관·배관·덕트·기타)마다 따로 */
   function sections() {
-    return [
+    const event = [
+      { id: 'event', title: '행사 물건', unit: '개' },
+      { id: 'seat', title: '좌석', unit: '석' },
+      { id: 'people', title: '사람', unit: '명' },
+      { id: 'parking', title: '주차', unit: '칸' },
+    ];
+    const interior = [
       { id: 'door', title: '문', unit: '개' },
       { id: 'window', title: '창문', unit: '개' },
       { id: 'column', title: '기둥', unit: '개' },
       { id: 'elec', title: '전기', unit: '개' },
       { id: 'mech', title: '설비', unit: '개' },
       { id: 'furn', title: '가구', unit: '개' },
-      { id: 'event', title: '행사', unit: '개' },
-      { id: 'seat', title: '좌석', unit: '석' },
-      ...App.catalog.LINE_CATEGORIES.map((c) => ({ id: `line:${c}`, title: c, unit: 'm' })),
     ];
+    const lines = App.catalog.LINE_CATEGORIES.map((c) => ({ id: `line:${c}`, title: c, unit: 'm' }));
+    // 조감도 모드에서는 행사 쪽 묶음을 먼저
+    return App.modes.is('event') ? [...event, ...interior, ...lines] : [...interior, ...event, ...lines];
   }
 
   const bbox = (pts) => ({
@@ -69,9 +75,12 @@
     });
     of('item').forEach((it) => {
       add(it.category, it.kind, App.catalog.itemLabel(it), it.room, 1);
-      // 좌석: 의자 배열과 원형 테이블 둘레 의자
+      if (it.category !== 'event') return;
+      // 좌석: 의자 배열, 낱개 의자, 테이블 둘레 의자
       const seats = App.catalog.seats(it);
-      if (seats) add('seat', '좌석', it.kind === '의자 배열' ? '의자 배열' : '원형 테이블 의자', it.room, seats.count);
+      if (seats) add('seat', '좌석', it.kind === '의자 배열' ? '의자 배열' : it.kind === '의자' ? '낱개 의자' : `${it.kind} 의자`, it.room, seats.count);
+      if (it.kind === '사람') add('people', '사람', `사람 · ${it.style || '정장'}`, it.room, it.count || 1);
+      if (it.kind === '주차 구획') add('parking', '주차', '주차 구획', it.room, it.count || 1);
     });
     of('line').forEach((l) => {
       const p = App.doc.get(l.presetId);
@@ -106,7 +115,9 @@
       },
       materials: M.materials(walls),
       finishes: finishTotals(rooms),
-      zones: of('zone').map((z) => ({ name: z.name, area: App.model.TYPES.zone.area(z) })),
+      zones: of('zone').map((z) => ({ name: z.name, area: App.model.TYPES.zone.area(z), surface: App.catalog.surfaceName(z) })),
+      routes: of('route').map((r) => ({ route: r, ...App.routes.check(r) })),
+      items: of('item'),
     };
   }
 
@@ -161,9 +172,50 @@
     ];
   }
 
+  /** 동선 묶음: 동선마다 길이·걸리는 시간·걸리는 곳 */
+  function routeBlock(s) {
+    if (!s.routes.length) return null;
+    const R = App.routes;
+    const rows = s.routes.map((r) => row(r.route.name, V.run(r.length),
+      `${r.route.kind} · ${R.timeText(r.time)} · 통로 폭 ${App.units.formatLength(r.route.width)}${r.issues.length ? ` · 걸리는 곳 ${r.issues.length}곳` : ''}`, '', r.route.kind));
+    if (rows.length > 1) rows.push(row('동선 총계', V.run(s.routes.reduce((t, r) => t + r.length, 0)), '', 'total'));
+    const bad = s.routes.reduce((n, r) => n + r.issues.length, 0);
+    return { title: '동선', sub: bad ? `걸리는 곳 ${bad}곳 · 도면에 빨갛게 표시` : '걸리는 곳 없음', warn: !!bad, rows };
+  }
+  function zoneBlock(s) {
+    if (!s.zones.length) return null;
+    const zr = s.zones.map((z) => row(z.name, V.area(z.area), z.surface || ''));
+    if (zr.length > 1) zr.push(row('영역 총계', V.area(s.zones.reduce((t, z) => t + z.area, 0)), '겹친 곳은 두 번 셈', 'total'));
+    return { title: '영역', rows: zr };
+  }
+  /** 행사 요약 (조감도 모드): 좌석·사람·주차·화장실·동선을 한눈에 */
+  function eventBlock(s) {
+    const sum = (sec) => total(s.records.filter((r) => r.sec === sec));
+    const count = (kind) => s.items.filter((it) => it.kind === kind).length;
+    const seats = sum('seat'), people = sum('people'), parking = sum('parking'), things = sum('event');
+    const toilets = count('이동식 화장실');
+    const bad = s.routes.reduce((n, r) => n + r.issues.length, 0);
+    const rows = [];
+    if (seats) rows.push(row('좌석', V.count(seats, '석'), '의자 배열·낱개 의자·테이블 의자'));
+    if (people) rows.push(row('배치한 사람', V.count(people, '명')));
+    if (parking) rows.push(row('주차', V.count(parking, '칸')));
+    if (toilets) rows.push(row('이동식 화장실', V.count(toilets, '칸'), seats ? `좌석 ${Math.round(seats / toilets).toLocaleString('ko-KR')}석에 1칸꼴` : ''));
+    if (count('소화기')) rows.push(row('소화기', V.count(count('소화기'), '개')));
+    if (s.routes.length) rows.push(row('동선', V.count(s.routes.length, '개'), bad ? `걸리는 곳 ${bad}곳 — 확인하세요` : '걸리는 곳 없음'));
+    if (things) rows.push(row('놓은 물건', V.count(things, '개')));
+    return rows.length ? { title: '행사 요약', rows } : null;
+  }
+
   /** 전체: 도면 전체 합계 */
   function viewAll(s) {
     const blocks = [];
+    const event = App.modes.is('event');
+    if (event) {
+      const eb = eventBlock(s);
+      if (eb) blocks.push(eb);
+      const rb = routeBlock(s);
+      if (rb) blocks.push(rb);
+    }
     const a = s.arch;
     const arch = [];
     if (a.walls) {
@@ -178,18 +230,19 @@
       arch.push(row('천장 몰딩 합계', V.length(a.molding), '안목 둘레'));
     }
     if (arch.length) blocks.push({ title: '건축', rows: arch });
-    const mat = materialRows(s.materials);
+    const mat = event ? [] : materialRows(s.materials); // 조감도 모드에서는 벽 자재·마감재를 빼고 봄
     if (mat.length) blocks.push({ title: '벽 자재', sub: '본·장 수는 전체 길이·면적을 더한 뒤 올림', rows: mat });
-    if (s.finishes.length) blocks.push({ title: '마감재', sub: '방 속성에서 고른 벽·바닥 마감. 장 수는 면적을 더한 뒤 올림', rows: s.finishes.map((f) => finishRow(f, '', ` · 방 ${f.rooms}곳`)) });
+    if (s.finishes.length && !event) blocks.push({ title: '마감재', sub: '방 속성에서 고른 벽·바닥 마감. 장 수는 면적을 더한 뒤 올림', rows: s.finishes.map((f) => finishRow(f, '', ` · 방 ${f.rooms}곳`)) });
     sections().forEach((sec) => {
       const recs = s.records.filter((r) => r.sec === sec.id);
       if (!recs.length) return;
       blocks.push({ title: sec.title, rows: [...sectionRows(sec, recs), row(`${sec.title} 총계`, secValue(sec, total(recs)), '', 'total')] });
     });
-    if (s.zones.length) {
-      const zr = s.zones.map((z) => row(z.name, V.area(z.area)));
-      if (zr.length > 1) zr.push(row('영역 총계', V.area(s.zones.reduce((t, z) => t + z.area, 0)), '겹친 곳은 두 번 셈', 'total'));
-      blocks.push({ title: '영역', rows: zr });
+    const zb = zoneBlock(s);
+    if (zb) blocks.push(zb);
+    if (!event) {
+      const rb = routeBlock(s);
+      if (rb) blocks.push(rb);
     }
     return blocks;
   }
@@ -244,6 +297,8 @@
       if (recs.length) tot.push(row(sec.title, secValue(sec, total(recs)), '', '', sec.title));
     });
     if (tot.length) blocks.push({ title: '총계', rows: tot, total: true });
+    const rb = routeBlock(s);
+    if (rb) blocks.push(rb);
     return blocks;
   }
 
@@ -276,6 +331,8 @@
       rows.push(row(`${sec.title} 총계`, secValue(sec, total(recs)), '', 'total'));
       blocks.push({ title: sec.title, rows });
     });
+    const rb = routeBlock(s);
+    if (rb) blocks.push(rb);
     return blocks;
   }
 
@@ -312,7 +369,9 @@
           <div class="empty-title">집계할 항목 없음</div>
           <p>${view === 'room' && !s.rooms.length && s.records.length
             ? '방이 아직 없습니다. ‘방’ 도구로 벽에 둘러싸인 곳을 누르면 방별로 나눠 집계합니다.'
-            : '벽과 방, 문·창문, 전기·설비 기호를 그리면 면적·수량·길이·자재가 여기에 자동으로 정리됩니다.'}</p>
+            : App.modes.is('event')
+              ? '물건·영역·동선을 놓으면 좌석 수, 물건 수량, 동선 길이와 걸리는 곳이 여기에 자동으로 정리됩니다.'
+              : '벽과 방, 문·창문, 전기·설비 기호를 그리면 면적·수량·길이·자재가 여기에 자동으로 정리됩니다.'}</p>
         </div>`}`;
     pane.scrollTop = scroll;
   }
@@ -356,6 +415,11 @@
     };
     App.ui.on('settings', again);
     App.ui.on('layers', again);
+    // 모드가 바뀌면 그 모드에서 주로 보는 보기로: 조감도는 전체, 인테리어는 방별
+    App.ui.on('mode', (id) => {
+      view = id === 'event' ? 'all' : 'room';
+      again();
+    });
     App.ui.on('tab', (id) => {
       if (id === 'tab-summary' && dirty) {
         render();

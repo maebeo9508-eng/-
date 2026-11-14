@@ -14,6 +14,7 @@
     { id: 'mech', label: '설비' },
     { id: 'furn', label: '가구' },
     { id: 'event', label: '행사' },
+    { id: 'route', label: '동선' },
     { id: 'zone', label: '영역' },
     { id: 'memo', label: '메모' },
     { id: 'dim', label: '치수' },
@@ -408,8 +409,9 @@
       label: '영역',
       pick: 2,
       ...polygonShape,
-      create(points, name, color) {
-        return { ...base('zone', 'zone'), name, color, points: points.map((p) => ({ x: p.x, y: p.y })) };
+      /** surface: 바닥 종류 ('' 색만, grass 잔디, asphalt 아스팔트 등 — 조감도 3D에서 그 재질로) */
+      create(points, name, color, surface = '') {
+        return { ...base('zone', 'zone'), name, color, surface, points: points.map((p) => ({ x: p.x, y: p.y })) };
       },
       area(z) {
         return Math.abs(G.signedArea(z.points));
@@ -419,6 +421,42 @@
       },
       movedBy(z, dx, dy) {
         return { points: z.points.map((p) => ({ x: p.x + dx, y: p.y + dy })) };
+      },
+    },
+
+    /* 동선: 사람·차량이 지나가는 길 (꺾인 선). kind: 관람객·VIP·스태프·차량·비상 대피, width: 필요한 통로 폭(mm).
+       동선 체크(routes.js)에서 이 폭 안에 물건·벽이 걸리는지 봄 */
+    route: {
+      label: '동선',
+      pick: 0,
+      create(points, name, kind, color, width) {
+        return { ...base('route', 'route'), name, kind, color, width, points: points.map((p) => ({ x: p.x, y: p.y })) };
+      },
+      length(r) {
+        let L = 0;
+        for (let i = 1; i < r.points.length; i++) L += G.dist(r.points[i - 1], r.points[i]);
+        return L;
+      },
+      bounds(r) {
+        const b = polygonShape.bounds(r), h = (r.width || 0) / 2;
+        return { minX: b.minX - h, minY: b.minY - h, maxX: b.maxX + h, maxY: b.maxY + h };
+      },
+      /** 가운데 선까지 거리 (띠 안쪽이어도 선 가까이를 눌러야 잡힘: 아래 물건을 고르기 쉽게) */
+      distance(r, p) {
+        let d = Infinity;
+        for (let i = 1; i < r.points.length; i++) d = Math.min(d, G.closestOnSegment(p, r.points[i - 1], r.points[i]).dist);
+        return d;
+      },
+      inRect(r, rect, crossing) {
+        if (!crossing) return r.points.every((p) => G.pointInRect(p, rect));
+        for (let i = 1; i < r.points.length; i++) if (G.segmentIntersectsRect(r.points[i - 1], r.points[i], rect)) return true;
+        return false;
+      },
+      snapPoints(r) {
+        return r.points.map((p) => ({ x: p.x, y: p.y, kind: 'end' }));
+      },
+      movedBy(r, dx, dy) {
+        return { points: r.points.map((p) => ({ x: p.x + dx, y: p.y + dy })) };
       },
     },
 

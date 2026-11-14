@@ -56,7 +56,7 @@
     const marks = App.tools && !App.exporting ? App.tools.highlight() : null; // { ids, color }. 내보낼 때는 없음
     const scale = plan.view.scale;
 
-    const walls = [], rooms = [], openings = [], columns = [], zones = [], lines = [], items = [], texts = [], dims = [], underlays = [];
+    const walls = [], rooms = [], openings = [], columns = [], zones = [], lines = [], items = [], texts = [], dims = [], underlays = [], routes = [];
     for (const el of App.doc.all()) {
       const t = App.model.TYPES[el.type];
       if (!t || t.catalog || !App.layers.visible(el)) continue; // 숨긴 레이어
@@ -67,6 +67,7 @@
       else if (el.type === 'door' || el.type === 'window') openings.push(el);
       else if (el.type === 'column') columns.push(el);
       else if (el.type === 'zone') zones.push(el);
+      else if (el.type === 'route') routes.push(el);
       else if (el.type === 'line') lines.push(el);
       else if (el.type === 'item') items.push(el);
       else if (el.type === 'text') texts.push(el);
@@ -115,12 +116,17 @@
       if (sel) lineShape(plan, l, App.doc.get(l.presetId), sel, 0.35, 5); // 선택 표시: 굵은 바탕
       lineShape(plan, l, App.doc.get(l.presetId));
     });
-    items.forEach((it) => itemShape(plan, it, markColor(it)));
+    // 바닥에 까는 것(카펫·바닥 이미지·주차 구획)을 먼저, 그 위에 다른 물건
+    const flat = (it) => !!(App.catalog.itemDef(it.kind) || {}).flat;
+    items.filter(flat).forEach((it) => itemShape(plan, it, markColor(it)));
+    items.filter((it) => !flat(it)).forEach((it) => itemShape(plan, it, markColor(it)));
+    routes.forEach((r) => routeShape(plan, r, { selected: sel.has(r.id), marked: !!(marks && marks.ids.has(r.id)) }));
 
     screenTransform(plan);
     if (App.settings.showWallLengths) drawWallLabels(plan, walls);
     drawRoomLabels(plan, rooms);
     drawZoneLabels(plan, zones);
+    drawRouteLabels(plan, routes);
     dims.forEach((d) => dimShape(plan, d, markColor(d)));
     texts.forEach((t) => textShape(plan, t, markColor(t)));
     // 선택한 벽의 끝점. 벽 하나만 골랐으면 끌어서 늘일 수 있는 손잡이로 크게
@@ -136,6 +142,20 @@
         ctx.strokeRect(s.x - handle, s.y - handle, handle * 2, handle * 2);
       });
     });
+    // 동선·영역 하나를 골랐으면 꼭짓점 손잡이 (끌어서 모양을 고침)
+    if (sel.size === 1 && !App.exporting) {
+      const one = App.doc.get(sel.list()[0]);
+      if (one && (one.type === 'route' || one.type === 'zone') && !one.locked && App.layers.visible(one)) {
+        ctx.lineWidth = 2;
+        one.points.forEach((p) => {
+          const s = plan.view.toScreen(p.x, p.y);
+          ctx.beginPath();
+          ctx.arc(s.x, s.y, 5.5, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+        });
+      }
+    }
     drawGroupBoxes(plan);
     drawLockBadges(plan);
     // 기호·가구·기둥 하나를 골랐으면(옮기는 중 포함) 벽까지 거리
@@ -833,37 +853,110 @@
     }
   }
 
-  /** 행사 물건 평면 기호 (기호 가운데 기준, 위쪽 -y가 등, 아래쪽 +y가 앞). 행사 종류가 아니면 false.
+  /** 조감도 물건 평면 기호 (기호 가운데 기준, 위쪽 -y가 등, 아래쪽 +y가 앞. 차는 오른쪽 +x가 앞). 조감도 종류가 아니면 false.
       it가 없으면(팔레트 아이콘) 크기 단위가 mm가 아니므로 비율로만 그림 */
   function eventSymbol(ctx, kind, w, h, px, ink, lw, seg, box, back, it) {
     const W = w / 2, H = h / 2, m = Math.min(w, h);
-    const outline = (k = 1.3) => { box(); back(); lw(k); ctx.stroke(); lw(0.9); };
+    const circle = (x, y, r) => { ctx.beginPath(); ctx.arc(x, y, Math.max(r, 0.01), 0, Math.PI * 2); };
+    const rect = (x, y, ww, hh) => { ctx.beginPath(); ctx.rect(x, y, ww, hh); };
+    const rrect = (x, y, ww, hh, r) => {
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(x, y, ww, hh, Math.max(0, Math.min(r, ww / 2, hh / 2)));
+      else ctx.rect(x, y, ww, hh);
+    };
+    /** 지금 경로를 옅게 채움 (color가 없으면 선 색) */
+    const tint = (alpha, color) => {
+      const a = ctx.globalAlpha, f = ctx.fillStyle;
+      if (color) ctx.fillStyle = color;
+      ctx.globalAlpha = a * alpha;
+      ctx.fill();
+      ctx.globalAlpha = a;
+      ctx.fillStyle = f;
+    };
+    /** 물건에 색을 정했으면 그 색으로 옅게 */
+    const paint = (alpha = 0.26) => { if (it && it.color && ink !== App.plan.colors.accent) tint(alpha, it.color); };
+    const outline = (k = 1.3) => { box(); back(); paint(); lw(k); ctx.stroke(); lw(0.9); };
     const label = (text, size, y = 0) => {
       ctx.font = `700 ${size}px system-ui, sans-serif`;
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText(text, 0, y);
     };
-    const tint = (alpha) => { const a = ctx.globalAlpha; ctx.globalAlpha = a * alpha; ctx.fill(); ctx.globalAlpha = a; };
+    const style = it && it.style;
     /** 의자 하나: (cx, cy) 가운데, 폭 cw × 깊이 ch, 등받이는 -y 쪽. rot(라디안) 만큼 돌림 */
     const chair = (cx, cy, cw, ch, rot = 0) => {
       ctx.save();
       ctx.translate(cx, cy);
       if (rot) ctx.rotate(rot);
-      ctx.beginPath(); ctx.rect(-cw / 2, -ch / 2, cw, ch); back(); ctx.stroke();
-      ctx.beginPath(); ctx.rect(-cw / 2, -ch / 2, cw, ch * 0.22); ctx.fill();
+      if (style === '스툴') {
+        circle(0, 0, Math.min(cw, ch) * 0.42); back(); ctx.stroke();
+      } else {
+        rect(-cw / 2, -ch / 2, cw, ch); back(); ctx.stroke();
+        rect(-cw / 2, -ch / 2, cw, ch * 0.22); ctx.fill();
+      }
       ctx.restore();
     };
+    const dash = (on) => ctx.setLineDash(on ? [m * 0.06, m * 0.05] : []);
     switch (kind) {
-      case '몽골텐트':
+      case '몽골텐트': {
         outline();
         seg(-W, -H, W, H); seg(-W, H, W, -H);
-        ctx.beginPath(); ctx.arc(0, 0, m * 0.04, 0, Math.PI * 2); ctx.fill();
+        circle(0, 0, m * 0.04); ctx.fill();
+        const v = it && it.variant;
+        if (v === '뒤' || v === '뒤·양옆') { lw(2.8); seg(-W, -H, W, -H); }
+        if (v === '뒤·양옆') { seg(-W, -H, -W, H); seg(W, -H, W, H); }
         return true;
+      }
+      case '대형 텐트': {
+        outline();
+        const wide = w >= h;
+        if (it && it.variant === '박공 지붕') {
+          if (wide) seg(-W, 0, W, 0); else seg(0, -H, 0, H); // 용마루
+          const n = Math.max(2, Math.round(Math.max(w, h) / 5000));
+          for (let i = 1; i < n; i++) {
+            const t = -1 + (2 * i) / n;
+            if (wide) seg(W * t, -H, W * t, H); else seg(-W, H * t, W, H * t);
+          }
+          return true;
+        }
+        const n = Math.max(1, Math.round(Math.max(w, h) / m));
+        for (let i = 0; i < n; i++) {
+          const a0 = -1 + (2 * i) / n, a1 = -1 + (2 * (i + 1)) / n;
+          if (wide) {
+            seg(W * a0, -H, W * a1, H); seg(W * a0, H, W * a1, -H);
+            if (i) seg(W * a0, -H, W * a0, H);
+          } else {
+            seg(-W, H * a0, W, H * a1); seg(W, H * a0, -W, H * a1);
+            if (i) seg(-W, H * a0, W, H * a0);
+          }
+        }
+        return true;
+      }
+      case '파라솔': {
+        const r = m / 2;
+        circle(0, 0, r); back(); paint(); lw(1.3); ctx.stroke(); lw(0.8);
+        for (let i = 0; i < 8; i++) { const a = (i * Math.PI) / 4; seg(0, 0, Math.cos(a) * r, Math.sin(a) * r); }
+        circle(0, 0, r * 0.08); ctx.fill();
+        return true;
+      }
       case '무대':
         outline(2);
         seg(-W, H - m * 0.08, W, H - m * 0.08); // 앞쪽 끝
+        if (it && it.variant === '트러스 지붕') {
+          const q = Math.min(m * 0.07, 400);
+          for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) { rect(sx * (W - q) - q / 2, sy * (H - q) - q / 2, q, q); ctx.fill(); }
+          dash(true); rect(-W + q, -H + q, w - q * 2, h - q * 2); ctx.stroke(); dash(false);
+        }
         label('무대', m * 0.24);
         return true;
+      case '계단': {
+        outline();
+        const n = 4;
+        for (let i = 1; i < n; i++) seg(-W, -H + (h * i) / n, W, -H + (h * i) / n);
+        lw(1.3);
+        seg(0, H * 0.7, 0, -H * 0.55);
+        ctx.beginPath(); ctx.moveTo(0, -H * 0.8); ctx.lineTo(-m * 0.12, -H * 0.45); ctx.lineTo(m * 0.12, -H * 0.45); ctx.closePath(); ctx.fill();
+        return true;
+      }
       case '트러스': {
         outline();
         const n = Math.max(2, Math.round(w / h));
@@ -874,13 +967,19 @@
         return true;
       }
       case '부스': {
-        box(); back();
+        box(); back(); paint();
         ctx.beginPath(); ctx.moveTo(-W, H); ctx.lineTo(-W, -H); ctx.lineTo(W, -H); ctx.lineTo(W, H);
         lw(2.6); ctx.stroke(); // 뒤·옆 벽
         lw(0.9);
-        ctx.setLineDash([m * 0.06, m * 0.05]);
+        dash(true);
         seg(-W, H, W, H); // 열린 앞쪽
-        ctx.setLineDash([]);
+        dash(false);
+        return true;
+      }
+      case '에어아치': {
+        const r = Math.min(H, W * 0.25);
+        dash(true); lw(0.9); rect(-W + r, -r * 0.7, w - r * 2, r * 1.4); paint(0.3); ctx.stroke(); dash(false);
+        for (const s of [-1, 1]) { circle(s * (W - r), 0, r); back(); paint(0.4); lw(1.3); ctx.stroke(); }
         return true;
       }
       case '원형 테이블': {
@@ -893,31 +992,51 @@
           const d = r + cs * 0.62;
           chair(Math.sin(a) * d, -Math.cos(a) * d, cs, cs, a); // 등받이가 바깥쪽
         }
-        ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); back(); lw(1.3); ctx.stroke();
+        circle(0, 0, r); back(); paint(); lw(1.3); ctx.stroke();
         return true;
       }
-      case '테이블':
+      case '테이블': {
+        const n = it ? (App.catalog.seats(it) || { count: 0 }).count : 0;
+        const cs = it ? 430 : h * 0.7;
+        lw(0.9);
+        const top = Math.ceil(n / 2), bottom = n - top;
+        for (let i = 0; i < top; i++) chair(-W + ((i + 0.5) * w) / top, -H - cs * 0.58, cs, cs, 0);
+        for (let i = 0; i < bottom; i++) chair(-W + ((i + 0.5) * w) / bottom, H + cs * 0.58, cs, cs, Math.PI);
         outline();
+        return true;
+      }
+      case '스탠딩 테이블':
+        circle(0, 0, m / 2); back(); paint(); lw(1.3); ctx.stroke();
+        circle(0, 0, m * 0.1); ctx.fill();
         return true;
       case '데스크':
         outline();
         seg(-W, -H + h * 0.3, W, -H + h * 0.3);
         return true;
+      case '의자':
+        lw(1.1);
+        chair(0, 0, w, h);
+        return true;
       case '의자 배열': {
-        const s = it ? App.catalog.seats(it) : { cols: 4, rows: 3 };
-        const pw = w / s.cols, ph = h / s.rows;
         lw(0.9);
-        ctx.setLineDash([m * 0.03, m * 0.03]);
-        box(); ctx.stroke();
-        ctx.setLineDash([]);
-        if (pw / px < 4) {
-          // 멀리서는 줄마다 띠로
-          for (let r = 0; r < s.rows; r++) { ctx.beginPath(); ctx.rect(-W, -H + r * ph + ph * 0.05, w, ph * 0.5); tint(0.45); }
+        dash(true); box(); ctx.stroke(); dash(false);
+        if (!it) {
+          const pw = w / 4, ph = h / 3;
+          for (let r = 0; r < 3; r++) for (let c = 0; c < 4; c++) chair(-W + (c + 0.5) * pw, -H + (r + 0.5) * ph, pw * 0.8, ph * 0.62);
           return true;
         }
-        const cw = pw * 0.86, ch = Math.min(ph * 0.52, pw * 0.9);
-        for (let r = 0; r < s.rows; r++) {
-          for (let c = 0; c < s.cols; c++) chair(-W + (c + 0.5) * pw, -H + r * ph + ch / 2 + ph * 0.04, cw, ch);
+        const L = App.catalog.seatLayout(it);
+        if (L.pw / px < 4) {
+          // 멀리서는 묶음·줄마다 띠로
+          App.catalog.seatBlocks(it).forEach(([x0, x1]) => {
+            for (let r = 0; r < L.rows; r++) { rect(-W + x0, -H + r * L.ph + L.ph * 0.05, x1 - x0, L.ph * 0.5); tint(0.45); }
+          });
+          return true;
+        }
+        const cw = Math.min(L.pw * 0.86, 470), ch = Math.min(L.ph * 0.52, cw);
+        for (let r = 0; r < L.rows; r++) {
+          const [c0, c1] = L.rowRange(r);
+          for (let c = c0; c < c1; c++) chair(-W + L.xs[c], -H + r * L.ph + ch / 2 + L.ph * 0.04, cw, ch);
         }
         return true;
       }
@@ -928,35 +1047,202 @@
       case 'LED 스크린':
         box(); ctx.fill(); lw(1.3); ctx.stroke();
         return true;
-      case '배너·포토월':
-        box(); back(); tint(0.35); lw(1.3); ctx.stroke();
+      case '백월':
+      case '포토월':
+      case '액자·벽보':
+        box(); back(); tint(0.35, it && it.color); lw(1.3); ctx.stroke();
+        return true;
+      case '현수막':
+      case '테이프 커팅':
+      case '차단봉': {
+        const r = Math.max(Math.min(H, w * 0.06), 2 * px);
+        const n = kind === '차단봉' ? Math.max(1, Math.round(w / (it ? 2000 : w / 2))) : 1;
+        ctx.save();
+        if (it && it.color) ctx.strokeStyle = it.color;
+        lw(kind === '현수막' ? 2.6 : 1.8);
+        seg(-W + r, 0, W - r, 0);
+        ctx.restore();
+        lw(1.2);
+        for (let i = 0; i <= n; i++) { circle(-W + r + ((w - r * 2) * i) / n, 0, r); back(); ctx.fill(); }
+        if (kind === '테이프 커팅') {
+          const b = Math.max(r * 1.6, 3 * px);
+          ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(-b, -b * 0.7); ctx.lineTo(-b, b * 0.7); ctx.closePath(); ctx.fill();
+          ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(b, -b * 0.7); ctx.lineTo(b, b * 0.7); ctx.closePath(); ctx.fill();
+        }
+        return true;
+      }
+      case 'X배너':
+        lw(1.1); seg(-W, -H, W, H); seg(-W, H, W, -H);
+        lw(2.6); seg(-W, H, W, H);
+        return true;
+      case '안내판':
+        lw(0.9); rect(-W * 0.5, -H, w * 0.5, h); ctx.stroke();
+        lw(2.6); seg(-W, H, W, H);
+        return true;
+      case '깃발':
+        ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(W, -H * 0.45); ctx.lineTo(0, -H * 0.9); ctx.closePath();
+        tint(0.5, it && it.color); lw(1.1); ctx.stroke();
+        circle(0, 0, m * 0.13); ctx.fill();
+        return true;
+      case '연단':
+        outline();
+        seg(-W, -H + h * 0.32, W, -H + h * 0.32);
+        circle(0, -H + h * 0.16, m * 0.06); ctx.fill();
+        return true;
+      case '레드카펫':
+        box(); tint(0.4, (it && it.color) || '#e03131'); lw(1.1); ctx.stroke();
+        return true;
+      case '바닥 이미지': {
+        const img = it && App.images.get(it.imageId);
+        if (img) {
+          ctx.save();
+          ctx.globalAlpha *= 0.9;
+          ctx.drawImage(img, -W, -H, w, h);
+          ctx.restore();
+        }
+        dash(true); lw(1); box(); ctx.stroke(); dash(false);
+        if (!img) {
+          seg(-W, -H, W, H); seg(-W, H, W, -H);
+          if (it && it.text) label(String(it.text).split('\n')[0].slice(0, 12), Math.min(m * 0.2, w / 8));
+        }
+        return true;
+      }
+      case '화분':
+        if (style === '꽃 화단') {
+          outline();
+          for (let i = 0; i < 3; i++) { circle(-W + ((i + 0.5) * w) / 3, 0, m * 0.2); tint(0.5, it && it.color); ctx.stroke(); }
+          return true;
+        }
+        circle(0, 0, m / 2); back(); tint(0.2, it && it.color); lw(1.3); ctx.stroke(); lw(0.9);
+        circle(0, 0, m * 0.26); ctx.stroke();
+        if (style === '축하 화환') { seg(-m * 0.12, m * 0.26, -m * 0.2, m * 0.5); seg(m * 0.12, m * 0.26, m * 0.2, m * 0.5); }
         return true;
       case '스피커':
         outline();
-        ctx.beginPath(); ctx.arc(0, 0, m * 0.3, 0, Math.PI * 2); ctx.stroke();
-        ctx.beginPath(); ctx.arc(0, 0, m * 0.1, 0, Math.PI * 2); ctx.fill();
+        circle(0, 0, m * 0.3); ctx.stroke();
+        circle(0, 0, m * 0.1); ctx.fill();
+        return true;
+      case '라인어레이':
+        outline();
+        for (const k of [-0.45, -0.1, 0.25]) seg(-W, H * k, W, H * k);
+        rect(-W, H - h * 0.18, w, h * 0.18); ctx.fill();
+        return true;
+      case '모니터 스피커':
+        ctx.beginPath(); ctx.moveTo(-W, H); ctx.lineTo(W, H); ctx.lineTo(W * 0.72, -H); ctx.lineTo(-W * 0.72, -H); ctx.closePath();
+        back(); lw(1.3); ctx.stroke();
+        circle(0, H * 0.1, m * 0.22); lw(0.9); ctx.stroke();
+        return true;
+      case '콘솔 데스크': {
+        outline();
+        rect(-W * 0.8, -H * 0.55, w * 0.8, h * 0.6); ctx.stroke();
+        for (let i = 0; i < 6; i++) { const x = -W * 0.7 + (w * 0.7 * i) / 5; seg(x, -H * 0.35, x, H * 0.25); }
+        return true;
+      }
+      case '조명 타워':
+        outline();
+        seg(-W, -H, W, H); seg(-W, H, W, -H);
+        circle(0, 0, m * 0.2); back(); ctx.stroke();
+        return true;
+      case '발전기':
+        outline();
+        seg(-W * 0.55, -H, -W * 0.55, H);
+        label('G', m * 0.5, 0);
         return true;
       case '이동식 화장실':
         outline();
         label('WC', m * 0.34);
         return true;
-      case '푸드트럭': {
-        ctx.beginPath();
-        if (ctx.roundRect) ctx.roundRect(-W, -H, w, h, m * 0.12); else ctx.rect(-W, -H, w, h);
-        back(); lw(1.3); ctx.stroke(); lw(0.9);
+      case '푸드트럭':
+        rrect(-W, -H, w, h, m * 0.12);
+        back(); paint(); lw(1.3); ctx.stroke(); lw(0.9);
         seg(W - w * 0.22, -H, W - w * 0.22, H); // 운전석
         lw(2.6); seg(-W + w * 0.12, H, W - w * 0.36, H); // 판매 창 (앞쪽)
         return true;
-      }
-      case '레드카펫': {
-        box();
-        const fill = ctx.fillStyle;
-        ctx.fillStyle = '#e03131';
-        tint(0.4);
-        ctx.fillStyle = fill;
-        lw(1.1); ctx.stroke();
+      case '쓰레기통':
+        circle(0, 0, m / 2); back(); paint(); lw(1.3); ctx.stroke();
+        circle(0, 0, m * 0.28); lw(0.9); ctx.stroke();
+        return true;
+      case '러버콘':
+        outline();
+        circle(0, 0, m * 0.3); ctx.stroke();
+        circle(0, 0, m * 0.08); ctx.fill();
+        return true;
+      case '소화기':
+        circle(0, 0, m / 2); back(); lw(1.3); ctx.stroke();
+        label('소', m * 0.6, m * 0.03);
+        return true;
+      case '사람': {
+        const person = (x, y, rx, ry, r) => {
+          ctx.beginPath(); ctx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2); back(); ctx.stroke();
+          circle(x, y, r); ctx.fill();
+        };
+        lw(1);
+        if (!it) { person(0, 0, w * 0.42, h * 0.3, m * 0.2); return true; }
+        const n = Math.max(1, it.count || 1), per = Math.max(1, Math.min(n, it.perRow || 10));
+        const rows = Math.ceil(n / per), cw = w / per;
+        if (cw / px < 5) {
+          for (let r = 0; r < rows; r++) { rect(-W, -H + r * 600, w, 400); tint(0.45); }
+          return true;
+        }
+        for (let i = 0; i < n; i++) {
+          const r = Math.floor(i / per), c = i % per;
+          const inRow = r === rows - 1 ? n - per * (rows - 1) : per;
+          person(-W + (w - inRow * cw) / 2 + (c + 0.5) * cw, -H + 200 + r * 600, 230, 120, 95);
+        }
         return true;
       }
+      case '승용차':
+      case '버스': {
+        rrect(-W, -H, w, h, m * (kind === '버스' ? 0.14 : 0.3));
+        back(); paint(); lw(1.3); ctx.stroke(); lw(0.9);
+        if (kind === '버스') {
+          seg(W - w * 0.07, -H * 0.8, W - w * 0.07, H * 0.8);
+          for (let i = 1; i < 7; i++) { const x = -W + (w * 0.9 * i) / 7; seg(x, -H, x, -H * 0.8); seg(x, H, x, H * 0.8); }
+        } else {
+          rrect(-W * 0.55, -H * 0.78, w * 0.5, h * 0.78, m * 0.12); ctx.stroke(); // 지붕
+          seg(W * 0.45, -H * 0.78, W * 0.62, -H * 0.55); seg(W * 0.45, H * 0.78, W * 0.62, H * 0.55);
+        }
+        return true;
+      }
+      case '건물': {
+        box(); back(); tint(0.16, it && it.color); lw(2.6); ctx.stroke(); lw(0.8);
+        const step = Math.max(m * 0.22, 6 * px);
+        ctx.save();
+        ctx.beginPath(); ctx.rect(-W, -H, w, h); ctx.clip();
+        ctx.globalAlpha *= 0.45;
+        for (let x = -W - h; x < W; x += step) seg(x, H, x + h, -H);
+        ctx.restore();
+        lw(4); ctx.save(); ctx.strokeStyle = App.plan ? App.plan.colors.canvasBg : '#fff'; if (it) seg(-Math.min(W * 0.2, 1500), H, Math.min(W * 0.2, 1500), H); ctx.restore(); // 출입구 (앞쪽 가운데)
+        if (it) label(`건물 ${it.floors || 1}층`, Math.min(m * 0.2, w / 8));
+        return true;
+      }
+      case '나무': {
+        const r = m / 2;
+        ctx.beginPath();
+        for (let i = 0; i <= 10; i++) {
+          const a0 = (i / 10) * Math.PI * 2;
+          ctx.arc(Math.cos(a0) * r * 0.72, Math.sin(a0) * r * 0.72, r * 0.3, a0 - 1.2, a0 + 1.2);
+        }
+        ctx.closePath();
+        tint(0.14); lw(1.1); ctx.stroke();
+        circle(0, 0, r * 0.1); ctx.fill();
+        return true;
+      }
+      case '담장':
+        box(); tint(0.5); lw(1.1); ctx.stroke();
+        return true;
+      case '주차 구획': {
+        const n = it ? Math.max(1, it.count || 1) : 3;
+        lw(1.4);
+        seg(-W, -H, W, -H);
+        for (let i = 0; i <= n; i++) seg(-W + (w * i) / n, -H, -W + (w * i) / n, H);
+        return true;
+      }
+      case '가로등':
+        circle(0, 0, m * 0.35); ctx.fill();
+        lw(1.2); seg(0, 0, 0, m * 1.3);
+        circle(0, m * 1.3, m * 0.3); back(); ctx.stroke();
+        return true;
       default:
         return false;
     }
@@ -1025,13 +1311,16 @@
       const marked = marks && marks.ids.has(z.id);
       ctx.beginPath();
       polygon(ctx, z.points);
-      ctx.fillStyle = marked ? plan.colors[marks.color] : z.color;
-      ctx.globalAlpha = selected ? 0.22 : marked ? 0.18 : 0.1;
+      // 바닥 종류(잔디·아스팔트 등)를 정한 영역은 그 색으로 더 진하게
+      const color = App.catalog.surfaceColor(z);
+      const base = z.surface ? 0.3 : 0.1;
+      ctx.fillStyle = marked ? plan.colors[marks.color] : color;
+      ctx.globalAlpha = selected ? base + 0.12 : marked ? base + 0.08 : base;
       ctx.fill();
       ctx.globalAlpha = 1;
       ctx.setLineDash([8 * px, 5 * px]);
       ctx.lineWidth = (selected ? 2.4 : 1.6) * px;
-      ctx.strokeStyle = selected ? plan.colors.accent : z.color;
+      ctx.strokeStyle = selected ? plan.colors.accent : color;
       ctx.stroke();
       ctx.setLineDash([]);
     });
@@ -1051,8 +1340,130 @@
         ctx.lineWidth = 3;
         ctx.strokeStyle = plan.colors.canvasBg;
         ctx.strokeText(text, s.x, s.y + dy);
-        ctx.fillStyle = App.selection.has(z.id) ? plan.colors.accent : z.color;
+        ctx.fillStyle = App.selection.has(z.id) ? plan.colors.accent : (z.surface ? plan.colors.fg || plan.colors.wall : z.color);
         ctx.fillText(text, s.x, s.y + dy);
+      });
+    });
+  }
+
+  /* ── 동선: 통로 폭 띠 + 가운데 점선 + 방향 화살표. 걸리는 구간은 빨갛게 ── */
+  const ROUTE_BAD = '#e03131';
+  function strokePath(ctx, pts) {
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+    ctx.stroke();
+  }
+  /** 동선을 따라 s0~s1(mm) 구간의 점들 */
+  function subPath(r, s0, s1) {
+    const R = App.routes;
+    const out = [R.pointAt(r, s0)];
+    let acc = 0;
+    for (let i = 1; i < r.points.length; i++) {
+      acc += G.dist(r.points[i - 1], r.points[i]);
+      if (acc > s0 && acc < s1) out.push(r.points[i]);
+    }
+    out.push(R.pointAt(r, s1));
+    return out;
+  }
+  function arrowHead(ctx, p, dir, size) {
+    const n = { x: -dir.y, y: dir.x };
+    ctx.beginPath();
+    ctx.moveTo(p.x + dir.x * size, p.y + dir.y * size);
+    ctx.lineTo(p.x - dir.x * size * 0.6 + n.x * size * 0.7, p.y - dir.y * size * 0.6 + n.y * size * 0.7);
+    ctx.lineTo(p.x - dir.x * size * 0.6 - n.x * size * 0.7, p.y - dir.y * size * 0.6 - n.y * size * 0.7);
+    ctx.closePath();
+    ctx.fill();
+  }
+  function routeShape(plan, r, opts = {}) {
+    const pts = r.points;
+    if (!pts || pts.length < 2) return;
+    const ctx = plan.ctx;
+    const px = 1 / plan.view.scale;
+    const R = App.routes;
+    const color = r.color || R.def(r.kind).color;
+    const total = App.model.TYPES.route.length(r);
+    ctx.save();
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    // 통로 폭 띠
+    ctx.strokeStyle = opts.marked ? plan.colors.accent : color;
+    ctx.globalAlpha = opts.selected || opts.marked ? 0.3 : 0.17;
+    ctx.lineWidth = Math.max(r.width || 0, 8 * px);
+    strokePath(ctx, pts);
+    // 걸리는 구간
+    const issues = opts.preview ? [] : R.check(r).issues;
+    ctx.strokeStyle = ROUTE_BAD;
+    ctx.globalAlpha = 0.42;
+    issues.forEach((x) => strokePath(ctx, subPath(r, Math.max(0, x.from - R.STEP / 2), Math.min(total, x.to + R.STEP / 2))));
+    // 가운데 선
+    ctx.globalAlpha = opts.preview ? 0.8 : 1;
+    ctx.strokeStyle = opts.selected ? plan.colors.accent : color;
+    ctx.fillStyle = ctx.strokeStyle;
+    ctx.lineWidth = (opts.selected ? 3 : 2.2) * px;
+    ctx.setLineDash([10 * px, 6 * px]);
+    strokePath(ctx, pts);
+    ctx.setLineDash([]);
+    // 방향 화살표: 일정 간격마다, 그리고 끝에 크게
+    const gap = Math.max(110 * px, 3000);
+    for (let s = gap / 2; s < total - gap * 0.3; s += gap) {
+      const p = R.pointAt(r, s);
+      arrowHead(ctx, p, p.dir, 6 * px);
+    }
+    const end = R.pointAt(r, total);
+    arrowHead(ctx, end, end.dir, 10 * px);
+    // 출발점
+    ctx.beginPath();
+    ctx.arc(pts[0].x, pts[0].y, 6.5 * px, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.lineWidth = 2 * px;
+    ctx.strokeStyle = plan.colors.canvasBg;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /** 동선 이름·길이·걸리는 시간, 걸리는 곳 표시(!). 화면 좌표 */
+  function drawRouteLabels(plan, routes) {
+    const ctx = plan.ctx;
+    const R = App.routes, U = App.units;
+    const placed = []; // 이미 놓은 이름표 자리 (겹치면 아래로 밀어 냄)
+    routes.forEach((r) => {
+      if (!r.points || r.points.length < 2) return;
+      const res = R.check(r);
+      const mid = R.pointAt(r, res.length / 2);
+      const s = plan.view.toScreen(mid.x, mid.y);
+      const n = { x: -mid.dir.y, y: mid.dir.x };
+      const off = Math.max(16, ((r.width || 0) / 2) * plan.view.scale * 0.5 + 12);
+      const text = `${r.name} · ${U.formatRun(res.length)} · ${R.timeText(res.time)}`;
+      if (res.length * plan.view.scale > 70) {
+        ctx.font = TAG_FONT;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const x = s.x + n.x * off, tw = ctx.measureText(text).width / 2 + 6;
+        let y = s.y + n.y * off;
+        for (let k = 0; k < 6 && placed.some((q) => Math.abs(q.x - x) < q.w + tw && Math.abs(q.y - y) < 18); k++) y += 19;
+        placed.push({ x, y, w: tw });
+        ctx.lineWidth = 3.5;
+        ctx.strokeStyle = plan.colors.canvasBg;
+        ctx.strokeText(text, x, y);
+        ctx.fillStyle = App.selection.has(r.id) ? plan.colors.accent : r.color;
+        ctx.fillText(text, x, y);
+      }
+      // 걸리는 곳: 빨간 동그라미에 느낌표
+      res.issues.forEach((x) => {
+        const q = plan.view.toScreen(x.at.x, x.at.y);
+        ctx.beginPath();
+        ctx.arc(q.x, q.y, 9, 0, Math.PI * 2);
+        ctx.fillStyle = ROUTE_BAD;
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#fff';
+        ctx.stroke();
+        ctx.font = '700 13px system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#fff';
+        ctx.fillText('!', q.x, q.y + 0.5);
       });
     });
   }
@@ -1398,6 +1809,12 @@
     screenTransform(plan);
     dimShape(plan, { start: a, end: b, offset, manual: null }, plan.colors.accent);
   }
+  /** 동선 그리는 중: 찍은 점들과 커서까지 */
+  function previewRoute(plan, points, def) {
+    if (points.length < 2) return;
+    worldTransform(plan);
+    routeShape(plan, { points, color: def.color, width: def.width, kind: def.kind }, { preview: true });
+  }
   /** 영역 그리는 중: 찍은 점들과 커서까지 */
   function previewZone(plan, points, color) {
     if (points.length < 2) return;
@@ -1464,6 +1881,6 @@
   App.draw = {
     scene, wallOutlines, clearanceGuides, previewWall, lengthTag, snapMarker, pointMarker, selectionBox, facePreview,
     openingPreview, columnPreview, distanceTag, worldTransform, screenTransform,
-    previewLine, previewItem, previewDim, previewZone, itemIcon, lineIcon,
+    previewLine, previewItem, previewDim, previewZone, previewRoute, itemIcon, lineIcon,
   };
 })();

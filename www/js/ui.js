@@ -5,26 +5,23 @@
   const $ = (sel) => document.querySelector(sel);
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
-  // 도구 목록. stage: 만들 단계(아직 없는 도구 안내용)
+  // 모든 도구. 도구 줄에 무엇이 어떤 순서로 나오는지는 모드가 정함 (modes.js)
   const TOOLS = [
     { id: 'select', label: '선택', key: 'V' },
-    { sep: true },
-    { id: 'wall', label: '벽', key: 'W', stage: 2 },
-    { id: 'room', label: '방', key: 'R', stage: 3 },
-    { id: 'door', label: '문', key: 'D', stage: 4 },
-    { id: 'window', label: '창문', key: 'N', stage: 4 },
-    { id: 'column', label: '기둥', key: 'C', stage: 4 },
-    { sep: true },
-    { id: 'elec', label: '전기', key: 'E', stage: 5 },
-    { id: 'mech', label: '설비', key: 'F', stage: 5 },
-    { id: 'furn', label: '가구', key: 'U', stage: 5 },
-    { id: 'event', label: '행사', key: 'H', stage: 5 },
-    { id: 'line', label: '선', key: 'L', stage: 5 },
-    { sep: true },
-    { id: 'zone', label: '영역', key: 'A', stage: 5 },
-    { id: 'text', label: '텍스트', key: 'T', stage: 5 },
-    { id: 'dim', label: '치수', key: 'M', stage: 5 },
-    { sep: true },
+    { id: 'wall', label: '벽', key: 'W' },
+    { id: 'room', label: '방', key: 'R' },
+    { id: 'door', label: '문', key: 'D' },
+    { id: 'window', label: '창문', key: 'N' },
+    { id: 'column', label: '기둥', key: 'C' },
+    { id: 'elec', label: '전기', key: 'E' },
+    { id: 'mech', label: '설비', key: 'F' },
+    { id: 'furn', label: '가구', key: 'U' },
+    { id: 'event', label: '물건', key: 'H' },
+    { id: 'route', label: '동선', key: 'P' },
+    { id: 'line', label: '선', key: 'L' },
+    { id: 'zone', label: '영역', key: 'A' },
+    { id: 'text', label: '텍스트', key: 'T' },
+    { id: 'dim', label: '치수', key: 'M' },
     { id: 'erase', label: '지우개', key: 'Del' },
   ];
 
@@ -40,15 +37,18 @@
     column: { pc: '기둥을 놓을 곳을 클릭하세요', touch: '기둥을 놓을 곳을 누르세요' },
     elec: { pc: '위쪽 팔레트에서 기호를 고르고 클릭 · 콘센트·스위치는 벽 가까이면 벽면에 붙음', touch: '위쪽에서 기호를 고르고 누르세요 · 벽 가까이면 벽면에 붙음' },
     mech: { pc: '위쪽 팔레트에서 기호를 고르고 클릭 · 배관·덕트를 고르면 선 그리기', touch: '위쪽에서 기호를 고르고 누르세요 · 배관·덕트는 선 그리기' },
-    event: { pc: '위쪽에서 텐트·무대·부스·의자 배열 등을 고르고 클릭 · 놓은 뒤 속성에서 크기·높이·의자 수 · 3D 버튼으로 조감도', touch: '위쪽에서 고르고 누르세요 · 3D 버튼으로 조감도' },
+    event: { pc: '위쪽에서 분류와 물건을 고르고 클릭 · 놓은 뒤 속성에서 크기·색·의자 수·글자·이미지 · 3D 버튼으로 조감도', touch: '위쪽에서 분류와 물건을 고르고 누르세요 · 3D 버튼으로 조감도' },
+    route: { pc: '입구부터 점을 차례로 클릭해 길을 그립니다 · 같은 점을 한 번 더 누르거나 Esc로 끝 · 걸리는 곳은 빨갛게 표시', touch: '입구부터 점을 차례로 눌러 길을 그리고 ‘그리기 끝내기’ · 걸리는 곳은 빨갛게 표시' },
     furn: { pc: '위쪽에서 가구를 고르고 클릭 · 벽 가까이 놓으면 등을 벽에 대고 붙음', touch: '위쪽에서 가구를 고르고 누르세요 · 벽 가까이면 등을 벽에 대고 붙음' },
     line: { pc: '끌거나 클릭으로 점을 이어 그립니다 · 기구 가운데·끝점에 붙음 · Esc: 끝내기', touch: '끌거나 점을 차례로 눌러 그립니다' },
-    zone: { pc: '끌면 사각형, 클릭으로 점을 찍으면 다각형 · 처음 점을 다시 누르면 닫힘', touch: '끌면 사각형, 점을 차례로 누르면 다각형' },
+    get zone() { return App.modes.is('event') ? ZONE_EVENT_USAGE : ZONE_USAGE; },
     text: { pc: '글자를 넣을 곳을 클릭 · Enter로 확정, Shift+Enter 줄바꿈', touch: '글자를 넣을 곳을 누르고 입력하세요' },
     get dim() { return DIM_USAGE[App.current.dimMode] || DIM_USAGE.clear; },
     erase: { pc: '지울 항목을 클릭하거나 문지르세요', touch: '지울 항목을 누르거나 문지르세요' },
   };
 
+  const ZONE_USAGE = { pc: '끌면 사각형, 클릭으로 점을 찍으면 다각형 · 처음 점을 다시 누르면 닫힘', touch: '끌면 사각형, 점을 차례로 누르면 다각형' };
+  const ZONE_EVENT_USAGE = { pc: '위쪽에서 바닥(잔디·아스팔트 등)을 고르고 끌면 사각형, 클릭으로 점을 찍으면 다각형 · 3D에서 그 바닥으로 보임', touch: '위쪽에서 바닥을 고르고 끌면 사각형, 점을 차례로 누르면 다각형' };
   // 치수 도구 방식별 사용법 (위쪽 칩에서 고름)
   const DIM_USAGE = {
     clear: { pc: '안목: 방 안을 클릭하면 가로·세로, 벽을 클릭하면 그 면 길이 · 끌면 두 점', touch: '안목: 방 안을 누르면 가로·세로, 벽을 누르면 그 면 길이' },
@@ -85,6 +85,7 @@
     },
     setTool,
     pickTool,
+    rebuildToolbar,
     updateHistory,
     toast,
     hint,
@@ -96,20 +97,30 @@
 
   /* ── 도구 바 ───────────────────────────── */
   function buildToolbar() {
-    const bar = $('#toolbar');
-    bar.innerHTML = TOOLS.map((t) =>
-      t.sep
-        ? '<span class="tool-sep" role="separator"></span>'
-        : `<button type="button" class="tool" data-tool="${t.id}" title="${t.label} (${t.key})" aria-pressed="false">` +
-          `<span class="ico" data-icon="${t.id}"></span><span class="tool-label">${t.label}</span>` +
-          `<kbd class="tool-key">${t.key}</kbd></button>`
-    ).join('');
-    App.icons.apply(bar);
-    bar.addEventListener('click', (e) => {
+    $('#toolbar').addEventListener('click', (e) => {
       const btn = e.target.closest('.tool');
       if (btn) pickTool(btn.dataset.tool);
     });
-    setTool(ui.tool);
+    rebuildToolbar();
+  }
+  /** 지금 모드의 도구들로 도구 줄을 다시 만듦. 쓰던 도구가 이 모드에 없으면 '선택'으로 */
+  function rebuildToolbar() {
+    const bar = $('#toolbar');
+    const ids = App.modes.tools();
+    const html = ids.map((id) => {
+      if (id === '|') return '<span class="tool-sep" role="separator"></span>';
+      const t = TOOLS.find((x) => x.id === id);
+      return `<button type="button" class="tool" data-tool="${t.id}" title="${t.label} (${t.key})" aria-pressed="false">` +
+        `<span class="ico" data-icon="${t.id}"></span><span class="tool-label">${t.label}</span>` +
+        `<kbd class="tool-key">${t.key}</kbd></button>`;
+    }).join('');
+    if (bar.dataset.tools !== ids.join(',')) {
+      bar.dataset.tools = ids.join(',');
+      bar.innerHTML = html;
+      App.icons.apply(bar);
+      bar.scrollTo({ left: 0, top: 0 });
+    }
+    setTool(ids.includes(ui.tool) ? ui.tool : 'select');
   }
 
   const isTouch = () => window.matchMedia('(hover: none), (pointer: coarse)').matches;
@@ -121,7 +132,7 @@
     if (id === 'erase' && App.actions.deleteSelection()) return;
     setTool(id);
     if (USAGE[id]) hint(isTouch() ? USAGE[id].touch : USAGE[id].pc, 4000);
-    else if (!App.tools.implemented(id)) hint(`‘${t.label}’ 도구는 ${t.stage}단계에서 만듭니다.`);
+    else if (!App.tools.implemented(id)) hint(`‘${t.label}’ 도구는 아직 쓸 수 없습니다.`);
     else $('#toolHint').classList.remove('is-show'); // 이전 도구 안내가 남지 않게
   }
 
@@ -237,7 +248,7 @@
     ui.on('toolstate', (tool) => {
       const chaining = !!(tool && tool.isChaining && tool.isChaining());
       $('#btnFinish').hidden = !chaining;
-      $('#btnLength').hidden = !chaining;
+      $('#btnLength').hidden = !chaining || !tool.addLength; // 길이를 숫자로 넣을 수 있는 도구만
       if (!chaining) closeLength();
     });
     bindLength();
@@ -248,7 +259,7 @@
   const DIRS = { right: { x: 1, y: 0 }, left: { x: -1, y: 0 }, up: { x: 0, y: -1 }, down: { x: 0, y: 1 } };
   const chainTool = () => {
     const t = App.tools.current;
-    return t && t.isChaining && t.isChaining() ? t : null;
+    return t && t.addLength && t.isChaining && t.isChaining() ? t : null;
   };
   function openLength(prefill = '') {
     if (!chainTool()) return false;
@@ -440,10 +451,25 @@
         return { ...o, swatch: (p) => p.color, list: () => App.catalog.presets('line').filter((p) => p.category === cat) };
       }
       case 'zone':
+        // 조감도 모드: 바닥 종류(잔디·아스팔트 등)를 고름. '색만'이면 영역 색으로
+        if (App.modes.is('event')) {
+          return {
+            label: '바닥', key: 'zoneSurface',
+            list: () => App.catalog.SURFACES.map(([id, name, color]) => ({ id, name, color: color || App.current.zoneColor })),
+            text: (c) => c.name, sub: (c) => (c.id === '' ? '영역 색으로만 칠함 (구역 표시)' : c.id === 'carpet' ? '영역 색의 카펫' : ''), swatch: (c) => c.color,
+          };
+        }
         return {
           label: '영역 색', key: 'zoneColor',
           list: () => App.catalog.COLORS.map(([id, name]) => ({ id, name })),
           text: (c) => c.name, sub: () => '', swatch: (c) => c.id,
+        };
+      case 'route':
+        return {
+          label: '동선', key: 'routeKind',
+          list: () => App.routes.KINDS.map((k) => ({ id: k.kind, name: k.kind, color: k.color, width: k.width })),
+          text: (c) => c.name, sub: (c) => `통로 폭 ${App.units.formatLength(c.width)}`, swatch: (c) => c.color,
+          actions: [{ act: 'route-check', label: '동선 체크 (걸리는 곳 찾기)' }],
         };
       case 'dim':
         return {
@@ -499,14 +525,22 @@
       ${o.actions ? `<div class="menu-sep" role="separator"></div>${o.actions.map((a) => `<button type="button" class="menu-item" role="menuitem" data-act="${escHtml(a.act)}">${escHtml(a.label)}</button>`).join('')}` : ''}`;
   }
 
-  /** 전기·설비·가구·행사 기호 팔레트 */
+  /** 전기·설비·가구·조감도 물건 팔레트. 조감도 물건은 분류 탭으로 나눠 보여 줌 */
   function renderPalette() {
-    const pal = $('#palette');
+    const pal = $('#palette'), cats = $('#paletteCats');
     const cat = ['elec', 'mech', 'furn', 'event'].includes(ui.tool) ? ui.tool : null;
     pal.hidden = !cat;
+    cats.hidden = cat !== 'event';
     if (!cat) return;
+    App.catalog.ensureCurrent();
     const current = App.current[`${cat}Kind`];
-    pal.innerHTML = App.catalog.ITEM_KINDS[cat].map((d) => {
+    let list = App.catalog.ITEM_KINDS[cat];
+    if (cat === 'event') {
+      const groups = App.catalog.eventPalette();
+      cats.innerHTML = groups.map((g) => `<button type="button" class="cat-btn" data-cat="${escHtml(g.cat)}" aria-pressed="${g.cat === App.current.eventCat}">${escHtml(g.cat)}</button>`).join('');
+      list = (groups.find((g) => g.cat === App.current.eventCat) || groups[0]).kinds;
+    }
+    pal.innerHTML = list.map((d) => {
       const name = d.kind || d.line;
       const icon = d.kind ? App.draw.itemIcon(d.kind) : App.draw.lineIcon(d.line);
       return `<button type="button" class="pal-btn" data-kind="${escHtml(name)}" aria-pressed="${name === current}" title="${escHtml(name)}${d.line ? ' (선 그리기)' : ''}">
@@ -528,6 +562,17 @@
       menu.hidden = false;
       btn.setAttribute('aria-expanded', 'true');
     });
+    // 조감도 물건 분류 탭: 그 분류의 첫 물건을 바로 고름
+    $('#paletteCats').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-cat]');
+      if (!b) return;
+      App.current.eventCat = b.dataset.cat;
+      const group = App.catalog.eventPalette().find((g) => g.cat === b.dataset.cat);
+      if (group && !group.kinds.some((d) => d.kind === App.current.eventKind)) App.current.eventKind = group.kinds[0].kind;
+      ui.emit('current');
+      setTool(ui.tool);
+      $('#palette').scrollTo({ left: 0 });
+    });
     $('#palette').addEventListener('click', (e) => {
       const b = e.target.closest('[data-kind]');
       if (!b) return;
@@ -540,7 +585,7 @@
     menu.addEventListener('click', (e) => {
       const o = toolOption(ui.tool);
       const item = e.target.closest('[data-id]');
-      if (item) {
+      if (item && !item.dataset.act) {
         App.current[o.key] = item.dataset.id;
         ui.emit('current');
         closeToolMenu();
@@ -557,6 +602,7 @@
           'dims-outside-clear': () => App.dims.outside('clear'),
           'dims-outside': () => App.dims.outside('center'),
           'dims-rooms': () => App.dims.rooms(),
+          'route-check': () => App.routes.report(),
           'wall-lengths': () => {
             App.settings.showWallLengths = !App.settings.showWallLengths;
             App.saveSettings();
@@ -577,6 +623,7 @@
       if (e.key === 'Escape') closeToolMenu();
     });
     ui.on('tool', updateToolOption);
+    ui.on('mode', updateToolOption);
     ui.on('settings', updateToolOption);
     App.doc.onChange(updateToolOption);
 

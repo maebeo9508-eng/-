@@ -27,9 +27,12 @@
 <script src="js/dxf.js" defer></script>
 <script src="js/dwg.js" defer></script>
 <script src="js/underlay.js" defer></script>
+<script src="js/images.js" defer></script>
 <script src="js/rooms.js" defer></script>
+<script src="js/routes.js" defer></script>
 <script src="js/input.js" defer></script>
 <script src="js/tools.js" defer></script>
+<script src="js/modes.js" defer></script>
 <script src="js/ui.js" defer></script>
 <script src="js/props.js" defer></script>
 <script src="js/catalog-ui.js" defer></script>
@@ -38,6 +41,8 @@
 <script src="js/edit.js" defer></script>
 <script src="js/settings.js" defer></script>
 <script src="js/projects.js" defer></script>
+<script src="js/gl3d.js" defer></script>
+<script src="js/models3d.js" defer></script>
 <script src="js/view3d.js" defer></script>
 <script src="js/keys.js" defer></script>
 <script src="js/main.js" defer></script>
@@ -50,7 +55,7 @@
 
     <div class="menu-wrap">
       <button type="button" class="tb-btn" id="btnFile" aria-haspopup="menu" aria-expanded="false" aria-controls="fileMenu">
-        <span class="ico" data-icon="file"></span><span>파일</span><span class="ico ico-sm" data-icon="chevron"></span>
+        <span class="ico" data-icon="file"></span><span class="tb-label">파일</span><span class="ico ico-sm" data-icon="chevron"></span>
       </button>
       <div class="menu" id="fileMenu" role="menu" hidden>
         <div class="menu-label">프로젝트</div>
@@ -95,6 +100,12 @@
 
       <div class="stage-top" id="stageTop">
       <div class="stage-row">
+      <div class="menu-wrap mode-wrap">
+        <button type="button" class="stage-pill mode-pill" id="btnMode" aria-haspopup="menu" aria-expanded="false" aria-controls="modeMenu">
+          <span class="ico ico-sm" id="modeIcon" data-icon="room"></span><span id="modeLabel">인테리어</span><span class="ico ico-sm" data-icon="chevron"></span>
+        </button>
+        <div class="menu mode-menu" id="modeMenu" role="menu" hidden></div>
+      </div>
       <div class="snap-wrap" id="snapWrap">
       <!-- 휴대폰: 스냅 버튼들을 접어 두고, 누르면 체크 목록으로 열림 -->
       <button type="button" class="stage-pill snap-toggle" id="btnSnap" aria-expanded="false" aria-controls="snapbar" title="붙기(스냅) 설정">
@@ -116,6 +127,7 @@
         <div class="menu layer-menu" id="layerMenu" role="menu" hidden></div>
       </div>
       </div>
+      <div class="pal-cats" id="paletteCats" role="tablist" aria-label="물건 분류" hidden></div>
       <div class="palette" id="palette" role="toolbar" aria-label="기호 고르기" hidden></div>
       <div class="menu-wrap tool-opt-wrap">
         <button type="button" class="tool-opt" id="toolOpt" aria-haspopup="menu" aria-expanded="false" aria-controls="toolOptMenu" hidden>
@@ -228,6 +240,7 @@
 
   <input type="file" id="importFile" accept=".dwg,.dxf" hidden>
   <input type="file" id="projectFile" accept=".json,application/json" hidden>
+  <input type="file" id="imageFile" accept="image/*" hidden>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 </div>
