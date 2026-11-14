@@ -138,9 +138,38 @@
       { kind: '신발장', size: 1000, depth: 380, h3: 1200, back: true },
     ],
   };
-  // 가구는 높이 0(바닥)에 놓이고, 실제 크기로 그리는 것(깊이가 있는 것)의 기호 비율은 깊이 ÷ 폭
-  ITEM_KINDS.furn.forEach((d) => { d.height = 0; });
-  [...ITEM_KINDS.mech, ...ITEM_KINDS.furn].forEach((d) => { if (d.depth) d.aspect = d.depth / d.size; });
+  /* 행사: 행사장 배치와 조감도용. 실제 크기(폭 size × 깊이 depth)로 그리고, h3은 3D 높이(물건마다 고칠 수 있음).
+     기호의 위쪽(-y)이 등, 아래쪽(+y)이 앞 (의자는 앞을 보고 앉음). grid: 의자 배열의 의자 한 칸 크기 */
+  ITEM_KINDS.event = [
+    { kind: '몽골텐트', size: 5000, depth: 5000, h3: 2500, sizes: [['3×3', 3000, 3000], ['4×4', 4000, 4000], ['5×5', 5000, 5000], ['6×3', 6000, 3000], ['10×10', 10000, 10000]] },
+    { kind: '무대', size: 7200, depth: 4800, h3: 900, back: true, sizes: [['3.6×2.4', 3600, 2400], ['5.4×3.6', 5400, 3600], ['7.2×4.8', 7200, 4800], ['9×5.4', 9000, 5400], ['12×7.2', 12000, 7200]] },
+    { kind: '트러스', size: 8000, depth: 400, h3: 4000, sizes: [['4m', 4000, 400], ['6m', 6000, 400], ['8m', 8000, 400], ['10m', 10000, 400], ['12m', 12000, 400]] },
+    { kind: '부스', size: 3000, depth: 3000, h3: 2500, back: true, sizes: [['2×2', 2000, 2000], ['3×3', 3000, 3000], ['6×3', 6000, 3000], ['9×3', 9000, 3000]] },
+    {
+      kind: '원형 테이블', size: 1500, depth: 1500, h3: 750, sizes: [['Ø1200', 1200, 1200], ['Ø1500', 1500, 1500], ['Ø1800', 1800, 1800]],
+      options: { variant: { label: '의자', values: ['의자 없음', '의자 6개', '의자 8개', '의자 10개'], default: '의자 8개' } },
+    },
+    { kind: '테이블', size: 1800, depth: 600, h3: 750, sizes: [['1200×600', 1200, 600], ['1500×600', 1500, 600], ['1800×600', 1800, 600], ['1800×750', 1800, 750]] },
+    {
+      kind: '의자 배열', size: 5000, depth: 4500, h3: 850, grid: { w: 500, d: 900 },
+      numbers: {
+        cols: { label: '한 줄 의자 수', unit: '개', default: 10, min: 1, max: 200 },
+        rows: { label: '줄 수', unit: '줄', default: 5, min: 1, max: 200 },
+        gap: { label: '줄 간격', unit: 'mm', default: 900, min: 450, max: 5000 },
+      },
+    },
+    { kind: '펜스', size: 2000, depth: 100, h3: 1100, sizes: [['1.5m', 1500, 100], ['2m', 2000, 100], ['2.5m', 2500, 100]] },
+    { kind: 'LED 스크린', size: 4000, depth: 300, h3: 3000, back: true, sizes: [['3m', 3000, 300], ['4m', 4000, 300], ['6m', 6000, 300], ['8m', 8000, 300]] },
+    { kind: '배너·포토월', size: 3000, depth: 300, h3: 2400, back: true, sizes: [['X배너', 600, 300], ['포토월 3m', 3000, 300], ['포토월 5m', 5000, 300]] },
+    { kind: '스피커', size: 600, depth: 500, h3: 1800 },
+    { kind: '데스크', size: 1800, depth: 600, h3: 1000, back: true },
+    { kind: '이동식 화장실', size: 1200, depth: 1200, h3: 2300, back: true },
+    { kind: '푸드트럭', size: 6000, depth: 2200, h3: 2800 },
+    { kind: '레드카펫', size: 1200, depth: 6000, h3: 10 },
+  ];
+  // 가구·행사 물건은 높이 0(바닥)에 놓이고, 실제 크기로 그리는 것(깊이가 있는 것)의 기호 비율은 깊이 ÷ 폭
+  [...ITEM_KINDS.furn, ...ITEM_KINDS.event].forEach((d) => { d.height = 0; });
+  Object.values(ITEM_KINDS).flat().forEach((d) => { if (d.depth) d.aspect = d.depth / d.size; });
   const LINE_CATEGORIES = ['전선관', '배관', '덕트', '기타'];
   const COLORS = [
     ['#e03131', '빨강'], ['#c2255c', '자홍'], ['#e8590c', '주황'], ['#f08c00', '노랑'], ['#2f9e44', '초록'],
@@ -160,7 +189,7 @@
     COLORS,
 
     itemDef(kind) {
-      return [...ITEM_KINDS.elec, ...ITEM_KINDS.mech, ...ITEM_KINDS.furn].find((d) => d.kind === kind) || null;
+      return Object.values(ITEM_KINDS).flat().find((d) => d.kind === kind) || null;
     },
     /** 종류의 기본 속성값 (설치 높이, 구수·형식, 회로 수) */
     itemDefaults(def) {
@@ -171,6 +200,13 @@
     },
     /** 집계용 이름: '콘센트 2구 · 일반(접지)', '분전반 12회로' */
     itemLabel(it) {
+      if (it.category === 'event') {
+        // 행사 물건: 규격 이름이 있으면 그것만 (예: 몽골텐트 5×5), 없으면 폭×깊이. 의자는 좌석 수
+        const seats = catalog.seats(it);
+        if (it.kind === '의자 배열') return `의자 배열 ${seats.cols}개×${seats.rows}줄 (${seats.count}석)`;
+        const base = `${it.kind} ${catalog.sizeName(it) || `${num(it.size)}×${num(it.depth)}`}`;
+        return it.variant ? `${base} · ${it.variant}` : base;
+      }
       if (it.depth != null) {
         // 실제 크기로 그리는 것: 규격 이름(크기가 맞으면)과 폭×깊이
         const name = catalog.sizeName(it).replace(/^\d+$/, ''); // '450'처럼 숫자뿐인 규격 이름은 크기와 겹쳐서 뺌
@@ -180,6 +216,23 @@
       const parts = [it.kind + (it.gang ? ` ${it.gang}` : '') + (it.circuits ? ` ${it.circuits}회로` : '')];
       if (it.variant) parts.push(it.variant);
       return parts.join(' · ');
+    },
+    /** 좌석 수: 의자 배열은 { cols, rows, count }, 원형 테이블은 { count }(둘레 의자). 좌석이 없는 것은 null */
+    seats(it) {
+      if (it.kind === '의자 배열') {
+        const cols = Math.max(1, it.cols || 1), rows = Math.max(1, it.rows || 1);
+        return { cols, rows, count: cols * rows };
+      }
+      if (it.kind === '원형 테이블') {
+        const n = parseInt((String(it.variant || '').match(/\d+/) || [0])[0], 10) || 0;
+        return n ? { count: n } : null;
+      }
+      return null;
+    },
+    /** 3D 높이(mm): 물건마다 고친 값, 없으면 종류의 기본값 */
+    itemHeight3(it) {
+      const def = catalog.itemDef(it.kind) || {};
+      return it.h3 != null ? it.h3 : def.h3 || 800;
     },
     /** 폭×깊이가 규격 목록의 하나와 같으면 그 이름 (예: 퀸, 4way) */
     sizeName(it) {
@@ -280,6 +333,7 @@
       if (!cur.elecKind) cur.elecKind = '콘센트';
       if (!cur.mechKind) cur.mechKind = '에어컨 실내기';
       if (!cur.furnKind) cur.furnKind = '침대';
+      if (!cur.eventKind) cur.eventKind = '몽골텐트';
       if (!cur.zoneColor) cur.zoneColor = '#7048e8'; // 선택 표시(주황)·방 바닥(파랑)과 헷갈리지 않는 보라
       if (!cur.textSize) cur.textSize = '200';
       if (!['clear', 'center', 'free'].includes(cur.dimMode)) cur.dimMode = 'clear';

@@ -13,6 +13,7 @@
     { id: 'elec', label: '전기' },
     { id: 'mech', label: '설비' },
     { id: 'furn', label: '가구' },
+    { id: 'event', label: '행사' },
     { id: 'zone', label: '영역' },
     { id: 'memo', label: '메모' },
     { id: 'dim', label: '치수' },

@@ -690,6 +690,7 @@
         break;
       default:
         if (furniture(ctx, kind, w, h, lw, seg, box, back)) break;
+        if (eventSymbol(ctx, kind, w, h, px, ink, lw, seg, box, back, it)) break;
         circle(w / 2); back(); lw(1.6); ctx.stroke();
     }
   }
@@ -825,6 +826,135 @@
         const n = Math.min(5, Math.max(2, Math.round(w / (h * 1.2))));
         for (let i = 1; i < n; i++) { const x = -W + (w * i) / n; seg(x, -H, x, H); }
         seg(-W, H - h * 0.12, W, H - h * 0.12);
+        return true;
+      }
+      default:
+        return false;
+    }
+  }
+
+  /** 행사 물건 평면 기호 (기호 가운데 기준, 위쪽 -y가 등, 아래쪽 +y가 앞). 행사 종류가 아니면 false.
+      it가 없으면(팔레트 아이콘) 크기 단위가 mm가 아니므로 비율로만 그림 */
+  function eventSymbol(ctx, kind, w, h, px, ink, lw, seg, box, back, it) {
+    const W = w / 2, H = h / 2, m = Math.min(w, h);
+    const outline = (k = 1.3) => { box(); back(); lw(k); ctx.stroke(); lw(0.9); };
+    const label = (text, size, y = 0) => {
+      ctx.font = `700 ${size}px system-ui, sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(text, 0, y);
+    };
+    const tint = (alpha) => { const a = ctx.globalAlpha; ctx.globalAlpha = a * alpha; ctx.fill(); ctx.globalAlpha = a; };
+    /** 의자 하나: (cx, cy) 가운데, 폭 cw × 깊이 ch, 등받이는 -y 쪽. rot(라디안) 만큼 돌림 */
+    const chair = (cx, cy, cw, ch, rot = 0) => {
+      ctx.save();
+      ctx.translate(cx, cy);
+      if (rot) ctx.rotate(rot);
+      ctx.beginPath(); ctx.rect(-cw / 2, -ch / 2, cw, ch); back(); ctx.stroke();
+      ctx.beginPath(); ctx.rect(-cw / 2, -ch / 2, cw, ch * 0.22); ctx.fill();
+      ctx.restore();
+    };
+    switch (kind) {
+      case '몽골텐트':
+        outline();
+        seg(-W, -H, W, H); seg(-W, H, W, -H);
+        ctx.beginPath(); ctx.arc(0, 0, m * 0.04, 0, Math.PI * 2); ctx.fill();
+        return true;
+      case '무대':
+        outline(2);
+        seg(-W, H - m * 0.08, W, H - m * 0.08); // 앞쪽 끝
+        label('무대', m * 0.24);
+        return true;
+      case '트러스': {
+        outline();
+        const n = Math.max(2, Math.round(w / h));
+        for (let i = 0; i < n; i++) {
+          const x0 = -W + (w * i) / n, x1 = -W + (w * (i + 1)) / n;
+          if (i % 2) seg(x0, H, x1, -H); else seg(x0, -H, x1, H);
+        }
+        return true;
+      }
+      case '부스': {
+        box(); back();
+        ctx.beginPath(); ctx.moveTo(-W, H); ctx.lineTo(-W, -H); ctx.lineTo(W, -H); ctx.lineTo(W, H);
+        lw(2.6); ctx.stroke(); // 뒤·옆 벽
+        lw(0.9);
+        ctx.setLineDash([m * 0.06, m * 0.05]);
+        seg(-W, H, W, H); // 열린 앞쪽
+        ctx.setLineDash([]);
+        return true;
+      }
+      case '원형 테이블': {
+        const r = m / 2;
+        lw(0.9);
+        const n = it ? (App.catalog.seats(it) || { count: 0 }).count : 8;
+        const cs = it ? 430 : r * 0.55;
+        for (let i = 0; i < n; i++) {
+          const a = (i / n) * Math.PI * 2;
+          const d = r + cs * 0.62;
+          chair(Math.sin(a) * d, -Math.cos(a) * d, cs, cs, a); // 등받이가 바깥쪽
+        }
+        ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); back(); lw(1.3); ctx.stroke();
+        return true;
+      }
+      case '테이블':
+        outline();
+        return true;
+      case '데스크':
+        outline();
+        seg(-W, -H + h * 0.3, W, -H + h * 0.3);
+        return true;
+      case '의자 배열': {
+        const s = it ? App.catalog.seats(it) : { cols: 4, rows: 3 };
+        const pw = w / s.cols, ph = h / s.rows;
+        lw(0.9);
+        ctx.setLineDash([m * 0.03, m * 0.03]);
+        box(); ctx.stroke();
+        ctx.setLineDash([]);
+        if (pw / px < 4) {
+          // 멀리서는 줄마다 띠로
+          for (let r = 0; r < s.rows; r++) { ctx.beginPath(); ctx.rect(-W, -H + r * ph + ph * 0.05, w, ph * 0.5); tint(0.45); }
+          return true;
+        }
+        const cw = pw * 0.86, ch = Math.min(ph * 0.52, pw * 0.9);
+        for (let r = 0; r < s.rows; r++) {
+          for (let c = 0; c < s.cols; c++) chair(-W + (c + 0.5) * pw, -H + r * ph + ch / 2 + ph * 0.04, cw, ch);
+        }
+        return true;
+      }
+      case '펜스':
+        outline();
+        for (let i = 1; i < 4; i++) seg(-W + (w * i) / 4, -H, -W + (w * i) / 4, H);
+        return true;
+      case 'LED 스크린':
+        box(); ctx.fill(); lw(1.3); ctx.stroke();
+        return true;
+      case '배너·포토월':
+        box(); back(); tint(0.35); lw(1.3); ctx.stroke();
+        return true;
+      case '스피커':
+        outline();
+        ctx.beginPath(); ctx.arc(0, 0, m * 0.3, 0, Math.PI * 2); ctx.stroke();
+        ctx.beginPath(); ctx.arc(0, 0, m * 0.1, 0, Math.PI * 2); ctx.fill();
+        return true;
+      case '이동식 화장실':
+        outline();
+        label('WC', m * 0.34);
+        return true;
+      case '푸드트럭': {
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(-W, -H, w, h, m * 0.12); else ctx.rect(-W, -H, w, h);
+        back(); lw(1.3); ctx.stroke(); lw(0.9);
+        seg(W - w * 0.22, -H, W - w * 0.22, H); // 운전석
+        lw(2.6); seg(-W + w * 0.12, H, W - w * 0.36, H); // 판매 창 (앞쪽)
+        return true;
+      }
+      case '레드카펫': {
+        box();
+        const fill = ctx.fillStyle;
+        ctx.fillStyle = '#e03131';
+        tint(0.4);
+        ctx.fillStyle = fill;
+        lw(1.1); ctx.stroke();
         return true;
       }
       default:
@@ -1305,8 +1435,10 @@
   }
   function itemIcon(kind) {
     const def = App.catalog.itemDef(kind) || { aspect: 1 };
-    const w = def.aspect < 0.6 ? 22 : 18;
-    return makeIcon(`item:${kind}`, (c) => itemSymbol(c, kind, w, w * def.aspect, 0.9, '#000', null));
+    // 아주 길쭉한 것(트러스·레드카펫 등)도 아이콘에서 알아보이게 비율을 제한
+    const a = G.clamp(def.aspect, 0.3, 1.5);
+    const w = kind === '원형 테이블' ? 11 : a < 0.6 ? 22 : a > 1 ? 20 / a : 18; // 원형 테이블은 둘레 의자 자리를 남김
+    return makeIcon(`item:${kind}`, (c) => itemSymbol(c, kind, w, w * a, 0.9, '#000', null));
   }
   function lineIcon(category) {
     return makeIcon(`line:${category}`, (c) => {

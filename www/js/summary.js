@@ -19,6 +19,8 @@
       { id: 'elec', title: '전기', unit: '개' },
       { id: 'mech', title: '설비', unit: '개' },
       { id: 'furn', title: '가구', unit: '개' },
+      { id: 'event', title: '행사', unit: '개' },
+      { id: 'seat', title: '좌석', unit: '석' },
       ...App.catalog.LINE_CATEGORIES.map((c) => ({ id: `line:${c}`, title: c, unit: 'm' })),
     ];
   }
@@ -65,7 +67,12 @@
       const shape = App.catalog.SHAPE_NAMES[c.shape];
       add('column', shape, c.shape === 'circle' ? `원형 Ø${num(c.width)}` : `사각 ${num(c.width)}×${num(c.depth)}`, c.room, 1);
     });
-    of('item').forEach((it) => add(it.category, it.kind, App.catalog.itemLabel(it), it.room, 1));
+    of('item').forEach((it) => {
+      add(it.category, it.kind, App.catalog.itemLabel(it), it.room, 1);
+      // 좌석: 의자 배열과 원형 테이블 둘레 의자
+      const seats = App.catalog.seats(it);
+      if (seats) add('seat', '좌석', it.kind === '의자 배열' ? '의자 배열' : '원형 테이블 의자', it.room, seats.count);
+    });
     of('line').forEach((l) => {
       const p = App.doc.get(l.presetId);
       const name = p ? p.name : l.category;
@@ -113,7 +120,7 @@
     area: (mm2) => ({ text: App.units.formatArea(mm2), num: App.units.areaValue(mm2), unit: App.units.areaLabel() }),
     length: (mm) => ({ text: App.units.formatLength(mm), num: App.units.lengthValue(mm), unit: App.units.lengthLabel() }),
   };
-  const secValue = (sec, qty) => (sec.unit === 'm' ? V.run(qty) : V.count(qty));
+  const secValue = (sec, qty) => (sec.unit === 'm' ? V.run(qty) : V.count(qty, sec.unit));
 
   /** 같은 열쇠끼리 수량을 더함 (처음 나온 순서 유지) */
   function sumBy(list, keyOf) {

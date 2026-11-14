@@ -122,8 +122,9 @@
       },
     },
     item: {
-      size: { label: '기호 크기', min: 50, max: 10000, get: (it) => it.size, set: (it, v) => ({ size: v }) },
-      depth: { label: '깊이', min: 50, max: 10000, get: (it) => it.depth, set: (it, v) => ({ depth: v }) },
+      size: { label: '기호 크기', min: 50, max: 100000, get: (it) => it.size, set: (it, v) => ({ size: v }) },
+      depth: { label: '깊이', min: 10, max: 100000, get: (it) => it.depth, set: (it, v) => ({ depth: v }) },
+      h3: { label: '높이 (3D)', min: 1, max: 50000, get: (it) => App.catalog.itemHeight3(it), set: (it, v) => ({ h3: v }) },
       height: {
         label: '설치 높이 (비우면 천장)', min: 0, max: 20000, allowEmpty: true, emptyText: '천장',
         get: (it) => it.height, set: (it, v) => ({ height: v }),
@@ -592,17 +593,27 @@
       </div>`;
   }
 
-  /** 가구: 종류, 규격, 폭·깊이, 회전, 위치 */
-  function furnForm() {
+  /** 가구·행사 물건: 종류, 규격, 폭·깊이(의자 배열은 의자 수·줄 수), 높이, 회전, 위치 */
+  function furnForm(cat = 'furn') {
     const single = els.length === 1;
+    const event = cat === 'event';
+    const title = event ? '행사' : '가구';
     const kind = commonText((e) => e.kind);
     const def = kind ? App.catalog.itemDef(kind) : null;
     const counts = {};
     els.forEach((e) => { const k = App.catalog.itemLabel(e); counts[k] = (counts[k] || 0) + 1; });
+    const seats = els.reduce((n, e) => n + ((App.catalog.seats(e) || {}).count || 0), 0);
     return `
-      ${head('가구', single ? App.catalog.itemLabel(els[0]) : `${els.length}개 선택`)}
-      ${selectField('f-itemKind', '종류', App.catalog.ITEM_KINDS.furn.map((d) => [d.kind, d.kind]), kind)}
-      ${sizeRows(def)}
+      ${head(title, single ? App.catalog.itemLabel(els[0]) : `${els.length}개 선택`)}
+      ${selectField('f-itemKind', '종류', App.catalog.ITEM_KINDS[cat].map((d) => [d.kind, d.kind]), kind)}
+      ${def && def.options ? Object.entries(def.options).map(([key, o]) =>
+        selectField(`f-opt-${key}`, esc(o.label), o.values.map((v) => [v, v]), commonText((e) => e[key] ?? null))).join('') : ''}
+      ${def && def.grid
+        ? `<div class="field-grid">${Object.entries(def.numbers).map(([key, o]) => intField(key, o)).join('')}</div>
+           <p class="props-meta">의자 한 칸은 폭 ${def.grid.w}mm입니다. 의자는 기호의 아래쪽(앞)을 보고 앉습니다. 무대 쪽을 보도록 돌려 주세요.</p>`
+        : sizeRows(def)}
+      ${event ? `<div class="field-grid">${numberField('h3')}</div>` : ''}
+      ${seats ? `<div class="stats">${stat('좌석', `${seats.toLocaleString('ko-KR')}석`, single && def && def.grid ? `${App.units.formatLength(els[0].size)} × ${App.units.formatLength(els[0].depth)} 자리` : '')}</div>` : ''}
       ${selectField('f-rotation', '회전', [['0', '0°'], ['90', '90°'], ['180', '180°'], ['270', '270°']], commonText((e) => String(e.rotation)),
         '<button type="button" class="btn" data-act="rotate">90° 돌리기</button>')}
       ${single ? `<div class="field-group-label">가운데 위치</div><div class="field-grid">${numberField('x')}${numberField('y')}</div>` : ''}
@@ -611,15 +622,15 @@
       <div class="stats">
         ${single ? stat('방', roomName(els[0].room)) : Object.entries(counts).map(([k, n]) => stat(k, `${n}개`)).join('')}
       </div>
-      <p class="props-meta">벽 가까이로 끌면 벽면에 딱 붙습니다. 아래 미세 이동 화살표로 1mm까지 맞출 수 있습니다.</p>
+      <p class="props-meta">벽 가까이로 끌면 벽면에 딱 붙습니다. 아래 미세 이동 화살표로 1mm까지 맞출 수 있습니다.${event ? ' 오른쪽 아래 3D 버튼으로 조감도를 볼 수 있습니다.' : ''}</p>
       ${commonFields(single)}
-      ${deleteButton('가구')}`;
+      ${deleteButton(title === '행사' ? '물건' : '가구')}`;
   }
 
   function itemForm() {
     const single = els.length === 1;
     const cat = commonText((e) => e.category);
-    if (cat === 'furn') return furnForm();
+    if (cat === 'furn' || cat === 'event') return furnForm(cat);
     const kinds = cat ? App.catalog.ITEM_KINDS[cat].filter((d) => d.kind).map((d) => [d.kind, d.kind]) : [];
     const rotation = commonText((e) => String(e.rotation));
     const def = commonDef();
@@ -987,7 +998,7 @@
         const def = App.catalog.itemDef(t.value);
         if (def) {
           apply('종류 변경', () => ({
-            kind: def.kind, size: def.size, gang: null, variant: null, circuits: null, ...App.catalog.itemDefaults(def),
+            kind: def.kind, size: def.size, gang: null, variant: null, circuits: null, h3: null, ...App.catalog.itemDefaults(def),
             ...(def.depth ? { depth: def.depth } : {}),
             ...(def.wall ? {} : { wallId: null, t: null, side: null }),
           }));
@@ -1012,7 +1023,16 @@
           return;
         }
         showError(box, '');
-        apply(`${o.label} 변경`, () => ({ [key]: r.value }));
+        // 의자 배열: 의자 수·줄 수·줄 간격에 맞춰 자리 크기도 같이
+        apply(`${o.label} 변경`, (el) => {
+          const patch = { [key]: r.value };
+          if (def.grid) {
+            const n = { ...el, ...patch };
+            patch.size = n.cols * def.grid.w;
+            patch.depth = n.rows * (n.gap || def.grid.d);
+          }
+          return patch;
+        });
         return;
       }
       if (id === 'f-wallFinish' || id === 'f-floorFinish') {

@@ -18,6 +18,7 @@
     { id: 'elec', label: '전기', key: 'E', stage: 5 },
     { id: 'mech', label: '설비', key: 'F', stage: 5 },
     { id: 'furn', label: '가구', key: 'U', stage: 5 },
+    { id: 'event', label: '행사', key: 'H', stage: 5 },
     { id: 'line', label: '선', key: 'L', stage: 5 },
     { sep: true },
     { id: 'zone', label: '영역', key: 'A', stage: 5 },
@@ -39,6 +40,7 @@
     column: { pc: '기둥을 놓을 곳을 클릭하세요', touch: '기둥을 놓을 곳을 누르세요' },
     elec: { pc: '위쪽 팔레트에서 기호를 고르고 클릭 · 콘센트·스위치는 벽 가까이면 벽면에 붙음', touch: '위쪽에서 기호를 고르고 누르세요 · 벽 가까이면 벽면에 붙음' },
     mech: { pc: '위쪽 팔레트에서 기호를 고르고 클릭 · 배관·덕트를 고르면 선 그리기', touch: '위쪽에서 기호를 고르고 누르세요 · 배관·덕트는 선 그리기' },
+    event: { pc: '위쪽에서 텐트·무대·부스·의자 배열 등을 고르고 클릭 · 놓은 뒤 속성에서 크기·높이·의자 수 · 3D 버튼으로 조감도', touch: '위쪽에서 고르고 누르세요 · 3D 버튼으로 조감도' },
     furn: { pc: '위쪽에서 가구를 고르고 클릭 · 벽 가까이 놓으면 등을 벽에 대고 붙음', touch: '위쪽에서 가구를 고르고 누르세요 · 벽 가까이면 등을 벽에 대고 붙음' },
     line: { pc: '끌거나 클릭으로 점을 이어 그립니다 · 기구 가운데·끝점에 붙음 · Esc: 끝내기', touch: '끌거나 점을 차례로 눌러 그립니다' },
     zone: { pc: '끌면 사각형, 클릭으로 점을 찍으면 다각형 · 처음 점을 다시 누르면 닫힘', touch: '끌면 사각형, 점을 차례로 누르면 다각형' },
@@ -497,10 +499,10 @@
       ${o.actions ? `<div class="menu-sep" role="separator"></div>${o.actions.map((a) => `<button type="button" class="menu-item" role="menuitem" data-act="${escHtml(a.act)}">${escHtml(a.label)}</button>`).join('')}` : ''}`;
   }
 
-  /** 전기·설비·가구 기호 팔레트 */
+  /** 전기·설비·가구·행사 기호 팔레트 */
   function renderPalette() {
     const pal = $('#palette');
-    const cat = ['elec', 'mech', 'furn'].includes(ui.tool) ? ui.tool : null;
+    const cat = ['elec', 'mech', 'furn', 'event'].includes(ui.tool) ? ui.tool : null;
     pal.hidden = !cat;
     if (!cat) return;
     const current = App.current[`${cat}Kind`];

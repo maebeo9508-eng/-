@@ -994,8 +994,8 @@
       if (!at) return;
       const it = App.model.TYPES.item.create(at, this.category, at.def, at.rotation, at.mount || null);
       App.doc.transact(`${at.def.kind} 놓기`, () => App.doc.add(it));
-      if (this.category === 'furn') {
-        App.selection.set([it.id]); // 가구는 놓은 뒤 바로 돌리기·크기·미세 이동을 할 수 있게
+      if (this.category === 'furn' || this.category === 'event') {
+        App.selection.set([it.id]); // 가구·행사 물건은 놓은 뒤 바로 돌리기·크기·미세 이동을 할 수 있게
         App.ui.toast(`${at.def.kind} 놓음 · 속성에서 돌리기·크기 조정`);
       } else {
         App.ui.toast(`${at.def.kind} 놓음`);
@@ -1235,6 +1235,7 @@
     elec: () => new ItemTool('elec'),
     mech: () => new ItemTool('mech'),
     furn: () => new ItemTool('furn'),
+    event: () => new ItemTool('event'),
     zone: () => new ZoneTool(),
     text: () => new TextTool(),
     room: () => new RoomTool(),

@@ -122,6 +122,7 @@
         elec: v('--elec'),
         mech: v('--mech'),
         furn: v('--furn'),
+        event: v('--event'),
         dim: v('--dim'),
         note: v('--note'),
         underlay: v('--underlay'),
