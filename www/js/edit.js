@@ -92,6 +92,8 @@
       c.id = idMap.get(src.id);
       c.createdAt = now;
       c.locked = false;
+      if (c.boothNo) delete c.boothNo; // 부스 번호·업체는 복사본에 따라가지 않음 (같은 번호가 둘 생기지 않게)
+      if (c.exhibitor) delete c.exhibitor;
       if (c.group) {
         if (!groupMap.has(c.group)) groupMap.set(c.group, `grp-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`);
         c.group = groupMap.get(c.group);
@@ -340,6 +342,8 @@
       if (el.type === 'text') fields.push(['글자', el.content]);
       if (el.type === 'photo') fields.push(['사진', el.title || `사진 ${App.photos ? App.photos.numberOf(el.id) : ''}`]);
       if (el.type === 'item') fields.push(['종류', App.catalog.itemLabel(el)]);
+      if (el.boothNo) fields.push(['부스', el.boothNo]);
+      if (el.exhibitor) fields.push(['업체', el.exhibitor]);
       if (el.type === 'underlay') fields.push(['파일', el.name]);
       if (el.memo) fields.push(['메모', el.memo]);
       const hit = fields.find(([, v]) => v && String(v).toLowerCase().includes(s));

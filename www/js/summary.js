@@ -233,6 +233,8 @@
       if (eb) blocks.push(eb);
       const sb = App.safety && App.safety.block(); // 안전 점검 (화장실·소화기·의료·밀집·대피)
       if (sb) blocks.push(sb);
+      const bb = App.booths && App.booths.block(); // 부스 배정 (번호·업체)
+      if (bb) blocks.push(bb);
       const rb = routeBlock(s);
       if (rb) blocks.push(rb);
     }
@@ -493,6 +495,7 @@
       if (e.target.closest('[data-act="est-pdf"]')) App.estimate.exportPdf();
       if (e.target.closest('[data-act="proposal"]')) App.proposal.open();
       if (e.target.closest('[data-act="safety-open"]')) App.safety.open();
+      if (e.target.closest('[data-act="booth-csv"]')) App.booths.exportCsv();
     });
     App.estimate.bind(pane);
     render();

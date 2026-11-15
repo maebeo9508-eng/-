@@ -708,6 +708,7 @@
       ${numbers.length ? `<div class="field-grid">${numbers.map(([key, o]) => intField(key, o)).join('')}</div>` : ''}
       ${kind === '의자 배열' ? '<p class="props-meta">총 의자 수를 넣으면 줄 수가 맞춰지고, 모자라는 자리는 맨 뒷줄에서 빠집니다. 의자는 기호의 아래쪽(앞)을 보고 앉습니다. 놓을 때 가까운 무대 쪽을 보게 돌려 놓습니다.</p>' : ''}
       ${kind === '의자 배열' ? seatNoFields() : ''}
+      ${event && els.every((e) => App.booths && App.booths.isBooth(e)) ? boothFields() : ''}
       ${'size' in auto ? '' : sizeRows(def)}
       ${event && def && !def.flat && !('h3' in auto) ? `<div class="field-grid">${numberField('h3')}</div>` : ''}
       ${!event && def && def.face ? `<div class="field-grid">${numberField('h3', '그림 높이')}${numberField('height', '걸리는 높이 (가운데)')}</div>` : ''}
@@ -738,6 +739,18 @@
       <p class="props-meta">벽 가까이로 끌면 벽면에 딱 붙습니다. 아래 미세 이동 화살표로 1mm까지 맞출 수 있습니다.${event ? ' 오른쪽 아래 3D 버튼으로 조감도를 보고 걸어서 둘러볼 수 있습니다.' : ''}</p>
       ${commonFields(single)}
       ${deleteButton(event ? '물건' : '가구')}`;
+  }
+
+  /** 부스 배정: 번호·업체 (여럿이면 번호는 ‘번호 매기기’로), 배정표 CSV */
+  function boothFields() {
+    const single = els.length === 1;
+    return `
+      <div class="field-group-label">부스 배정</div>
+      <div class="field-grid">
+        <div class="field"><label class="field-label" for="f-boothNo">부스 번호</label><div class="field-box"><input id="f-boothNo" type="text" maxlength="12" autocomplete="off" ${single ? `value="${esc(els[0].boothNo || '')}" placeholder="예: A-1"` : 'disabled placeholder="여러 개: 번호 매기기"'}></div></div>
+        <div class="field"><label class="field-label" for="f-exhibitor">업체·이름</label><div class="field-box"><input id="f-exhibitor" type="text" maxlength="30" autocomplete="off" value="${esc(commonText((e) => e.exhibitor || '') || '')}" placeholder="${commonText((e) => e.exhibitor || '') === null ? '여러 값' : '예: 한빛상회'}"></div></div>
+      </div>
+      <div class="btn-row"><button type="button" class="btn" data-act="booth-number">번호 매기기…</button><button type="button" class="btn" data-act="booth-csv">배정표 CSV</button></div>`;
   }
 
   /** 좌석 번호: 보이기, 번호 방향, 첫 열 글자, 첫 번호, 좌석표 CSV */
@@ -1272,6 +1285,8 @@
         return;
       }
       if (id === 'f-seatNo') { apply('좌석 번호', () => ({ seatNo: t.checked })); return; }
+      if (id === 'f-boothNo') { apply('부스 번호', () => ({ boothNo: t.value.trim() })); return; }
+      if (id === 'f-exhibitor') { apply('업체·이름', () => ({ exhibitor: t.value.trim() })); return; }
       if (id === 'f-seatFrom') { if (t.value) apply('좌석 번호 방향', () => ({ seatFrom: t.value })); return; }
       if (id === 'f-seatRow0') {
         const v = t.value.trim().toUpperCase();
@@ -1504,6 +1519,8 @@
           break;
         }
         case 'mat-basis': App.materials.openBasis(); break;
+        case 'booth-number': App.booths.numberDialog(); break;
+        case 'booth-csv': App.booths.exportCsv(); break;
         case 'seat-csv': {
           const arrays = [...App.doc.all()].filter((e) => e.type === 'item' && e.kind === '의자 배열');
           const rows = [['구역', '열', '번호', '좌석']];

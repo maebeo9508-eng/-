@@ -760,14 +760,16 @@
       title: '줄 세우기',
       html: `
         <div class="field-grid">
-          <div class="field"><label class="field-label" for="arrN">모두 몇 개</label><div class="field-box"><input id="arrN" type="text" inputmode="numeric" value="5"><span class="field-unit">개</span></div></div>
+          <div class="field"><label class="field-label" for="arrN">한 줄에 몇 개</label><div class="field-box"><input id="arrN" type="text" inputmode="numeric" value="5"><span class="field-unit">개</span></div></div>
           <div class="field"><label class="field-label" for="arrGap">사이 틈</label><div class="field-box"><input id="arrGap" type="text" inputmode="decimal" value="${App.units.inputLength(1000)}"><span class="field-unit">${App.units.lengthLabel()}</span></div></div>
+          <div class="field"><label class="field-label" for="arrRows">줄 수 <small>격자로</small></label><div class="field-box"><input id="arrRows" type="text" inputmode="numeric" value="1"><span class="field-unit">줄</span></div></div>
+          <div class="field"><label class="field-label" for="arrRowGap">줄 사이 틈 <small>통로</small></label><div class="field-box"><input id="arrRowGap" type="text" inputmode="decimal" value="${App.units.inputLength(3000)}"><span class="field-unit">${App.units.lengthLabel()}</span></div></div>
         </div>
         <div class="field"><span class="field-label">방향</span>
           <div class="seg seg-inline" role="radiogroup" id="arrDir">
             ${[['right', '오른쪽 →'], ['down', '아래 ↓'], ['left', '← 왼쪽'], ['up', '위 ↑']].map(([id, t], i) => `<button type="button" class="seg-btn" role="radio" data-dir="${id}" aria-checked="${i === 0}">${t}</button>`).join('')}
           </div></div>
-        <p class="props-meta">고른 것을 포함해 같은 간격으로 늘어놓습니다. 사이 틈은 물건과 물건 사이의 빈 거리입니다.</p>`,
+        <p class="props-meta">고른 것을 포함해 같은 간격으로 늘어놓습니다. 사이 틈은 물건과 물건 사이의 빈 거리입니다. 줄 수를 2 이상으로 하면 옆 방향으로 줄을 더 놓아 격자가 됩니다 (부스 장터·연회 테이블).</p>`,
       actions: [{ id: 'cancel', label: '취소' }, { id: 'ok', label: '늘어놓기', primary: true }],
       onOpen(body) {
         body.querySelector('#arrDir').addEventListener('click', (e) => {
@@ -777,23 +779,35 @@
       },
     });
     if (r.id !== 'ok') return;
-    const n = Math.max(2, Math.min(200, parseInt(r.body.querySelector('#arrN').value, 10) || 0));
+    const rows = Math.max(1, Math.min(50, parseInt(r.body.querySelector('#arrRows').value, 10) || 1));
+    const n = Math.max(rows > 1 ? 1 : 2, Math.min(200, parseInt(r.body.querySelector('#arrN').value, 10) || 0));
     const gap = App.units.parseLength(r.body.querySelector('#arrGap').value);
+    const rowGap = App.units.parseLength(r.body.querySelector('#arrRowGap').value);
     const dir = (r.body.querySelector('[data-dir][aria-checked="true"]') || {}).dataset.dir || 'right';
     if (!(gap >= 0)) { toast('사이 틈을 숫자로 넣으세요.'); return; }
+    if (rows > 1 && !(rowGap >= 0)) { toast('줄 사이 틈을 숫자로 넣으세요.'); return; }
+    if (n * rows > 400) { toast('한 번에 400개까지 놓을 수 있습니다.'); return; }
     const v = { right: [1, 0], left: [-1, 0], down: [0, 1], up: [0, -1] }[dir];
     const step = (v[0] ? span.x : span.y) + gap;
+    // 줄은 옆으로: 가로로 늘어놓으면 아래로, 세로로 늘어놓으면 오른쪽으로
+    const w = v[0] ? [0, 1] : [1, 0];
+    const rowStep = (w[0] ? span.x : span.y) + (rows > 1 ? rowGap : 0);
     const src = App.edit.expand(ids);
     const made = [];
-    App.doc.transact('줄 세우기', () => {
-      for (let i = 1; i < n; i++) App.edit.clones(src, v[0] * step * i, v[1] * step * i).forEach((c) => { App.doc.add(c); made.push(c.id); });
+    App.doc.transact(rows > 1 ? '격자로 놓기' : '줄 세우기', () => {
+      for (let j = 0; j < rows; j++) {
+        for (let i = 0; i < n; i++) {
+          if (!i && !j) continue;
+          App.edit.clones(src, v[0] * step * i + w[0] * rowStep * j, v[1] * step * i + w[1] * rowStep * j).forEach((c) => { App.doc.add(c); made.push(c.id); });
+        }
+      }
     });
     const all = [...ids, ...made.filter((id) => App.doc.has(id))];
     App.selection.set(all);
     // 늘어놓은 것이 화면 밖으로 나갔으면 다 보이게 맞춤
     const nb = App.doc.bounds(all), vr = App.plan.view.worldRect(App.plan.width, App.plan.height);
     if (nb && (nb.minX < vr.minX || nb.maxX > vr.maxX || nb.minY < vr.minY || nb.maxY > vr.maxY)) App.plan.fitToContent();
-    toast(`${n}개를 ${App.units.formatLength(step)} 간격으로 늘어놓았습니다.`);
+    toast(rows > 1 ? `${rows}줄 × ${n}개 = ${rows * n}개를 놓았습니다 (줄 사이 ${App.units.formatLength(rowStep)}).` : `${n}개를 ${App.units.formatLength(step)} 간격으로 늘어놓았습니다.`);
   }
 
   function closeToolMenu() {

@@ -1626,11 +1626,13 @@
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
     items.forEach((it) => {
-      if (it.category !== 'event' || it.depth == null || Math.max(it.size, it.depth) * scale < 58) return;
+      if (it.category !== 'event' || it.depth == null) return;
+      const booth = it.boothNo || it.exhibitor ? [it.boothNo, it.exhibitor].filter(Boolean).join(' ') : ''; // 부스 번호·업체
+      if (Math.max(it.size, it.depth) * scale < (booth ? 22 : 58)) return; // 부스 번호는 작아도 보이게
       const s = plan.view.toScreen(it.x, it.y);
       const y = s.y + T.extent(it, { x: 0, y: 1 }) * scale + 4;
       const seats = App.catalog.seats(it);
-      const text = `${it.kind}${seats && it.kind !== '의자' ? ` ${seats.count}석` : ''}`;
+      const text = booth || `${it.kind}${seats && it.kind !== '의자' ? ` ${seats.count}석` : ''}`;
       ctx.lineWidth = 3;
       ctx.strokeStyle = plan.colors.canvasBg;
       ctx.strokeText(text, s.x, y);
