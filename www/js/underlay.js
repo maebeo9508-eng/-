@@ -97,7 +97,7 @@
   }
 
   /* ── 저장: 기본 데이터만 IndexedDB에 (8단계 자동 저장·백업) ── */
-  const baseOf = (d) => ({ id: d.id, name: d.name, width: d.width, height: d.height, polys: d.polys, texts: d.texts, lines: d.lines, textCount: d.textCount });
+  const baseOf = (d) => ({ id: d.id, name: d.name, width: d.width, height: d.height, polys: d.polys, texts: d.texts, lines: d.lines, textCount: d.textCount, kind: d.kind, imageId: d.imageId });
 
   /** 이 기기에 저장. 실패하면 false (다음에 열 때 밑그림이 빠짐) */
   async function persist(d) {
@@ -138,7 +138,7 @@
   /** 백업 파일에서 읽은 데이터를 보관하고 기기에 저장 */
   async function importData(obj) {
     if (!obj || !obj.id || !Array.isArray(obj.polys)) return false;
-    const d = index({ ...obj, polys: obj.polys.map((p) => Float32Array.from(p)), texts: obj.texts || [] });
+    const d = index({ ...obj, polys: obj.polys.map((p) => Float32Array.from(p)), texts: obj.texts || [] }); // 사진 밑그림은 polys가 빈 배열
     store.set(d.id, d);
     return persist(d);
   }
@@ -283,6 +283,28 @@
       ctx.rotate(((u.rotation || 0) * Math.PI) / 180);
       ctx.scale(f.k, f.k);
       ctx.globalAlpha = u.opacity;
+      if (d.kind === 'image') {
+        // 사진 밑그림 (항공사진·현장 사진): 아직 못 읽었으면 연한 칸만 (읽으면 다시 그림)
+        const img = App.images.get(u.imageId || d.imageId);
+        if (img) {
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(img, 0, 0, d.width, d.height);
+        } else {
+          ctx.fillStyle = plan.colors.grid || '#dee2e6';
+          ctx.fillRect(0, 0, d.width, d.height);
+        }
+        ctx.restore();
+        if (App.selection.has(u.id)) {
+          const b = worldBox(u, d);
+          ctx.save();
+          ctx.setLineDash([8 / vs, 5 / vs]);
+          ctx.lineWidth = 1.5 / vs;
+          ctx.strokeStyle = plan.colors.accent;
+          ctx.strokeRect(b.minX, b.minY, b.maxX - b.minX, b.maxY - b.minY);
+          ctx.restore();
+        }
+        return;
+      }
       ctx.strokeStyle = plan.colors.underlay;
       ctx.lineWidth = 1 / px;
       ctx.lineJoin = 'round';
@@ -525,6 +547,59 @@
     document.getElementById('importFile').click();
   }
 
+  /* ── 사진 밑그림 (항공사진·지도 캡처·현장 사진): 실제 가로 길이를 넣어 크기를 맞추고, 두 점으로 다시 맞출 수 있음 ── */
+  function pickPhoto() {
+    return new Promise((resolve) => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.hidden = true;
+      document.body.appendChild(input);
+      let done = false;
+      const finish = (v) => { if (done) return; done = true; input.remove(); resolve(v); };
+      input.addEventListener('cancel', () => finish(null));
+      input.addEventListener('change', () => finish((input.files && input.files[0]) || null));
+      input.click();
+    });
+  }
+  async function importPhoto(file) {
+    file = file || await pickPhoto();
+    if (!file) return null;
+    let imageId;
+    try {
+      imageId = await App.images.add(file, { maxSide: 3000 });
+    } catch (e) {
+      App.ui.toast(e && e.message ? e.message : '사진을 읽지 못했습니다.');
+      return null;
+    }
+    const ratio = App.images.aspect(imageId) || 1.5; // 가로 ÷ 세로
+    const r = await App.ui.dialog({
+      title: '사진 밑그림 크기',
+      html: `
+        <p>사진의 <b>가로가 실제로 몇 m</b>인지 넣으세요. 지도 앱의 축척 막대로 어림하면 됩니다. 나중에 속성의 ‘두 점으로 길이 맞추기’로 정확히 맞출 수 있습니다.</p>
+        <div class="field"><label class="field-label" for="ph-w">사진 가로 실제 길이</label>
+          <div class="field-box"><input id="ph-w" type="text" inputmode="decimal" autocomplete="off" value="${App.units.inputLength(100000)}"><span class="field-unit">${App.units.lengthLabel()}</span></div></div>`,
+      actions: [{ id: 'cancel', label: '취소' }, { id: 'ok', label: '깔기', primary: true }],
+    });
+    if (r.id !== 'ok') return null;
+    const width = App.units.parseLength(r.body.querySelector('#ph-w').value);
+    if (!(width > 0)) { App.ui.toast('길이를 숫자로 넣으세요.'); return null; }
+    const d = index({ id: `udl-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name: String(file.name || '사진').slice(0, 80), width, height: width / ratio, polys: [], texts: [], lines: 0, textCount: 0, kind: 'image', imageId });
+    store.set(d.id, d);
+    const el = App.model.TYPES.underlay.create(d);
+    el.imageId = imageId; // 이미지 정리·백업이 이 사진을 알도록
+    el.opacity = 0.75;
+    // 지금 화면 가운데에
+    const v = App.plan.view.worldRect(App.plan.width, App.plan.height);
+    el.x = (v.minX + v.maxX) / 2 - d.width / 2;
+    el.y = (v.minY + v.maxY) / 2 - d.height / 2;
+    App.doc.transact('사진 밑그림', () => App.doc.add(el));
+    persist(d);
+    App.plan.fitToContent(App.doc.bounds([el.id]));
+    App.ui.toast('사진 밑그림을 깔았습니다. 잠겨 있어 그 위에 바로 그릴 수 있고, 3D 바닥에도 보입니다.');
+    return el.id;
+  }
+
   /* ── 두 점으로 길이 맞추기: 밑그림에서 길이를 아는 두 점을 누르고 실제 길이를 넣으면 배율을 맞춤 ── */
   class CalibrateTool {
     activate() {
@@ -652,10 +727,16 @@
       document.getElementById('btnFile').setAttribute('aria-expanded', 'false');
       pickFile();
     });
+    const photo = document.getElementById('menuImportPhoto');
+    if (photo) photo.addEventListener('click', () => {
+      document.getElementById('fileMenu').hidden = true;
+      document.getElementById('btnFile').setAttribute('aria-expanded', 'false');
+      importPhoto();
+    });
   }
 
   App.underlay = {
-    init, draw, importFile, pickFile, calibrate, build, store, loadAll, exportData, importData, cleanup,
+    init, draw, importFile, pickFile, importPhoto, calibrate, build, store, loadAll, exportData, importData, cleanup,
     data: (u) => store.get(u.dataId) || null,
     list: () => [...App.doc.all()].filter((e) => e.type === 'underlay'),
   };

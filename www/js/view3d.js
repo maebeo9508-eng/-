@@ -436,6 +436,19 @@
     min[1] = Math.min(min[1], 0);
     const radius = Math.hypot(max[0] - min[0], max[2] - min[2]) / 2;
     const labels = sceneLabels(els, X, Z, baseY);
+    // 사진 밑그림(항공사진)은 바닥에 깖: 범위·시점 맞추기에는 넣지 않음 (큰 사진 때문에 행사장이 작게 보이지 않게)
+    [...doc.all()].forEach((u) => {
+      if (u.type !== 'underlay' || u.visible === false || !App.layers.visible(u)) return;
+      const d = App.underlay.data(u);
+      const img = d && d.kind === 'image' && App.images.get(u.imageId || d.imageId);
+      if (!img) return;
+      const a = ((u.rotation || 0) * Math.PI) / 180, c = Math.cos(a), sn = Math.sin(a), k = u.scale || 1;
+      const W = (lx, ly) => { const x = u.x + k * (lx * c - ly * sn), y = u.y + k * (lx * sn + ly * c); return [X(x), 0.0015, Z(y)]; };
+      const m = new Mesh(8);
+      // 위를 보는 면: 왼쪽 아래 → 오른쪽 아래 → 오른쪽 위 → 왼쪽 위 (사진의 위쪽이 도면의 위쪽)
+      m.quadUV(W(0, d.height), W(d.width, d.height), W(d.width, 0), W(0, 0), [[0, 1], [1, 1], [1, 0], [0, 0]], [1, 1, 1], 0);
+      textured.push({ mesh: m, source: img, layer: 'solid' });
+    });
     return {
       layers: L, textured, labels, bounds: { min, max }, center: { x: cx, y: cy }, radius, height: max[1], fit, baseY,
       stats: { solid: L.solid.n, glass: L.glass.n, ceil: L.ceil.n, decal: L.decals.reduce((n, m) => n + m.n, 0), textured: textured.length, maxY: max[1] },

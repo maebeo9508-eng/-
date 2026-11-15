@@ -31,8 +31,8 @@
   });
 
   /** 줄여서 저장할 데이터로: 투명한 곳이 있으면 PNG, 없으면 JPEG */
-  function shrink(img) {
-    const k = Math.min(1, MAX_SIDE / Math.max(img.naturalWidth, img.naturalHeight));
+  function shrink(img, maxSide = MAX_SIDE) {
+    const k = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
     const w = Math.max(1, Math.round(img.naturalWidth * k)), h = Math.max(1, Math.round(img.naturalHeight * k));
     const cv = document.createElement('canvas');
     cv.width = w;
@@ -137,12 +137,13 @@
       });
     },
     /** 파일(Blob)을 줄여 저장 */
-    async add(file) {
+    /** o.maxSide: 긴 변 픽셀 (항공사진 밑그림은 더 크게) */
+    async add(file, o = {}) {
       if (file.type && !/^image\//.test(file.type)) throw new Error('이미지 파일(JPG·PNG 등)을 골라 주세요.');
       App.ui.busy('이미지를 넣는 중…');
       try {
         const img = await decode(await readFile(file));
-        const s = shrink(img);
+        const s = shrink(img, o.maxSide || MAX_SIDE);
         return await store({ id: newId(), name: String(file.name || '이미지').slice(0, 80), ...s });
       } finally {
         App.ui.busy(false);
