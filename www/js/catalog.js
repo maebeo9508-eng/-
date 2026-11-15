@@ -49,6 +49,7 @@
      options: 고르는 값 (구수·형식 등), numbers: 숫자 값 (회로 수 등)
      line: 팔레트에서 고르면 선 그리기로 바뀌는 항목 (선 종류의 분류) */
   const GANG = { label: '구수', values: ['1구', '2구', '3구', '4구'] };
+  let defIndex = null; // itemDef 찾기 표
   const ITEM_KINDS = {
     elec: [
       {
@@ -400,8 +401,14 @@
     LINE_CATEGORIES,
     COLORS,
 
+    /** 종류 이름 → 정의 (그릴 때마다 여러 번 불리므로 표로 찾음) */
     itemDef(kind) {
-      return Object.values(ITEM_KINDS).flat().find((d) => d.kind === kind) || null;
+      const n = Object.values(ITEM_KINDS).reduce((t, l) => t + l.length, 0);
+      if (!defIndex || defIndex.n !== n) {
+        defIndex = { n, map: new Map() };
+        Object.values(ITEM_KINDS).flat().forEach((d) => { if (!defIndex.map.has(d.kind)) defIndex.map.set(d.kind, d); });
+      }
+      return defIndex.map.get(kind) || null;
     },
     /** 종류의 기본 속성값 (설치 높이, 구수·형식, 회로 수) */
     itemDefaults(def) {
@@ -532,6 +539,26 @@
       return out;
     },
     /** 의자 배열의 자리: 열마다 가운데 위치 xs(왼쪽 끝에서, mm), 줄 간격 ph, 줄마다 채울 열 [from, to) */
+    /** 의자 배열의 좌석 번호: [{ row, no, label, x, y }] (x·y는 물건 가운데 기준 물건 안 좌표, mm).
+        A열이 무대 쪽(앞, +y) 줄, 번호는 관객이 무대를 볼 때 왼쪽부터 (seatFrom 'right'면 오른쪽부터).
+        관객은 +y를 보므로 관객의 왼쪽은 +x 쪽. 첫 열 글자(seatRow0)·첫 번호(seatNum0)를 바꿀 수 있음 (여러 구역 이어 붙이기) */
+    seatLabels(it) {
+      if (!it || it.kind !== '의자 배열') return [];
+      const L = catalog.seatLayout(it);
+      const rowName = (i) => (i < 26 ? String.fromCharCode(65 + i) : String.fromCharCode(64 + Math.floor(i / 26)) + String.fromCharCode(65 + (i % 26)));
+      const r0 = /^[A-Z]$/.test(String(it.seatRow0 || 'A').toUpperCase()) ? String(it.seatRow0 || 'A').toUpperCase().charCodeAt(0) - 65 : 0;
+      const n0 = Number.isInteger(it.seatNum0) && it.seatNum0 > 0 ? it.seatNum0 : 1;
+      const out = [];
+      for (let r = L.rows - 1, k = 0; r >= 0; r--, k++) {
+        const [c0, c1] = L.rowRange(r);
+        const cols = [];
+        for (let c = c0; c < c1; c++) cols.push(c);
+        cols.sort((a, b) => (it.seatFrom === 'right' ? L.xs[a] - L.xs[b] : L.xs[b] - L.xs[a]));
+        const row = rowName(r0 + k);
+        cols.forEach((c, i) => out.push({ row, no: n0 + i, label: `${row}${n0 + i}`, x: -it.size / 2 + L.xs[c], y: -it.depth / 2 + r * L.ph + L.ph * 0.3 }));
+      }
+      return out;
+    },
     seatLayout(it) {
       const { cols, rows, count } = catalog.seats(it);
       const blocks = catalog.seatBlocks(it);

@@ -14,6 +14,12 @@
     const v = parseFloat(String(s == null ? '' : s).replace(/[^\d.]/g, ''));
     return Number.isFinite(v) && v >= 0 ? v : 0;
   };
+  /** 기타 항목 단가: 할인·단수 정리처럼 앞에 ‘-’를 붙이면 빼는 금액 */
+  const numSigned = (s) => {
+    const t = String(s == null ? '' : s).trim();
+    const v = numIn(t);
+    return /^[-−]/.test(t) || (typeof s === 'number' && s < 0) ? -v : v;
+  };
   const CHAIR_KINDS = ['의자 배열', '의자', '원형 테이블', '테이블'];
   // 조감도에서 값을 매기지 않는 배경 물건 (사람·건물·나무·차 등)
   const SCENERY = ['사람', '건물', '나무', '바위', '생울타리', '주차 구획', '횡단보도', '바닥 화살표', '승용차', '버스', '자전거', '가로등', '버스 정류장'];
@@ -40,6 +46,31 @@
     if (!c.prices || typeof c.prices !== 'object') c.prices = {};
     return c.prices;
   }
+  /** 단가표에서 가져와 이 도면에 붙박은 단가 표시 (key → true) */
+  function libMarks() {
+    const c = App.current;
+    if (!c.priceLib || typeof c.priceLib !== 'object') c.priceLib = {};
+    return c.priceLib;
+  }
+  /** 단가표 단가를 이 도면에 붙박음: 나중에 다른 도면에서 단가표가 바뀌어도 이 도면 견적 금액은 그대로이고,
+      백업·다른 기기에서도 같은 금액. 단가표의 새 단가로 바꾸려면 ‘단가표 단가로 채우기’ */
+  function freeze(ls) {
+    const m = memory(), p = prices(), lib = libMarks();
+    let n = 0;
+    ls.forEach((l) => {
+      if (typeof p[l.key] === 'number' || typeof m[l.key] !== 'number') return;
+      p[l.key] = m[l.key];
+      lib[l.key] = true;
+      n++;
+    });
+    if (n) save();
+    return n;
+  }
+  /** 단가가 어디서 왔는지: 'project'(이 도면에 친 단가) · 'library'(단가표) · '' */
+  function priceSource(key) {
+    if (typeof prices()[key] === 'number') return libMarks()[key] ? 'library' : 'project';
+    return typeof memory()[key] === 'number' ? 'library' : '';
+  }
   /** 이 도면에 넣은 단가, 없으면 이 기기에 기억된 단가 */
   function priceOf(key) {
     const p = prices()[key];
@@ -64,7 +95,7 @@
     const out = [];
     const event = App.modes.is('event');
     const areaU = App.units.areaLabel();
-    const area = (mm2) => r2(App.units.areaValue(mm2));
+    const area = (mm2) => r2(mm2 / App.units.areaFactor()); // 화면 소수점 설정과 상관없이 소수 둘째 자리까지
     const push = (sec, name, spec, qty, unit, note = '') => {
       if (!(qty > 0)) return;
       out.push({ sec, key: `${sec}|${name}|${spec}|${unit}`, name, spec, qty: r2(qty), unit, note });
@@ -78,11 +109,12 @@
         else push('마감재', f.name, f.target === 'wall' ? '벽' : '바닥', area(f.area), areaU);
       });
     }
+    (s.matLines || []).forEach((l) => push('마감 자재', l.name, l.spec, l.qty, l.unit, l.note));
     if (s.rooms.length) {
       const a = s.arch;
       push('건축', '바닥', '안목 면적', area(a.clearFloor), areaU, '바닥재·장판·마루');
       push('건축', '천장', '천장 면적', area(a.ceiling), areaU, '천장재·도장');
-      push('건축', '벽', '방 쪽 벽 면적', area(a.roomWall), areaU, '도배·도장 (문·창문 뺌)');
+      push('건축', '벽', '도배·도장 면적 (안목)', area(a.paintWall), areaU, '안목 둘레 × 천장 높이 (문·창문 뺌)');
       push('건축', '걸레받이', '', r2(a.baseboard / 1000), 'm');
       push('건축', '천장 몰딩', '', r2(a.molding / 1000), 'm');
     }
@@ -122,6 +154,7 @@
 
   /** 금액 계산 (줄마다 price·amount를 채움) */
   function totals(ls) {
+    freeze(ls);
     let supply = 0;
     ls.forEach((l) => {
       l.price = priceOf(l.key);
@@ -129,12 +162,12 @@
       supply += l.amount;
     });
     extras().forEach((x) => {
-      x.amount = Math.round(numIn(x.qty) * numIn(x.price));
+      x.amount = Math.round(numIn(x.qty) * numSigned(x.price));
       supply += x.amount;
     });
     const vatOn = App.current.vat !== false;
     const vat = vatOn ? Math.round(supply * 0.1) : 0;
-    return { supply, vat, vatOn, total: supply + vat, priced: ls.filter((l) => l.price > 0).length + extras().filter((x) => x.amount > 0).length };
+    return { supply, vat, vatOn, total: supply + vat, priced: ls.filter((l) => l.price > 0).length + extras().filter((x) => x.amount !== 0).length };
   }
 
   /** 금액을 한글로: 1357400 → 일백삼십오만칠천사백 (견적서의 '일금 …원정') */
@@ -159,6 +192,7 @@
 
   /* ── 집계 탭의 '견적' 보기 ── */
   const priceText = (v) => (v > 0 ? Math.round(v).toLocaleString('ko-KR') : '');
+  const signedText = (v) => (v ? Math.round(v).toLocaleString('ko-KR') : '');
   function html(s) {
     const ls = lines(s);
     shown = ls;
@@ -175,20 +209,26 @@
       <div class="est-row" data-key="${esc(l.key)}">
         <div class="est-name"><b>${esc(l.name)}</b>${l.spec ? ` <span>${esc(l.spec)}</span>` : ''}${l.note ? `<small>${esc(l.note)}</small>` : ''}</div>
         <div class="est-qty">${qtyText(l.qty)}<small>${esc(l.unit)}</small></div>
-        <label class="est-price"><input type="text" inputmode="numeric" autocomplete="off" data-price="${esc(l.key)}" value="${priceText(l.price)}" placeholder="단가" aria-label="${esc(l.name)} 단가"><span>원</span></label>
+        <label class="est-price"><input type="text" inputmode="numeric" autocomplete="off" data-price="${esc(l.key)}" value="${priceText(l.price)}" placeholder="단가" aria-label="${esc(l.name)} 단가"><span>원</span>${l.price > 0 && priceSource(l.key) === 'library' ? '<small class="est-src" title="단가표에 기억된 단가">단가표</small>' : ''}</label>
         <div class="est-amt" data-amt="${esc(l.key)}">${l.amount ? won(l.amount) : '–'}</div>
       </div>`;
     const extraRow = (x) => `
       <div class="est-row est-extra" data-extra="${esc(x.id)}">
         <div class="est-name"><input type="text" data-x="name" value="${esc(x.name)}" placeholder="항목 이름" aria-label="항목 이름" autocomplete="off"></div>
         <div class="est-qty"><input type="text" inputmode="decimal" data-x="qty" value="${esc(x.qty)}" aria-label="수량" autocomplete="off"><input type="text" data-x="unit" value="${esc(x.unit)}" class="est-unit" aria-label="단위" autocomplete="off"></div>
-        <label class="est-price"><input type="text" inputmode="numeric" data-x="price" value="${priceText(numIn(x.price))}" placeholder="단가" aria-label="단가" autocomplete="off"><span>원</span></label>
+        <label class="est-price"><input type="text" inputmode="numeric" data-x="price" value="${signedText(numSigned(x.price))}" placeholder="단가 (할인은 -)" aria-label="단가" autocomplete="off"><span>원</span></label>
         <div class="est-amt">${x.amount ? won(x.amount) : '–'}</div>
         <button type="button" class="btn est-del" data-act="est-del" aria-label="이 항목 지우기" title="지우기">×</button>
       </div>`;
     return `
       <div class="est">
-        <p class="dialog-note">단가를 넣으면 금액이 바로 계산됩니다. 넣은 단가는 이 도면에 저장되고 <b>이 기기에도 기억되어</b> 다음 도면에 자동으로 들어갑니다.</p>
+        ${s.excluded && s.excluded.length ? `<p class="dialog-note is-warn est-warn est-hidden">숨긴 레이어(${esc(s.excluded.join(', '))})는 집계와 견적에서 빠져 있습니다. 견적서에 넣으려면 레이어를 보이게 하거나 설정에서 ‘숨긴 레이어는 집계에서도 빼기’를 끄세요.</p>` : ''}
+        ${s.arch && s.arch.issues ? `<p class="dialog-note is-warn est-warn">경계 확인이 필요한 방이 ${s.arch.issues}개 있습니다. 방이 벽과 맞지 않으면 바닥·벽 물량이 실제와 다를 수 있으니 도면에서 빨간 점선 방을 먼저 고치세요.${s.arch.overlaps ? ` (겹친 방 ${s.arch.overlaps}개는 물량에서 뺐습니다)` : ''}</p>` : ''}
+        <p class="dialog-note">단가를 넣으면 금액이 바로 계산됩니다. 넣은 단가는 이 도면에 저장되고 <b>단가표</b>(이 기기)에도 기억되어 다음 도면에 자동으로 들어갑니다.</p>
+        <div class="est-tools">
+          <button type="button" class="btn" data-act="est-lib">단가표 관리 <small>${Object.keys(memory()).length}개</small></button>
+          <button type="button" class="btn" data-act="est-apply" title="이 도면에서 고친 단가를 단가표 단가로 되돌림">단가표 단가로 채우기</button>
+        </div>
         ${secs.length ? '' : '<div class="empty"><div class="empty-title">값을 매길 물량이 없습니다</div><p>도면을 그리면 자재·물건 수량이 여기에 나옵니다. 아래 기타 항목은 지금도 넣을 수 있습니다.</p></div>'}
         ${secs.map((g) => `<section class="est-sec"><h3 class="sum-title">${esc(g.sec)}</h3>${g.rows.map(row).join('')}</section>`).join('')}
         <section class="est-sec">
@@ -248,12 +288,13 @@
       if (!t.closest('.est')) return;
       if (t.dataset.price != null) {
         prices()[t.dataset.price] = digits(t);
+        delete libMarks()[t.dataset.price];
         refreshTotals(pane);
       } else if (t.dataset.x) {
         const row = t.closest('[data-extra]');
         const x = extras().find((v) => v.id === row.dataset.extra);
         if (!x) return;
-        x[t.dataset.x] = t.dataset.x === 'price' ? digits(t) : t.value;
+        x[t.dataset.x] = t.dataset.x === 'price' ? Math.round(numSigned(t.value)) : t.value;
         refreshTotals(pane);
       }
     });
@@ -263,11 +304,17 @@
       if (t.dataset.price != null) {
         const v = digits(t);
         prices()[t.dataset.price] = v;
+        delete libMarks()[t.dataset.price]; // 직접 친 단가
         remember(t.dataset.price, v);
         t.value = priceText(v);
+        const cnt = pane.querySelector('[data-act="est-lib"] small');
+        if (cnt) cnt.textContent = `${Object.keys(memory()).length}개`;
         save();
       } else if (t.dataset.x) {
-        if (t.dataset.x === 'price') t.value = priceText(digits(t));
+        if (t.dataset.x === 'price') t.value = signedText(numSigned(t.value));
+        // 기타 항목도 이름·단위로 단가를 기억 (다음에 같은 항목을 넣으면 자동으로). 할인(-)은 기억하지 않음
+        const x = extras().find((v) => v.id === t.closest('[data-extra]').dataset.extra);
+        if (x && x.name && numSigned(x.price) > 0) remember(extraKey(x), Math.round(numIn(x.price)));
         save();
       } else if (t.id === 'estVatOn') {
         App.current.vat = t.checked;
@@ -293,11 +340,23 @@
       if (!b || !b.closest('.est')) return;
       if (b.dataset.act === 'est-add') {
         const id = `x${Date.now().toString(36)}${Math.floor(Math.random() * 1e4)}`;
-        extras().push({ id, name: b.dataset.name || '', qty: 1, unit: b.dataset.unit || '식', price: 0 });
+        const nx = { id, name: b.dataset.name || '', qty: 1, unit: b.dataset.unit || '식', price: 0 };
+        nx.price = nx.name ? memory()[extraKey(nx)] || 0 : 0;
+        extras().push(nx);
         save();
         App.summary.render();
         const input = pane.querySelector(`[data-extra="${id}"] [data-x="${b.dataset.name ? 'price' : 'name'}"]`);
         if (input) input.focus();
+      } else if (b.dataset.act === 'est-lib') {
+        openLibrary();
+      } else if (b.dataset.act === 'est-apply') {
+        const m = memory();
+        let n = 0;
+        shown.forEach((l) => { if (typeof m[l.key] === 'number' && (prices()[l.key] !== m[l.key] || !libMarks()[l.key])) { if (prices()[l.key] !== m[l.key]) n++; delete prices()[l.key]; delete libMarks()[l.key]; } });
+        extras().forEach((x) => { const v = m[extraKey(x)]; if (x.name && typeof v === 'number' && numSigned(x.price) >= 0 && numIn(x.price) !== v) { x.price = v; n++; } });
+        save();
+        App.summary.render();
+        App.ui.toast(n ? `${n}줄을 단가표 단가로 채웠습니다.` : '단가표와 다른 단가가 없습니다.');
       } else if (b.dataset.act === 'est-del') {
         const id = b.closest('[data-extra]').dataset.extra;
         App.current.costExtras = extras().filter((x) => x.id !== id);
@@ -307,24 +366,140 @@
     });
   }
 
+  const extraKey = (x) => `기타|${String(x.name).trim()}||${String(x.unit || '').trim()}`;
+
+  /* ── 단가표: 이 기기에 기억된 단가 모음. 고치기·지우기·CSV로 내보내기/불러오기 (다른 폰·PC와 같은 단가표 쓰기) ── */
+  const splitKey = (k) => { const [sec = '', name = '', spec = '', unit = ''] = String(k).split('|'); return { sec, name, spec, unit }; };
+  /** CSV 한 줄씩 → 칸 배열 (따옴표·쉼표·줄바꿈 처리) */
+  function parseCsv(text) {
+    const rows = [];
+    let row = [], cell = '', q = false;
+    const t = String(text).replace(/^\ufeff/, '');
+    for (let i = 0; i < t.length; i++) {
+      const c = t[i];
+      if (q) {
+        if (c === '"' && t[i + 1] === '"') { cell += '"'; i++; } else if (c === '"') q = false; else cell += c;
+      } else if (c === '"') q = true;
+      else if (c === ',') { row.push(cell); cell = ''; } else if (c === '\n' || c === '\r') {
+        if (c === '\r' && t[i + 1] === '\n') i++;
+        row.push(cell); rows.push(row); row = []; cell = '';
+      } else cell += c;
+    }
+    if (cell || row.length) { row.push(cell); rows.push(row); }
+    return rows.filter((r) => r.some((v) => String(v).trim()));
+  }
+  function libraryCsv() {
+    const m = memory();
+    const rows = [['구분', '품명', '규격', '단위', '단가']];
+    Object.keys(m).sort().forEach((k) => { const p = splitKey(k); rows.push([p.sec, p.name, p.spec, p.unit, m[k]]); });
+    return App.exporter.csvText(rows);
+  }
+  /** CSV 글을 단가표에 합침. 돌려주는 값: 넣은 줄 수 */
+  function importLibrary(text) {
+    const rows = parseCsv(text);
+    if (rows.length && /구분/.test(rows[0][0]) && /단가/.test(rows[0].join(','))) rows.shift();
+    const m = memory();
+    let n = 0;
+    rows.forEach((r) => {
+      const [sec, name, spec, unit, price] = r.map((v) => String(v == null ? '' : v).trim());
+      const v = numIn(price);
+      if (!sec || !name || !(v > 0)) return;
+      m[`${sec}|${name}|${spec}|${unit}`] = Math.round(v);
+      n++;
+    });
+    App.storage.write(KEY_MEMORY, m);
+    return n;
+  }
+  function openLibrary() {
+    const row = (k, v) => {
+      const p = splitKey(k);
+      return `<div class="lib-row" data-key="${esc(k)}" data-find="${esc(`${p.sec} ${p.name} ${p.spec}`.replace(/\s/g, ''))}">
+        <div class="lib-name"><b>${esc(p.name)}</b>${p.spec ? ` <span>${esc(p.spec)}</span>` : ''}<small>${esc(p.sec)}${p.unit ? ` · ${esc(p.unit)}당` : ''}</small></div>
+        <label class="est-price"><input type="text" inputmode="numeric" data-lib="${esc(k)}" value="${priceText(v)}" aria-label="${esc(p.name)} 단가" autocomplete="off"><span>원</span></label>
+        <button type="button" class="btn est-del" data-libdel="${esc(k)}" aria-label="지우기" title="단가표에서 지우기">×</button>
+      </div>`;
+    };
+    const listHtml = () => {
+      const m = memory(), keys = Object.keys(m).sort((a, b) => a.localeCompare(b, 'ko'));
+      return keys.length ? keys.map((k) => row(k, m[k])).join('') : '<p class="props-meta lib-empty">아직 기억된 단가가 없습니다. 견적에서 단가를 넣거나, 아래 ‘CSV 불러오기’로 회사 단가표를 넣으세요.</p>';
+    };
+    App.ui.dialog({
+      title: '단가표',
+      html: `<p class="props-meta">견적에 넣은 단가가 여기에 모입니다 (이 기기). 고치면 다음 견적부터 이 단가가 들어갑니다. CSV로 내보내 다른 폰·PC에서 불러오면 같은 단가표를 씁니다.</p>
+        <div class="field-box picker-search"><input id="libSearch" type="search" placeholder="찾기 (예: 석고보드, 텐트)" autocomplete="off"></div>
+        <div class="lib-list" id="libList">${listHtml()}</div>
+        <div class="btn-row lib-actions">
+          <button type="button" class="btn" id="libExport">CSV로 내보내기</button>
+          <button type="button" class="btn" id="libImport">CSV 불러오기</button>
+        </div>`,
+      actions: [{ id: 'close', label: '닫기', primary: true }],
+      onOpen(body) {
+        body.dataset.keys = 'local';
+        const list = body.querySelector('#libList');
+        body.addEventListener('change', (e) => {
+          const t = e.target;
+          if (!t.dataset.lib) return;
+          const v = Math.round(numIn(t.value));
+          remember(t.dataset.lib, v);
+          t.value = priceText(v);
+        });
+        body.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.dataset && e.target.dataset.lib) e.target.blur(); });
+        body.addEventListener('click', (e) => {
+          const del = e.target.closest('[data-libdel]');
+          if (del) { remember(del.dataset.libdel, 0); del.closest('.lib-row').remove(); }
+        });
+        body.querySelector('#libSearch').addEventListener('input', (e) => {
+          const q = e.target.value.replace(/\s/g, '');
+          list.querySelectorAll('.lib-row').forEach((r) => { r.hidden = !!q && !r.dataset.find.includes(q); });
+        });
+        body.querySelector('#libExport').addEventListener('click', () => {
+          if (!Object.keys(memory()).length) { App.ui.toast('내보낼 단가가 없습니다.'); return; }
+          const name = `단가표_${App.exporter.stamp()}.csv`;
+          App.exporter.saved(App.exporter.download(name, libraryCsv(), 'text/csv;charset=utf-8'), `‘${name}’을 저장했습니다. 다른 기기에서 ‘CSV 불러오기’로 넣으세요.`);
+        });
+        body.querySelector('#libImport').addEventListener('click', () => {
+          const input = document.createElement('input');
+          input.type = 'file';
+          input.accept = '.csv,text/csv,text/plain';
+          input.onchange = async () => {
+            const f = input.files && input.files[0];
+            if (!f) return;
+            const n = importLibrary(await f.text());
+            list.innerHTML = listHtml();
+            App.ui.toast(n ? `단가 ${n}개를 단가표에 넣었습니다.` : '넣을 단가가 없습니다. 구분·품명·규격·단위·단가 순서의 CSV인지 확인하세요.');
+          };
+          input.click();
+        });
+      },
+    }).then(() => App.summary.render());
+  }
+
   /* ── CSV ── */
   function csvRows() {
     const ls = lines();
     const t = totals(ls);
     const rows = [['구분', '품명', '규격', '수량', '단위', '단가', '금액', '비고']];
     ls.forEach((l) => rows.push([l.sec, l.name, l.spec, l.qty, l.unit, l.price || '', l.amount || '', l.note]));
-    extras().filter((x) => x.name || x.amount).forEach((x) => rows.push(['기타', x.name, '', numIn(x.qty), x.unit, numIn(x.price) || '', x.amount || '', '']));
+    extras().filter((x) => x.name || x.amount).forEach((x) => rows.push(['기타', x.name, '', numIn(x.qty), x.unit, numSigned(x.price) || '', x.amount || '', '']));
     rows.push([]);
     rows.push(['', '공급가액', '', '', '', '', t.supply, '']);
     rows.push(['', t.vatOn ? '부가세 10%' : '부가세 (별도)', '', '', '', '', t.vat, '']);
     rows.push(['', '합계', '', '', '', '', t.total, t.total ? `일금 ${hangul(t.total)}원정` : '']);
     return rows;
   }
+  /** 견적서를 내보낸 뒤 알림: 숨긴 레이어가 빠졌거나 경계가 틀린 방이 있으면 */
+  function warnLater() {
+    const s = App.summary.compute();
+    const msg = [];
+    if (s.excluded.length) msg.push(`숨긴 레이어(${s.excluded.join(', ')})는 빠졌습니다`);
+    if (s.arch.issues) msg.push(`경계 확인이 필요한 방이 ${s.arch.issues}개 있어 물량이 다를 수 있습니다`);
+    if (msg.length) setTimeout(() => App.ui.toast(`주의: ${msg.join(' · ')}.`, 6500), 2500);
+  }
   function exportCsv() {
     const rows = csvRows();
+    warnLater();
     const name = `견적_${safeName(projectName())}_${App.exporter.stamp()}.csv`;
-    App.exporter.download(name, App.exporter.csvText(rows), 'text/csv;charset=utf-8');
-    App.ui.toast(`‘${name}’을 저장했습니다. 엑셀에서 바로 열 수 있습니다.`);
+    App.exporter.saved(App.exporter.download(name, App.exporter.csvText(rows), 'text/csv;charset=utf-8'), `‘${name}’을 저장했습니다. 엑셀에서 바로 열 수 있습니다.`);
     return true;
   }
 
@@ -347,7 +522,7 @@
     const ex = extras().filter((x) => x.name || x.amount);
     if (ex.length) {
       items.push({ head: '기타' });
-      ex.forEach((x) => items.push({ name: x.name || '기타', spec: '', qty: numIn(x.qty), unit: x.unit, price: numIn(x.price), amount: x.amount, note: '' }));
+      ex.forEach((x) => items.push({ name: x.name || '기타', spec: '', qty: numIn(x.qty), unit: x.unit, price: numSigned(x.price), amount: x.amount, note: '' }));
     }
     return { items, t };
   }
@@ -461,6 +636,7 @@
       App.ui.toast('견적서에 넣을 항목이 없습니다. 도면을 그리거나 기타 항목을 넣으세요.');
       return false;
     }
+    warnLater();
     const DPI = 200, mmW = 210, mmH = 297;
     const W = Math.round((mmW / 25.4) * DPI), H = Math.round((mmH / 25.4) * DPI);
     // 쪽 나누기: 첫 쪽은 머리글 때문에 줄이 적음, 마지막 쪽은 합계 줄 자리
@@ -493,10 +669,9 @@
     });
     const blob = App.exporter.pdfFromPages(jpegs.map((jpeg) => ({ jpeg, w: W, h: H })), (mmW / 25.4) * 72, (mmH / 25.4) * 72);
     const name = `견적서_${safeName(projectName())}_${App.exporter.stamp()}.pdf`;
-    App.exporter.download(name, blob, 'application/pdf');
-    App.ui.toast(`‘${name}’을 저장했습니다 (${chunks.length}쪽).`);
+    App.exporter.saved(App.exporter.download(name, blob, 'application/pdf'), `‘${name}’을 저장했습니다 (${chunks.length}쪽).`);
     return true;
   }
 
-  App.estimate = { lines, totals, html, bind, refreshTotals, csvRows, exportCsv, exportPdf, hangul, priceOf, memory, EXTRA_PRESETS };
+  App.estimate = { lines, totals, html, bind, refreshTotals, csvRows, exportCsv, exportPdf, hangul, priceOf, priceSource, memory, EXTRA_PRESETS, openLibrary, libraryCsv, importLibrary, parseCsv };
 })();

@@ -104,11 +104,17 @@
       return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`;
     },
 
+    /** 파일 내보내기. 돌려주는 값: 'download'(바로 내려받음) · 'share'(공유 창이 뜸 — 아직 저장 전) */
     download(filename, data, mime) {
       const blob = data instanceof Blob ? data : new Blob([data], { type: mime });
-      if (nativeSave(filename, blob)) return; // 안드로이드·아이폰 앱(Capacitor): 저장 뒤 공유 창
-      if (webShare(filename, blob)) return; // 아이폰 사파리·홈 화면 앱: 공유 창
+      if (nativeSave(filename, blob)) return 'share'; // 안드로이드·아이폰 앱(Capacitor): 앱 안에 만든 뒤 공유 창
+      if (webShare(filename, blob)) return 'share'; // 아이폰 사파리·홈 화면 앱: 공유 창
       anchorDownload(filename, blob);
+      return 'download';
+    },
+    /** 내보낸 뒤 알림: 공유 창이 떴으면 아직 저장 전이므로 저장할 곳을 고르라고 */
+    saved(how, text) {
+      App.ui.toast(how === 'share' ? '공유 창에서 ‘파일에 저장’이나 보낼 앱을 고르세요.' : text);
     },
   };
 
@@ -179,11 +185,8 @@
 
   /** 축척 막대: 화면에서 about px 안팎이 되는 1·2·5 단위 길이 */
   function scaleBar(ctx, x, y, scale, about, font) {
-    const raw = about / scale;
-    const pow = 10 ** Math.floor(Math.log10(raw));
-    const n = raw / pow;
-    const len = (n >= 5 ? 5 : n >= 2 ? 2 : 1) * pow;
-    const w = len * scale;
+    const bar = App.units.niceBar(about, scale); // 화면 축척 막대와 같은 계산 (0.2 m, 2 ft …)
+    const w = bar.mm * scale;
     ctx.save();
     ctx.strokeStyle = '#212529';
     ctx.fillStyle = '#212529';
@@ -196,7 +199,7 @@
     ctx.stroke();
     ctx.font = font;
     ctx.textBaseline = 'bottom';
-    ctx.fillText(App.units.formatLength(len), x + w + about / 15, y + about / 40);
+    ctx.fillText(bar.text, x + w + about / 15, y + about / 40);
     ctx.restore();
   }
 
@@ -236,8 +239,7 @@
     scaleBar(ctx, W - 380, plotH + foot / 2 + 14, scale, 220, `600 22px ${f}`);
     const name = `${safeName(projectName())}_도면_${exporter.stamp()}.png`;
     canvas.toBlob((blob) => {
-      exporter.download(name, blob, 'image/png');
-      App.ui.toast(`‘${name}’을 저장했습니다.`);
+      exporter.saved(exporter.download(name, blob, 'image/png'), `‘${name}’을 저장했습니다.`);
     }, 'image/png');
     return true;
   }
@@ -254,19 +256,21 @@
     let size = Math.max(18, Math.min(28, Math.floor(h / (total * 1.55))));
     const lh = size * 1.55;
     let cy = y;
-    const maxRows = Math.floor(h / lh) - 1;
-    let used = 0, cut = false;
+    // 다 들어가면 끝까지, 아니면 맨 아래 한 줄은 '나머지는…' 문구 자리로 남김 (묶음 사이 틈까지 셈)
+    const fits = blocks.reduce((n, b) => n + rowsOf(b), 0) * lh + Math.max(0, blocks.length - 1) * lh * 0.6 <= h + 0.5;
+    const bottom = y + h - (fits ? 0 : lh);
+    const room = () => cy + lh <= bottom + 0.5;
+    let cut = false;
     ctx.textBaseline = 'middle';
     for (const b of blocks) {
-      if (used >= maxRows) { cut = true; break; }
+      if (!room()) { cut = true; break; }
       ctx.font = `700 ${size * 1.05}px ${f}`;
       ctx.fillStyle = '#c54b08';
       ctx.textAlign = 'left';
       ctx.fillText(b.title, x, cy + lh / 2);
       cy += lh;
-      used++;
       for (const r of b.rows) {
-        if (used >= maxRows) { cut = true; break; }
+        if (!room()) { cut = true; break; }
         const strong = r.cls === 'total' || r.cls === 'subtotal' || r.cls === 'head';
         if (r.cls === 'total') {
           ctx.strokeStyle = '#212529';
@@ -298,15 +302,15 @@
           ctx.fillText(r.value.text, x + w, cy + lh / 2);
         }
         cy += lh;
-        used++;
       }
+      if (cut) break;
       cy += lh * 0.6;
     }
     if (cut) {
       ctx.font = `${size}px ${f}`;
       ctx.fillStyle = '#868e96';
       ctx.textAlign = 'left';
-      ctx.fillText('… 나머지는 집계표 CSV에서 보세요.', x, y + h - lh / 2);
+      ctx.fillText('… 나머지는 집계표 CSV에서 보세요.', x, Math.min(cy, bottom) + lh / 2);
     }
     ctx.textAlign = 'left';
   }
@@ -405,8 +409,7 @@
     const pt = (mm) => (mm / 25.4) * 72;
     const blob = pdfFromJpeg(jpeg, W, H, pt(mmW), pt(mmH));
     const name = `${safeName(projectName())}_도면집계_${exporter.stamp()}.pdf`;
-    exporter.download(name, blob, 'application/pdf');
-    App.ui.toast(`‘${name}’을 저장했습니다. (${paper} 가로, 인쇄용)`);
+    exporter.saved(exporter.download(name, blob, 'application/pdf'), `‘${name}’을 저장했습니다. (${paper} 가로, 인쇄용)`);
     return true;
   }
 

@@ -20,9 +20,13 @@
 
   const unit = () => LENGTH[App.settings.lengthUnit] || LENGTH.mm;
   const areaUnit = () => AREA[App.settings.areaUnit] || AREA['㎡'];
+  // 숫자 글자: 소수 자리별 서식기를 한 번만 만들어 씀 (toLocaleString(옵션)은 부를 때마다 새로 만들어 그리기가 느려짐)
+  const formats = new Map();
   const fixed = (v) => {
     const d = App.settings.decimals;
-    return (v || 0).toLocaleString('ko-KR', { minimumFractionDigits: d, maximumFractionDigits: d });
+    let f = formats.get(d);
+    if (!f) formats.set(d, (f = new Intl.NumberFormat('ko-KR', { minimumFractionDigits: d, maximumFractionDigits: d })));
+    return f.format(v || 0);
   };
   const round = (v) => Number((v || 0).toFixed(App.settings.decimals));
 
@@ -36,6 +40,20 @@
     },
     areaLabel() {
       return areaUnit().label;
+    },
+    /** 축척 막대: 화면에서 about px 안팎이 되는 1·2·5 단위 길이 (설정 단위로 고름 — ft면 1·2·5 ft).
+        { mm: 막대 길이(mm), text: '0.5 m'처럼 필요한 소수 자리까지 } */
+    niceBar(aboutPx, scale) {
+      const f = unit().factor, raw = aboutPx / scale / f;
+      const pow = 10 ** Math.floor(Math.log10(raw));
+      const n = raw / pow;
+      const v = (n >= 5 ? 5 : n >= 2 ? 2 : 1) * pow;
+      const digits = Math.max(App.settings.decimals, Math.ceil(-Math.log10(v) - 1e-9), 0);
+      return { mm: v * f, text: `${v.toLocaleString('ko-KR', { maximumFractionDigits: digits })} ${unit().label}` };
+    },
+    /** 면적 단위 하나가 몇 mm²인지 (견적처럼 화면 소수점과 상관없이 정확히 셀 때) */
+    areaFactor() {
+      return areaUnit().factor;
     },
     /** 표 내보내기용 숫자: 설정 단위, 설정 소수점 자리 (쉼표 없음) */
     lengthValue(mm) {
@@ -324,6 +342,8 @@
     clearPolygon,
     clearEdges,
     finishSheets,
+    /** 방 쪽 벽 면적: 바닥에서 from 위로 천장까지, 문·창문 뺌 (안목 둘레 기준) */
+    wallFinishArea,
     openingRoom,
     lineRooms,
 
@@ -381,7 +401,8 @@
         doorWidth,
         wallGross,
         openingArea,
-        wallArea: wallGross - openingArea,
+        wallArea: wallGross - openingArea,                // 벽 중심 길이 × 벽 높이 (석고 기준)
+        paintArea: wallFinishArea(r, 0),                  // 도배·도장 면적: 안목 둘레 × 천장 높이, 문·창문 뺌
         boards: [...boards.entries()].map(([spec, area]) => ({ spec, area })),
       };
     },

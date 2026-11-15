@@ -15,10 +15,10 @@
 
   function wallOutlines() {
     const doc = App.doc;
-    if (outlineCache.version === doc.version) return outlineCache.map;
+    if (outlineCache.version === doc.wallVersion) return outlineCache.map;
     const map = new Map();
     for (const el of doc.all()) if (el.type === 'wall') map.set(el.id, App.joins.outline(el));
-    outlineCache = { version: doc.version, map };
+    outlineCache = { version: doc.wallVersion, map };
     return map;
   }
 
@@ -129,6 +129,7 @@
     drawZoneLabels(plan, zones);
     drawRouteLabels(plan, routes);
     if (App.modes.is('event') && App.settings.itemNames !== false) drawItemNames(plan, items);
+    drawSeatNumbers(plan, items);
     dims.forEach((d) => dimShape(plan, d, markColor(d)));
     texts.forEach((t) => textShape(plan, t, markColor(t)));
     // 선택한 벽의 끝점. 벽 하나만 골랐으면 끌어서 늘일 수 있는 손잡이로 크게
@@ -162,7 +163,7 @@
     if (sel.size === 1 && !App.exporting) {
       const one = App.doc.get(sel.list()[0]);
       if (App.model.handled(one) && App.layers.visible(one) && App.tools.id === 'select') {
-        const hd = App.model.itemHandles(one, scale), S2 = (p) => plan.view.toScreen(p.x, p.y);
+        const hd = App.model.itemHandles(one, scale), S2 = (p) => plan.view.toScreen(p.x, p.y); // 너무 작은 쪽은 크기 손잡이 없음
         const r = S2(hd.rotate), st = S2(hd.stem);
         ctx.strokeStyle = c.accent;
         ctx.lineWidth = 1.5;
@@ -1634,6 +1635,40 @@
     });
   }
 
+  /** 의자 배열의 좌석 번호 (A1, A2 …). 가까이서는 의자마다, 멀리서는 줄 양 끝에 열 글자만. 화면 좌표 */
+  function drawSeatNumbers(plan, items) {
+    const ctx = plan.ctx, scale = plan.view.scale;
+    items.forEach((it) => {
+      if (it.kind !== '의자 배열' || !it.seatNo) return;
+      const L = App.catalog.seatLayout(it);
+      const pitch = L.pw * scale, rowH = L.ph * scale;
+      if (rowH < 9) return;
+      const a = ((it.rotation || 0) * Math.PI) / 180, c = Math.cos(a), s = Math.sin(a);
+      const toS = (lx, ly) => plan.view.toScreen(it.x + lx * c - ly * s, it.y + lx * s + ly * c);
+      const labels = App.catalog.seatLabels(it);
+      const put = (text, p, size, weight = 700) => {
+        ctx.font = `${weight} ${size}px system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif`;
+        ctx.lineWidth = Math.max(2, size * 0.28);
+        ctx.strokeStyle = plan.colors.canvasBg;
+        ctx.strokeText(text, p.x, p.y);
+        ctx.fillStyle = App.selection.has(it.id) ? plan.colors.accent : plan.colors.fg;
+        ctx.fillText(text, p.x, p.y);
+      };
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      if (pitch >= 20) {
+        const size = Math.max(8, Math.min(12, pitch * 0.34));
+        labels.forEach((l) => put(l.label, toS(l.x, l.y), size, 600));
+        return;
+      }
+      // 멀리서: 줄마다 양 끝 바깥에 열 글자
+      const rows = new Map();
+      labels.forEach((l) => { const r = rows.get(l.row) || { y: l.y, x0: Infinity, x1: -Infinity }; r.x0 = Math.min(r.x0, l.x); r.x1 = Math.max(r.x1, l.x); rows.set(l.row, r); });
+      const size = Math.max(9, Math.min(13, rowH * 0.7));
+      rows.forEach((r, row) => { put(row, toS(r.x0 - L.pw * 0.9, r.y), size); put(row, toS(r.x1 + L.pw * 0.9, r.y), size); });
+    });
+  }
+
   /** 동선 이름·길이·걸리는 시간, 걸리는 곳 표시(!). 화면 좌표 */
   function drawRouteLabels(plan, routes) {
     const ctx = plan.ctx;
@@ -1922,6 +1957,7 @@
       const a = view.toScreen(w.start.x, w.start.y);
       const b = view.toScreen(w.end.x, w.end.y);
       const lenPx = Math.hypot(b.x - a.x, b.y - a.y);
+      if (lenPx < 56) continue; // 가장 짧은 글자도 못 들어감 → 글자를 만들지도 않음
       const text = App.units.formatLength(G.dist(w.start, w.end));
       const tw = ctx.measureText(text).width;
       if (lenPx < tw + 24) continue;

@@ -56,6 +56,12 @@
       : row(f.name, V.area(f.area), `${basis}${extraNote}`, '', cat);
   }
 
+  /** 마감 자재 한 줄: '실크 벽지 (벽)' 12롤 */
+  function matRow(l) {
+    const value = { text: `${l.qty.toLocaleString('ko-KR', { maximumFractionDigits: 1 })}${l.unit}`, num: l.qty, unit: l.unit };
+    return row(`${l.name}${l.spec ? ` (${l.spec})` : ''}`, value, `${l.note}${l.rooms > 1 ? ` · 방 ${l.rooms}곳` : ''}`, '', l.part);
+  }
+
   /** 도면 전체를 세어 기록 목록으로: { sec, group, key, room(id 또는 null), qty } */
   function compute() {
     // 설정에 따라 숨긴 레이어의 것은 집계에서 뺌
@@ -63,7 +69,7 @@
     const all = [...App.doc.all()].filter((e) => !exclude || App.layers.visible(e));
     const of = (t) => all.filter((e) => e.type === t);
     const M = App.measure;
-    const rooms = of('room').map((r) => ({ id: r.id, name: r.name || '이름 없음', issue: r.issue, points: r.points, box: bbox(r.points), q: M.room(r) }));
+    const rooms = of('room').map((r) => ({ id: r.id, name: r.name || '이름 없음', issue: r.issue, points: r.points, box: bbox(r.points), q: M.room(r), el: r }));
     const records = [];
     const add = (sec, group, key, room, qty) => { if (qty > 0) records.push({ sec, group, key, room: room || null, qty }); };
 
@@ -96,6 +102,8 @@
 
     const walls = of('wall');
     const wallQ = walls.map((w) => M.wall(w));
+    // 다른 방과 같은 면을 차지한 방(겹침)은 같은 바닥을 두 번 세므로 합계·견적에서 뺌
+    const counted = rooms.filter((r) => r.issue !== 'overlap');
     return {
       excluded: exclude ? App.layers.hidden().map((id) => (App.layers.list().find((l) => l.id === id) || {}).label).filter(Boolean) : [],
       rooms,
@@ -105,17 +113,21 @@
         wallLength: wallQ.reduce((s, q) => s + q.length, 0),
         wallOverlap: wallQ.reduce((s, q) => s + q.overlap, 0),
         wallArea: wallQ.reduce((s, q) => s + q.area, 0),
-        floor: rooms.reduce((s, r) => s + r.q.floor, 0),
-        clearFloor: rooms.reduce((s, r) => s + r.q.clearArea, 0),
-        baseboard: rooms.reduce((s, r) => s + r.q.baseboard, 0),
-        molding: rooms.reduce((s, r) => s + r.q.clearPerimeter, 0),
-        ceiling: rooms.reduce((s, r) => s + r.q.ceiling, 0),
-        roomWall: rooms.reduce((s, r) => s + r.q.wallArea, 0),
+        floor: counted.reduce((s, r) => s + r.q.floor, 0),
+        clearFloor: counted.reduce((s, r) => s + r.q.clearArea, 0),
+        baseboard: counted.reduce((s, r) => s + r.q.baseboard, 0),
+        molding: counted.reduce((s, r) => s + r.q.clearPerimeter, 0),
+        ceiling: counted.reduce((s, r) => s + r.q.ceiling, 0),
+        roomWall: counted.reduce((s, r) => s + r.q.wallArea, 0),
+        paintWall: counted.reduce((s, r) => s + r.q.paintArea, 0),
         issues: rooms.filter((r) => r.issue).length,
+        overlaps: rooms.length - counted.length,
       },
       materials: M.materials(walls),
-      finishes: finishTotals(rooms),
-      zones: of('zone').map((z) => ({ name: z.name, area: App.model.TYPES.zone.area(z), surface: App.catalog.surfaceName(z) })),
+      finishes: finishTotals(counted),
+      // 마감 자재: 바닥 모양·벽 마감·천장 마감으로 센 벽지 롤·페인트·마루·타일 (면적을 더한 뒤 올림)
+      matLines: App.materials.lines(counted.map((r) => ({ ...r.el, q: r.q }))),
+      zones: of('zone').map((z) => ({ name: z.name, area: App.model.TYPES.zone.area(z), surface: App.catalog.surfaceName(z), crowd: !!z.crowd })),
       routes: of('route').map((r) => ({ route: r, ...App.routes.check(r) })),
       items: of('item'),
     };
@@ -197,6 +209,12 @@
     const bad = s.routes.reduce((n, r) => n + r.issues.length, 0);
     const rows = [];
     if (seats) rows.push(row('좌석', V.count(seats, '석'), '의자 배열·낱개 의자·테이블 의자'));
+    // 수용 인원: 좌석 + 관람·대기 구역에 서는 인원 (1㎡에 1명 여유, 2명 최대)
+    const crowd = s.zones.filter((z) => z.crowd).reduce((t, z) => t + z.area, 0);
+    if (crowd > 0 || seats) {
+      const easy = Math.floor(crowd / 1e6), full = Math.floor(crowd / 5e5);
+      rows.push(row('수용 인원 (어림)', V.count(seats + easy, '명'), crowd > 0 ? `좌석 ${seats.toLocaleString('ko-KR')} + 서서 ${easy.toLocaleString('ko-KR')}명 · 빽빽하면 ${(seats + full).toLocaleString('ko-KR')}명` : '좌석만 · 영역을 ‘관람·대기 구역’으로 표시하면 서서 볼 인원도 더함'));
+    }
     if (people) rows.push(row('배치한 사람', V.count(people, '명')));
     if (parking) rows.push(row('주차', V.count(parking, '칸')));
     if (toilets) rows.push(row('이동식 화장실', V.count(toilets, '칸'), seats ? `좌석 ${Math.round(seats / toilets).toLocaleString('ko-KR')}석에 1칸꼴` : ''));
@@ -223,7 +241,7 @@
       arch.push(row('벽 면적 합계 (한 면)', V.area(a.wallArea), '문·창문 뺌'));
     }
     if (s.rooms.length) {
-      arch.push(row('바닥 면적 합계', V.area(a.floor), `방 ${s.rooms.length}개 · 벽 중심 기준${a.issues ? ` · 경계 확인 필요 ${a.issues}개` : ''}`));
+      arch.push(row('바닥 면적 합계', V.area(a.floor), `방 ${s.rooms.length}개 · 벽 중심 기준${a.issues ? ` · 경계 확인 필요 ${a.issues}개` : ''}${a.overlaps ? ` (겹친 방 ${a.overlaps}개는 합계에서 뺌)` : ''}`));
       arch.push(row('바닥 면적 합계 (안목)', V.area(a.clearFloor), '벽 면 안쪽 · 바닥재 기준'));
       arch.push(row('천장 면적 합계', V.area(a.ceiling)));
       arch.push(row('걸레받이 합계', V.length(a.baseboard), '안목 둘레 − 문 폭'));
@@ -233,6 +251,7 @@
     const mat = event ? [] : materialRows(s.materials); // 조감도 모드에서는 벽 자재·마감재를 빼고 봄
     if (mat.length) blocks.push({ title: '벽 자재', sub: '본·장 수는 전체 길이·면적을 더한 뒤 올림', rows: mat });
     if (s.finishes.length && !event) blocks.push({ title: '마감재', sub: '방 속성에서 고른 벽·바닥 마감. 장 수는 면적을 더한 뒤 올림', rows: s.finishes.map((f) => finishRow(f, '', ` · 방 ${f.rooms}곳`)) });
+    if (s.matLines.length) blocks.push({ title: '마감 자재', sub: '방마다 고른 바닥 모양·벽 마감·천장 마감 기준. 면적을 더하고 로스를 붙여 올림', rows: s.matLines.map(matRow) });
     sections().forEach((sec) => {
       const recs = s.records.filter((r) => r.sec === sec.id);
       if (!recs.length) return;
@@ -269,12 +288,14 @@
         row('바닥 면적', V.area(q.floor), '벽 중심 기준', '', '면적'),
         row('바닥 면적 (안목)', V.area(q.clearArea), '벽 면 안쪽', '', '면적'),
         row('천장 면적', V.area(q.ceiling), q.ceiling !== q.floor ? '직접 입력' : '', '', '면적'),
-        row('벽 면적 (방 쪽)', V.area(q.wallArea), q.openingArea ? `문·창문 ${App.units.formatArea(q.openingArea)} 뺌` : '', '', '면적'),
+        row('벽 면적 (방 쪽)', V.area(q.wallArea), `벽 중심 × 벽 높이${q.openingArea ? ` · 문·창문 ${App.units.formatArea(q.openingArea)} 뺌` : ''}`, '', '면적'),
+        row('도배·도장 면적 (안목)', V.area(q.paintArea), '안목 둘레 × 천장 높이 · 문·창문 뺌', '', '면적'),
         ...q.boards.map((b) => row(`${b.spec} (방 쪽)`, V.area(b.area), '겹 수 반영', '', '면적')),
         row('둘레', V.length(q.perimeter), '벽 중심 기준', '', '면적'),
         row('걸레받이', V.length(q.baseboard), q.doorWidth ? `안목 둘레 ${App.units.formatLength(q.clearPerimeter)} − 문 ${App.units.formatLength(q.doorWidth)}` : '안목 둘레', '', '면적'),
         row('천장 몰딩', V.length(q.clearPerimeter), '안목 둘레', '', '면적'),
         ...q.finishes.map((f) => finishRow(f, '마감재')),
+        ...App.materials.lines([{ ...r.el, q }]).map((l) => ({ ...matRow(l), cat: '마감 자재' })),
         ...roomItems(r.id),
       ];
       blocks.push({ title: r.name, sub: r.issue ? '경계 확인 필요' : '', warn: !!r.issue, rows });
@@ -290,7 +311,9 @@
       tot.push(row('걸레받이', V.length(s.arch.baseboard), '안목 둘레 − 문 폭', '', '면적'));
       tot.push(row('천장 몰딩', V.length(s.arch.molding), '안목 둘레', '', '면적'));
       s.finishes.forEach((f) => tot.push(finishRow(f, '마감재', ` · 방 ${f.rooms}곳`)));
-      tot.push(row('벽 면적 (방 쪽)', V.area(s.arch.roomWall), '칸막이 벽은 양쪽 방에 한 면씩', '', '면적'));
+      s.matLines.forEach((l) => tot.push({ ...matRow(l), cat: '마감 자재' }));
+      tot.push(row('벽 면적 (방 쪽)', V.area(s.arch.roomWall), '벽 중심 × 벽 높이 · 칸막이 벽은 양쪽 방에 한 면씩', '', '면적'));
+      tot.push(row('도배·도장 면적 (안목)', V.area(s.arch.paintWall), '안목 둘레 × 천장 높이 · 문·창문 뺌', '', '면적'));
     }
     secs.forEach((sec) => {
       const recs = s.records.filter((r) => r.sec === sec.id);
@@ -414,8 +437,7 @@
       return false;
     }
     const name = `집계표_${label}_${App.exporter.stamp()}.csv`;
-    App.exporter.download(name, App.exporter.csvText(rows), 'text/csv;charset=utf-8');
-    App.ui.toast(`‘${name}’을 저장했습니다. 엑셀에서 바로 열 수 있습니다.`);
+    App.exporter.saved(App.exporter.download(name, App.exporter.csvText(rows), 'text/csv;charset=utf-8'), `‘${name}’을 저장했습니다. 엑셀에서 바로 열 수 있습니다.`);
     return true;
   }
 
@@ -423,7 +445,8 @@
   function init() {
     const pane = document.getElementById('pane-summary');
     App.doc.onChange(() => {
-      if (pane.hidden) dirty = true; // 안 보일 때는 탭을 열 때 계산
+      // 안 보일 때는 탭을 열 때, 끄는 중(기록 전)에는 손을 뗀 뒤에 한 번 계산 — 매 장면마다 집계표 전체를 다시 그리면 끌기가 끊김
+      if (pane.hidden || App.doc.tx) dirty = true;
       else render();
     });
     const again = () => {

@@ -121,10 +121,17 @@
       const it = App.doc.get(App.selection.list()[0]);
       if (!App.model.handled(it)) return null;
       const scale = App.plan.view.scale, r = (ev.touch ? 22 : 13) / scale;
-      const h = App.model.itemHandles(it, scale);
+      const h = App.model.itemHandles(it, scale, ev.touch);
       if (G.dist(ev.world, h.rotate) <= r * 1.15) return { id: it.id, item: 'rotate' };
-      if (App.catalog.resizable(it)) for (const q of h.sizes) if (G.dist(ev.world, q) <= r) return { id: it.id, item: 'size', axis: q.axis, sign: q.sign };
-      return null;
+      if (!App.catalog.resizable(it)) return null;
+      // 몸통 안을 눌렀으면 손잡이 가까이(그 방향 반쪽 길이의 40% 안)만 크기 조절, 나머지는 옮기기
+      const inside = App.model.TYPES.item.distance(it, ev.world) <= 0;
+      let best = null, bestD = Infinity;
+      for (const q of h.sizes) {
+        const d = G.dist(ev.world, q), lim = inside ? Math.min(r, q.half * 0.4) : r;
+        if (d <= lim && d < bestD) { best = q; bestD = d; }
+      }
+      return best ? { id: it.id, item: 'size', axis: best.axis, sign: best.sign } : null;
     }
     startItemHandle(p) {
       p.mode = 'ihandle';
@@ -254,6 +261,15 @@
         const t = App.model.TYPES[el.type];
         if (t && t.snapPoints) t.snapPoints(el).forEach((q) => q.kind === 'end' && p.points.push(q));
       });
+      // 많이 골라 끌면 끝점 붙이기 비교가 (움직이는 점 × 전체 끝점)이라 느려짐 → 바깥쪽 점 위주로 200개까지만
+      if (p.points.length > 200) {
+        const pts = p.points, keep = new Set();
+        const ext = (f) => pts.reduce((b, q) => (f(q) > f(b) ? q : b), pts[0]);
+        [(q) => q.x, (q) => -q.x, (q) => q.y, (q) => -q.y, (q) => q.x + q.y, (q) => q.x - q.y, (q) => -q.x + q.y, (q) => -q.x - q.y].forEach((f) => keep.add(ext(f)));
+        const step = pts.length / (200 - keep.size);
+        for (let i = 0; keep.size < 200 && i < pts.length; i += step) keep.add(pts[Math.floor(i)]);
+        p.points = [...keep];
+      }
       if (label) App.doc.begin(label);
       // 벽에 붙은 기호를 그 벽 없이 옮기면 벽에서 뗌 (벽도 함께 옮기면 붙은 채로 따라감)
       p.orig.forEach((el, id) => {
@@ -425,7 +441,7 @@
     for (const el of App.doc.all()) if (el.type === 'wall' && ++walls > LIVE_ROOM_SYNC_MAX_WALLS) return;
     if (!App.doc.tx) return;
     App.catalog.syncHook(App.doc.tx);
-    App.rooms.syncRooms(App.doc.tx);
+    App.rooms.syncRooms(App.doc.tx, true);
   }
 
   /* ── 이어 그리기 도구 (벽·선·치수) ──
@@ -1588,6 +1604,7 @@
   };
 
   App.Selection = Selection;
+  tools.attachedEnds = attachedEnds; // 화살표 이동에서도 '늘리기'로 이어진 벽 끝이 따라오게
   App.tools = tools;
   App.actions = actions;
   App.withGroups = withGroups;

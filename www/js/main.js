@@ -47,6 +47,7 @@
   // 기록 직전에 딸린 데이터를 같은 실행 취소 단계 안에서 맞춤: 벽 두께·없어진 벽의 문·창문, 그다음 방 경계
   App.doc.beforeCommit((tx) => App.catalog.syncHook(tx));
   App.doc.beforeCommit((tx) => App.rooms.syncRooms(tx));
+  App.doc.onChange(() => App.rooms.flushNotice()); // 칸막이로 나뉜 쪽이 방이 아니면 알림
   App.doc.beforeCommit((tx) => App.catalog.roomHook(tx)); // 아이템·기둥이 속한 방
   App.doc.reset(App.catalog.defaultElements()); // 새 도면: 기본 벽 종류·프리셋 (8단계에서 저장된 도면 불러오기)
   App.current = {}; // 도구가 쓸 지금 고른 벽 종류·프리셋
@@ -67,15 +68,10 @@
     const scale = plan.view.scale;
     if (scale === lastScale) return;
     lastScale = scale;
-    const raw = 110 / scale;
-    const pow = 10 ** Math.floor(Math.log10(raw));
-    const n = raw / pow;
-    const len = (n >= 5 ? 5 : n >= 2 ? 2 : 1) * pow;
-    scaleBar.style.width = len * scale + 'px';
-    // 단위가 m 등일 때 0.2처럼 작은 값도 보이게 (소수점 설정보다 필요한 만큼 더)
-    const v = len / App.units.lengthFactor();
-    const digits = Math.max(App.settings.decimals, Math.ceil(-Math.log10(v) - 1e-9), 0);
-    scaleLabel.textContent = `${v.toLocaleString('ko-KR', { maximumFractionDigits: digits })} ${App.units.lengthLabel()}`;
+    // 단위가 m 등일 때 0.2처럼 작은 값도 보이게, ft는 1·2·5 ft 단위로 (내보내기 그림과 같은 계산)
+    const bar = App.units.niceBar(110, scale);
+    scaleBar.style.width = bar.mm * scale + 'px';
+    scaleLabel.textContent = bar.text;
   });
 
   // 마우스 위치 좌표 (PC). 눈금자에도 표시

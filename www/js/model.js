@@ -539,7 +539,9 @@
       this.listeners = [];
       this.commitHooks = []; // 기록 직전에 딸린 데이터(방 경계 등)를 같은 단계 안에서 고침
       this._queued = false;
+      this.wallVersion = 0; // 벽·벽 종류가 바뀔 때만 오름: 벽 이음·외곽선·방 면 계산을 의자 하나 끌 때마다 다시 하지 않게
     }
+    _wallTouch(el) { if (el && (el.type === 'wall' || el.type === 'wallType')) this.wallVersion++; }
 
     beforeCommit(fn) { this.commitHooks.push(fn); }
 
@@ -566,6 +568,7 @@
     }
     add(el) {
       this._touch(el.id);
+      this._wallTouch(el);
       this.elements.set(el.id, el);
       this._changed();
       return el;
@@ -574,12 +577,14 @@
       const el = this.elements.get(id);
       if (!el) return;
       this._touch(id);
+      this._wallTouch(el);
       Object.assign(el, clone(patch));
       this._changed();
     }
     remove(id) {
       if (!this.elements.has(id)) return;
       this._touch(id);
+      this._wallTouch(this.elements.get(id));
       this.elements.delete(id);
       this._changed();
     }
@@ -628,12 +633,14 @@
     reset(elements) {
       this.tx = null;
       this.elements = new Map(elements.map((el) => [el.id, clone(el)]));
+      this.wallVersion++;
       this.undoStack = [];
       this.redoStack = [];
       this._changed();
     }
 
     _put(id, value) {
+      this._wallTouch(value || this.elements.get(id));
       if (value) this.elements.set(id, clone(value));
       else this.elements.delete(id);
     }
@@ -708,15 +715,18 @@
 
   /** 손잡이(회전·크기)를 붙일 물건인지: 실제 크기로 놓는 조감도 물건 (벽에 붙은 것·잠긴 것은 뺌) */
   const handled = (it) => !!it && it.type === 'item' && it.depth != null && !it.wallId && !it.locked && (it.category === 'event' || it.category === 'furn' || (App.modes && App.modes.is('event')));
-  /** 고른 물건의 손잡이 자리(도면 좌표): 회전 손잡이는 등 쪽 바깥, 크기 손잡이는 네 변 가운데. scale: 화면 배율(px/mm) */
-  function itemHandles(it, scale) {
+  /** 고른 물건의 손잡이 자리(도면 좌표): 회전 손잡이는 등 쪽 바깥, 크기 손잡이는 네 변 가운데. scale: 화면 배율(px/mm)
+      화면에서 너무 작은 쪽(손가락 72px·마우스 40px 미만)에는 크기 손잡이를 두지 않음 — 몸통을 덮어 옮기려다 크기가 바뀌므로.
+      그때 크기는 속성 칸에서 고침 */
+  const SIZE_HANDLE_MIN_PX = { mouse: 40, touch: 72 };
+  function itemHandles(it, scale, touch = !!App.pointerTouch) {
     const a = (it.rotation * Math.PI) / 180, c = Math.cos(a), s = Math.sin(a);
     const at = (lx, ly) => ({ x: it.x + lx * c - ly * s, y: it.y + lx * s + ly * c });
-    const w = it.size / 2, d = it.depth / 2;
-    return {
-      rotate: at(0, -d - 34 / scale), stem: at(0, -d),
-      sizes: [{ ...at(w, 0), axis: 'x', sign: 1 }, { ...at(-w, 0), axis: 'x', sign: -1 }, { ...at(0, d), axis: 'y', sign: 1 }, { ...at(0, -d), axis: 'y', sign: -1 }],
-    };
+    const w = it.size / 2, d = it.depth / 2, min = touch ? SIZE_HANDLE_MIN_PX.touch : SIZE_HANDLE_MIN_PX.mouse;
+    const sizes = [];
+    if (it.size * scale >= min) sizes.push({ ...at(w, 0), axis: 'x', sign: 1, half: w }, { ...at(-w, 0), axis: 'x', sign: -1, half: w });
+    if (it.depth * scale >= min) sizes.push({ ...at(0, d), axis: 'y', sign: 1, half: d }, { ...at(0, -d), axis: 'y', sign: -1, half: d });
+    return { rotate: at(0, -d - 34 / scale), stem: at(0, -d), sizes };
   }
 
   App.model = { DATA_VERSION, LAYERS, TYPES, Doc, clone, newId, openingGeom, openingCorners, mountPoint, handled, itemHandles };

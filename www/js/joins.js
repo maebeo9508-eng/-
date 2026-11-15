@@ -103,7 +103,7 @@
         map.get(g.wall.id)[g.at] = endJoin(g, group, passing);
       });
     });
-    cache = { version: App.doc.version, map };
+    cache = { version: App.doc.wallVersion, map };
     // 너무 짧아 양쪽을 자르면 뒤집히는 벽은 자르지 않음
     walls.forEach((w) => {
       const j = map.get(w.id);
@@ -118,7 +118,7 @@
 
   /** 벽 양 끝의 이음 { start, end }. 각 끝: { cut: {p, e} | null, joined, shareStud } */
   function of(w) {
-    const map = cache.version === App.doc.version ? cache.map : build();
+    const map = cache.version === App.doc.wallVersion ? cache.map : build(); // 벽이 바뀔 때만 다시 계산
     return (App.doc.get(w.id) === w && map.get(w.id)) || { start: FREE, end: FREE };
   }
 

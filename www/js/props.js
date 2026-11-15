@@ -76,9 +76,30 @@
     },
   }]));
 
+  /** 벽 끝을 숫자로 옮길 때: '늘리기'가 켜져 있으면 그 끝에 이어진 다른 벽 끝도 같이 옮김 (손잡이로 끌 때와 같게).
+      안 그러면 모서리가 떨어져 방이 '경계 끊김'이 되거나 벽이 모서리 밖으로 삐져나옴 */
+  const wallEndApply = (set) => (walls, v) => {
+    const ids = new Set(walls.map((w) => w.id));
+    walls.forEach((w0) => {
+      const w = App.doc.get(w0.id);
+      if (!w) return;
+      const patch = set(w, v);
+      const moves = ['start', 'end'].filter((end) => patch[end] && !G.samePoint(patch[end], w[end], 0.01)).map((end) => ({ from: { ...w[end] }, to: patch[end] }));
+      App.doc.update(w.id, patch);
+      if (!App.settings.stretchWalls) return;
+      moves.forEach((m) => {
+        for (const el of App.doc.all()) {
+          if (el.type !== 'wall' || ids.has(el.id) || el.locked) continue;
+          ['start', 'end'].forEach((end) => { if (G.samePoint(el[end], m.from, 1)) App.doc.update(el.id, { [end]: { ...m.to } }); });
+        }
+      });
+    });
+  };
+  const wallEnd = (f) => ({ ...f, apply: wallEndApply(f.set) });
+
   const FIELDS = {
     wall: {
-      length: {
+      length: wallEnd({
         label: '길이', min: 1, max: 1000000,
         get: (w) => G.dist(w.start, w.end),
         // 시작점은 두고 끝점을 같은 방향으로 옮김
@@ -87,12 +108,12 @@
           return { end: { x: w.start.x + d.x * v, y: w.start.y + d.y * v } };
         },
         check: (w) => (G.dist(w.start, w.end) < 0.001 ? '길이가 0인 벽은 방향이 없어 길이를 바꿀 수 없습니다.' : null),
-      },
+      }),
       height: { label: '높이', min: 100, max: 20000, get: (w) => w.height, set: (w, v) => ({ height: v }) },
-      sx: { label: 'X', min: -COORD_LIMIT, max: COORD_LIMIT, get: (w) => w.start.x, set: (w, v) => ({ start: { x: v, y: w.start.y } }) },
-      sy: { label: 'Y', min: -COORD_LIMIT, max: COORD_LIMIT, get: (w) => w.start.y, set: (w, v) => ({ start: { x: w.start.x, y: v } }) },
-      ex: { label: 'X', min: -COORD_LIMIT, max: COORD_LIMIT, get: (w) => w.end.x, set: (w, v) => ({ end: { x: v, y: w.end.y } }) },
-      ey: { label: 'Y', min: -COORD_LIMIT, max: COORD_LIMIT, get: (w) => w.end.y, set: (w, v) => ({ end: { x: w.end.x, y: v } }) },
+      sx: wallEnd({ label: 'X', min: -COORD_LIMIT, max: COORD_LIMIT, get: (w) => w.start.x, set: (w, v) => ({ start: { x: v, y: w.start.y } }) }),
+      sy: wallEnd({ label: 'Y', min: -COORD_LIMIT, max: COORD_LIMIT, get: (w) => w.start.y, set: (w, v) => ({ start: { x: w.start.x, y: v } }) }),
+      ex: wallEnd({ label: 'X', min: -COORD_LIMIT, max: COORD_LIMIT, get: (w) => w.end.x, set: (w, v) => ({ end: { x: v, y: w.end.y } }) }),
+      ey: wallEnd({ label: 'Y', min: -COORD_LIMIT, max: COORD_LIMIT, get: (w) => w.end.y, set: (w, v) => ({ end: { x: w.end.x, y: v } }) }),
     },
     room: {
       ceilingHeight: { label: '천장 높이', min: 100, max: 20000, get: (r) => r.ceilingHeight, set: (r, v) => ({ ceilingHeight: v }) },
@@ -439,7 +460,8 @@
         ${stat(single ? '바닥 면적' : '바닥 면적 합계', App.units.formatArea(area), '벽 중심 기준')}
         ${stat('바닥 면적 (안목)', App.units.formatArea(total('clearArea')), '벽 면 안쪽 · 바닥재 기준')}
         ${stat(single ? '천장 면적' : '천장 면적 합계', App.units.formatArea(total('ceiling')), els.some((e) => e.ceilingArea != null) ? '직접 입력' : '바닥과 같음')}
-        ${stat('벽 면적 (방 쪽)', App.units.formatArea(total('wallArea')), total('openingArea') ? `문·창문 ${App.units.formatArea(total('openingArea'))} 뺌` : '')}
+        ${stat('벽 면적 (방 쪽)', App.units.formatArea(total('wallArea')), `벽 중심 × 벽 높이${total('openingArea') ? ` · 문·창문 ${App.units.formatArea(total('openingArea'))} 뺌` : ''}`)}
+        ${stat('도배·도장 면적 (안목)', App.units.formatArea(total('paintArea')), '안목 둘레 × 천장 높이 · 문·창문 뺌')}
         ${[...boards].map(([spec, a]) => stat(`${spec} (방 쪽)`, App.units.formatArea(a), '겹 수 반영')).join('')}
         ${single ? stat('둘레', App.units.formatLength(G.perimeter(r.points)), '벽 중심 기준') : ''}
         ${stat('걸레받이', App.units.formatLength(total('baseboard')), total('doorWidth') ? `안목 둘레 − 문 폭 ${App.units.formatLength(total('doorWidth'))}` : '안목 둘레')}
@@ -464,7 +486,22 @@
       <div class="field-group-label">방 꾸미기 (평면·3D에 보임)</div>
       ${selectField('f-floorLook', '바닥 모양', looks, commonText((r) => r.floorLook || ''))}
       ${colorField('f-roomWallColor', '벽지 색', commonText((r) => r.wallColor || ''), '기본 (흰색)', App.catalog.WALL_COLORS)}
-      ${els.length === 1 ? '<button type="button" class="btn" data-act="look-all">이 바닥·벽지를 모든 방에 똑같이</button>' : ''}`;
+      <div class="field-grid">
+        ${selectField('f-wallWork', '벽 마감 (물량)', App.materials.WALL_WORKS, commonText((r) => r.wallWork || ''))}
+        ${selectField('f-ceilWork', '천장 마감 (물량)', App.materials.CEIL_WORKS, commonText((r) => r.ceilWork || ''))}
+      </div>
+      ${matStats()}
+      <div class="btn-row">
+        ${els.length === 1 ? '<button type="button" class="btn" data-act="look-all">이 꾸미기를 모든 방에 똑같이</button>' : ''}
+        <button type="button" class="btn" data-act="mat-basis" title="벽지 1롤 면적, 박스·장 면적, 로스 %">자재 기준</button>
+      </div>`;
+  }
+  /** 고른 방들의 마감 자재 수량 (바닥 모양을 직접 고른 바닥, 벽·천장 마감) */
+  function matStats() {
+    const rooms = els.filter((r) => !r.issue).map((r) => ({ ...r, q: App.measure.room(r) }));
+    const ls = App.materials.lines(rooms);
+    if (!ls.length) return '<p class="props-meta">바닥 모양을 고르거나 벽·천장 마감을 고르면 벽지 롤 수, 페인트 양, 마루 박스·타일 장 수가 계산됩니다.</p>';
+    return `<div class="stats">${ls.map((l) => stat(`${l.name}${l.spec ? ` (${l.spec})` : ''}`, `${l.qty.toLocaleString('ko-KR', { maximumFractionDigits: 1 })}${l.unit}`, l.note)).join('')}</div>`;
   }
 
   /** 방 마감재: 벽 마감·바닥 마감 고르기와 그 물량 */
@@ -670,6 +707,7 @@
       ${kind === '의자 배열' ? `<div class="field-grid">${intField('count', { label: '총 의자 수', unit: '개' }, (e) => App.catalog.seats(e).count)}</div>` : ''}
       ${numbers.length ? `<div class="field-grid">${numbers.map(([key, o]) => intField(key, o)).join('')}</div>` : ''}
       ${kind === '의자 배열' ? '<p class="props-meta">총 의자 수를 넣으면 줄 수가 맞춰지고, 모자라는 자리는 맨 뒷줄에서 빠집니다. 의자는 기호의 아래쪽(앞)을 보고 앉습니다. 놓을 때 가까운 무대 쪽을 보게 돌려 놓습니다.</p>' : ''}
+      ${kind === '의자 배열' ? seatNoFields() : ''}
       ${'size' in auto ? '' : sizeRows(def)}
       ${event && def && !def.flat && !('h3' in auto) ? `<div class="field-grid">${numberField('h3')}</div>` : ''}
       ${!event && def && def.face ? `<div class="field-grid">${numberField('h3', '그림 높이')}${numberField('height', '걸리는 높이 (가운데)')}</div>` : ''}
@@ -700,6 +738,20 @@
       <p class="props-meta">벽 가까이로 끌면 벽면에 딱 붙습니다. 아래 미세 이동 화살표로 1mm까지 맞출 수 있습니다.${event ? ' 오른쪽 아래 3D 버튼으로 조감도를 보고 걸어서 둘러볼 수 있습니다.' : ''}</p>
       ${commonFields(single)}
       ${deleteButton(event ? '물건' : '가구')}`;
+  }
+
+  /** 좌석 번호: 보이기, 번호 방향, 첫 열 글자, 첫 번호, 좌석표 CSV */
+  function seatNoFields() {
+    const on = els.every((e) => e.seatNo);
+    return `
+      <div class="field-group-label">좌석 번호</div>
+      <label class="menu-check seat-check"><input type="checkbox" id="f-seatNo" ${on ? 'checked' : ''}><span>평면에 좌석 번호 보이기 <small>A열이 무대 쪽 앞줄</small></span></label>
+      <div class="field-grid">
+        ${selectField('f-seatFrom', '번호 시작 (관객 기준)', [['left', '왼쪽부터'], ['right', '오른쪽부터']], commonText((e) => e.seatFrom || 'left'))}
+        <div class="field"><label class="field-label" for="f-seatRow0">첫 열 글자</label><div class="field-box"><input id="f-seatRow0" type="text" maxlength="1" autocomplete="off" value="${esc(commonText((e) => e.seatRow0 || 'A') || '')}"></div></div>
+        <div class="field"><label class="field-label" for="f-seatNum0">첫 번호</label><div class="field-box"><input id="f-seatNum0" type="text" inputmode="numeric" autocomplete="off" value="${esc(commonText((e) => String(e.seatNum0 || 1)) || '')}"></div></div>
+      </div>
+      <button type="button" class="btn" data-act="seat-csv">좌석표 CSV (모든 의자 배열)</button>`;
   }
 
   function itemForm() {
@@ -803,6 +855,7 @@
         ${single ? stat('둘레', App.units.formatLength(G.perimeter(els[0].points))) : ''}
         ${App.modes.is('event') ? stat('서서 볼 수 있는 인원 (어림)', `여유 있게 ${Math.floor(area / 1e6).toLocaleString('ko-KR')}명 · 빽빽하게 ${Math.floor(area / 5e5).toLocaleString('ko-KR')}명`, '1㎡에 1~2명으로 어림한 값') : ''}
       </div>
+      ${App.modes.is('event') ? `<label class="menu-check seat-check"><input type="checkbox" id="f-zoneCrowd" ${els.every((z) => z.crowd) ? 'checked' : ''}><span>관람·대기 구역 <small>집계의 수용 인원에 넣음</small></span></label>` : ''}
       <p class="props-meta">동그란 꼭짓점을 끌면 모양을 고칠 수 있습니다.</p>
       ${commonFields(single)}
       ${deleteButton('영역')}`;
@@ -997,9 +1050,17 @@
     });
   }
 
+  let stale = false; // 숨어 있는 동안 바뀌어 다시 그려야 함
   function refresh() {
     els = App.selection.list().map((id) => App.doc.get(id)).filter(Boolean);
     const key = els.map((e) => e.id).join(',') + (els.length ? '' : `|${App.tools.id}`);
+    // 끄는 중(기록 전)에 같은 것을 고른 채면: 숨어 있으면 나중에, 보이면 숫자만 고침 (패널을 통째로 다시 만들지 않음)
+    if (App.doc.tx && key === shownKey) {
+      if (pane.hidden) stale = true;
+      else if (els.length) updateNumbers();
+      return;
+    }
+    stale = false;
     // 글자를 치는 중인 칸이 있으면 패널을 다시 그리지 않음 (선택 상자는 바로 다시 그려도 됨)
     // 색 고르기 칸은 글자를 치는 칸이 아니므로, 색을 고르고 나면 목록(고른 색)까지 새로 그림
     const editing = pane.contains(document.activeElement) && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName) && document.activeElement.type !== 'color';
@@ -1175,6 +1236,26 @@
       }
       if (id === 'f-faceText') {
         apply('글자 변경', () => ({ text: t.value.replace(/\s+$/, '') }));
+        return;
+      }
+      if (id === 'f-seatNo') { apply('좌석 번호', () => ({ seatNo: t.checked })); return; }
+      if (id === 'f-seatFrom') { if (t.value) apply('좌석 번호 방향', () => ({ seatFrom: t.value })); return; }
+      if (id === 'f-seatRow0') {
+        const v = t.value.trim().toUpperCase();
+        if (/^[A-Z]$/.test(v)) apply('첫 열 글자', () => ({ seatRow0: v }));
+        else { App.ui.toast('첫 열 글자는 A~Z 한 글자로 넣으세요.'); refresh(); }
+        return;
+      }
+      if (id === 'f-seatNum0') {
+        const v = parseInt(t.value, 10);
+        if (v >= 1 && v <= 9999) apply('첫 번호', () => ({ seatNum0: v }));
+        else { App.ui.toast('첫 번호는 1 이상 숫자로 넣으세요.'); refresh(); }
+        return;
+      }
+      if (id === 'f-zoneCrowd') { apply('관람 구역', () => ({ crowd: t.checked })); return; }
+      if (id === 'f-wallWork' || id === 'f-ceilWork') {
+        const key = id === 'f-wallWork' ? 'wallWork' : 'ceilWork';
+        if (t.value !== '' || commonText((r) => r[key] || '') !== null) apply(id === 'f-wallWork' ? '벽 마감' : '천장 마감', () => ({ [key]: t.value || null }));
         return;
       }
       if (id === 'f-floorLook') {
@@ -1381,11 +1462,20 @@
           App.ui.toast(`방 ${rooms.length}곳에 같은 마감을 넣었습니다.`);
           break;
         }
+        case 'mat-basis': App.materials.openBasis(); break;
+        case 'seat-csv': {
+          const arrays = [...App.doc.all()].filter((e) => e.type === 'item' && e.kind === '의자 배열');
+          const rows = [['구역', '열', '번호', '좌석']];
+          arrays.forEach((it, i) => App.catalog.seatLabels(it).forEach((l) => rows.push([it.name || `의자 배열 ${i + 1}`, l.row, l.no, l.label])));
+          const name = `좌석표_${App.exporter.stamp()}.csv`;
+          App.exporter.saved(App.exporter.download(name, App.exporter.csvText(rows), 'text/csv;charset=utf-8'), `좌석 ${rows.length - 1}석을 ‘${name}’로 저장했습니다.`);
+          break;
+        }
         case 'look-all': {
-          const { floorLook = null, wallColor = null } = els[0];
+          const { floorLook = null, wallColor = null, wallWork = null, ceilWork = null } = els[0];
           const rooms = [...App.doc.all()].filter((e) => e.type === 'room');
-          App.doc.transact('바닥·벽지 모든 방에', () => rooms.forEach((r) => App.doc.update(r.id, { floorLook, wallColor })));
-          App.ui.toast(`방 ${rooms.length}곳에 같은 바닥·벽지를 넣었습니다.`);
+          App.doc.transact('꾸미기 모든 방에', () => rooms.forEach((r) => App.doc.update(r.id, { floorLook, wallColor, wallWork, ceilWork })));
+          App.ui.toast(`방 ${rooms.length}곳에 같은 바닥·벽지·마감을 넣었습니다.`);
           break;
         }
         case 'gap-dims-center': App.dims.clearanceDims(els[0], 'center'); break;
@@ -1405,6 +1495,7 @@
 
     App.selection.onChange(refresh);
     App.doc.onChange(refresh);
+    App.ui.on('tab', (id) => { if (id === 'tab-props' && stale) refresh(); });
     App.ui.on('images', refresh); // 넣은 이미지를 다 읽으면 미리 보기가 나오게
     App.ui.on('mode', refresh);
     App.ui.on('tool', () => queueMicrotask(refresh));

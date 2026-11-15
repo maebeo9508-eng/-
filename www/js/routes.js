@@ -40,6 +40,19 @@
         const dx = Math.abs(l.x) - hw, dy = Math.abs(l.y) - hh;
         return dx <= 0 && dy <= 0 ? Math.max(dx, dy) : Math.hypot(Math.max(dx, 0), Math.max(dy, 0));
       },
+      /** 선분 p→q가 이 네모를 지나가면 처음 들어가는 비율 t(0~1), 아니면 -1 (얇은 펜스를 건너뛰지 않게) */
+      enter(p, q) {
+        const A = local(p), B = local(q), d = { x: B.x - A.x, y: B.y - A.y };
+        let t0 = 0, t1 = 1;
+        const clip = (pk, qk) => { // Liang–Barsky: pk·t ≤ qk
+          if (Math.abs(pk) < 1e-12) return qk >= 0;
+          const t = qk / pk;
+          if (pk < 0) { if (t > t1) return false; if (t > t0) t0 = t; } else { if (t < t0) return false; if (t < t1) t1 = t; }
+          return true;
+        };
+        if (clip(-d.x, A.x + hw) && clip(d.x, hw - A.x) && clip(-d.y, A.y + hh) && clip(d.y, hh - A.y) && t0 <= t1) return t0;
+        return -1;
+      },
     };
   }
   const circleObstacle = (name, id, cx, cy, r) => ({ name, id, dist: (p) => Math.hypot(p.x - cx, p.y - cy) - r });
@@ -63,6 +76,21 @@
         const lx = (x0 + x1) / 2 - it.size / 2; // 묶음 가운데 (기호 가운데 기준)
         out.push(rectObstacle(name, it.id, it.x + lx * cos, it.y + lx * sin, (x1 - x0) / 2, it.depth / 2, it.rotation));
       });
+      return;
+    }
+    if (it.kind === '테이블') {
+      // 의자가 긴 변 쪽에 놓임 (위쪽부터, 2개 이상이면 아래쪽도). 의자 끝까지 약 480 mm
+      const n = (App.catalog.seats(it) || { count: 0 }).count;
+      const top = it.depth / 2 + (n >= 1 ? 480 : 0), bottom = it.depth / 2 + (n >= 2 ? 480 : 0);
+      const a = (it.rotation * Math.PI) / 180, off = (bottom - top) / 2; // 지역 y 방향(아래 +)으로 가운데 옮김
+      out.push(rectObstacle(name, it.id, it.x - off * Math.sin(a), it.y + off * Math.cos(a), it.size / 2, (top + bottom) / 2, it.rotation));
+      return;
+    }
+    if (it.kind === '경사로' || it.kind === '계단') {
+      // 동선 체크에서는 걸어서 오르내릴 수 있는 것으로 봄 (차량 동선에만 막힘). 3D 걷기는 높낮이가 없어 막힘
+      const ob = rectObstacle(name, it.id, it.x, it.y, it.size / 2, it.depth / 2, it.rotation);
+      ob.walk = true;
+      out.push(ob);
       return;
     }
     if (it.kind === '원형 테이블') {
@@ -120,8 +148,16 @@
     return list;
   }
 
+  /** 사람 동선 체크에서 걸리는 것 (경사로·계단은 오르내릴 수 있으므로 뺌) */
+  let footCache = { version: -1, list: [] };
+  function footObstacles() {
+    const all = obstacles();
+    if (footCache.version !== App.doc.version) footCache = { version: App.doc.version, list: all.filter((ob) => !ob.walk) };
+    return footCache.list;
+  }
+
   /** 점 p에서 가장 가까운 장애물까지: { dist, ob } (장애물이 없으면 dist는 Infinity) */
-  function nearest(p, list = obstacles()) {
+  function nearest(p, list = footObstacles()) {
     let best = null, bestD = Infinity;
     for (const ob of list) {
       const d = ob.dist(p);
@@ -155,7 +191,7 @@
     const doc = App.doc;
     if (checked.version !== doc.version) checked = { version: doc.version, map: new Map() };
     if (checked.map.has(r.id)) return checked.map.get(r.id);
-    const list = obstacles();
+    const list = r.kind === '차량' ? obstacles() : footObstacles();
     const total = length(r);
     const need = (r.width || def(r.kind).width) / 2;
     const issues = [];
@@ -179,14 +215,24 @@
       }
     }
     close();
-    // 얇은 벽을 건너뛰지 않게: 동선 선분이 벽을 뚫고 지나가면 막힘
+    // 얇은 벽·펜스를 건너뛰지 않게: 동선 선분이 뚫고 지나가면 막힘 (살피는 간격 사이에 끼어 못 본 것도)
+    let run = 0;
     for (let i = 1; i < r.points.length; i++) {
+      const p0 = r.points[i - 1], p1 = r.points[i], L = G.dist(p0, p1);
       for (const ob of list) {
-        if (!ob.cross || !ob.cross(r.points[i - 1], r.points[i])) continue;
-        const hit = issues.find((x) => x.id === ob.id);
-        if (hit) hit.blocked = true;
+        let t = -1;
+        if (ob.enter) t = ob.enter(p0, p1);
+        else if (ob.cross && ob.cross(p0, p1)) t = 0.5;
+        if (t < 0) continue;
+        const hit = issues.find((x) => x.id === ob.id && (run + t * L) >= x.from - STEP * 1.5 && (run + t * L) <= x.to + STEP * 1.5)
+          || issues.find((x) => x.id === ob.id);
+        if (hit) { hit.blocked = true; hit.gap = Math.min(hit.gap, 0); continue; }
+        const at = { x: p0.x + (p1.x - p0.x) * t, y: p0.y + (p1.y - p0.y) * t };
+        issues.push({ from: run + t * L, to: run + t * L, at, gap: 0, name: ob.name, id: ob.id, blocked: true });
       }
+      run += L;
     }
+    issues.sort((x, y) => x.from - y.from);
     const result = { length: total, time: time(r), need: need * 2, issues, ok: !issues.length };
     checked.map.set(r.id, result);
     return result;
@@ -224,7 +270,7 @@
               <span>${esc(issueText(r.route, x))}</span></button>`).join('') : '<p class="props-meta">걸리는 곳 없음</p>'}
           </div>`).join('')}
       </div>
-      <p class="props-meta">동선 가운데 선에서 통로 폭의 절반 안에 물건·기둥·벽이 있으면 걸리는 곳으로 봅니다. 문 자리는 지나갈 수 있고, 텐트·현수막·트러스 아래도 지나갈 수 있습니다.</p>`;
+      <p class="props-meta">동선 가운데 선에서 통로 폭의 절반 안에 물건·기둥·벽이 있으면 걸리는 곳으로 봅니다. 문 자리는 지나갈 수 있고, 텐트·현수막·트러스 아래도 지나갈 수 있습니다. 경사로·계단은 걸어서 오르내릴 수 있는 것으로 봅니다 (차량 동선은 막힘). 테이블은 둘레 의자까지 봅니다.</p>`;
     let target = null;
     const r = await App.ui.dialog({
       title: '동선 체크',
@@ -289,5 +335,5 @@
     return { x: p.x, y: p.y, angle: toward(p), route: null };
   }
 
-  App.routes = { KINDS, STEP, def, length, time, timeText, obstacles, nearest, pointAt, check, checkAll, all, issueText, report, entrance };
+  App.routes = { KINDS, STEP, def, length, time, timeText, obstacles, footObstacles, nearest, pointAt, check, checkAll, all, issueText, report, entrance };
 })();

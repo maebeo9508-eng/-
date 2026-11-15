@@ -10,8 +10,10 @@
     document.addEventListener('keydown', (e) => {
       if (isTyping(e.target)) return;
       if (!document.getElementById('dialog').hidden) return; // 확인 창이 떠 있으면 그 창의 키만
-      if (App.view3d && App.view3d.isOpen()) { // 3D 보기 중에는 도면 단축키를 쓰지 않음
+      if (App.view3d && App.view3d.isOpen()) { // 3D 보기 중에는 도면 단축키를 쓰지 않음 (3D에서 고친 것의 실행 취소·다시 실행만)
         if (e.key === 'Escape') App.view3d.close();
+        else if ((e.ctrlKey || e.metaKey) && !e.altKey && e.code === 'KeyZ') { e.preventDefault(); if (e.shiftKey) App.actions.redo(); else App.actions.undo(); }
+        else if ((e.ctrlKey || e.metaKey) && !e.altKey && e.code === 'KeyY') { e.preventDefault(); App.actions.redo(); }
         return;
       }
       const ctrl = e.ctrlKey || e.metaKey;

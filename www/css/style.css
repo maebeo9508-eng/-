@@ -47,7 +47,7 @@
   --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
 
   --topbar-h: 48px;
-  --toolbar-w: 68px;
+  --toolbar-w: calc(62px + max(6px, env(safe-area-inset-left, 0px))); /* 노치 쪽 여백만큼 넓혀 버튼이 줄지 않게 */
   --panel-w: 300px;
   --toolbar-h: 64px;
   --hit: 40px;                  /* 버튼 최소 크기. 모바일은 44px */
@@ -129,6 +129,7 @@ button { font: inherit; color: inherit; }
   inset: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr); /* 위 막대가 길어도 화면보다 넓어지지 않게 */
 }
 
 /* ── 상단바 ─────────────────────────────── */
@@ -192,7 +193,11 @@ button { font: inherit; color: inherit; }
   left: 0;
   display: flex;
   flex-direction: column;
-  min-width: 240px;
+  min-width: min(240px, calc(100vw - 16px));
+  max-width: calc(100vw - 16px);
+  max-height: calc(100dvh - var(--topbar-h, 56px) - env(safe-area-inset-top, 0px) - 16px); /* 길면 메뉴 안에서 스크롤 */
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 6px;
   background: var(--surface);
   border: 1px solid var(--line);
@@ -1078,6 +1083,16 @@ button { font: inherit; color: inherit; }
 @media (max-width: 1199px) {
   :root { --panel-w: 264px; }
 }
+/* 가로로 든 휴대폰·작은 태블릿 (769–1023px): PC 배치가 한 화면에 들어가게 위 막대 글자를 줄이고 오른쪽 칸을 좁힘 */
+@media (min-width: 769px) and (max-width: 1023px) {
+  :root { --panel-w: calc(264px + env(safe-area-inset-right, 0px)); }
+  .panel { padding-right: env(safe-area-inset-right, 0px); }
+  .brand small, .tb-label, #btnSettings .pc-only { display: none; }
+  .brand { padding-right: 6px; }
+  .tb-project { max-width: 170px; }
+  .prj-name-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mode-tab { padding: 0 9px; }
+}
 
 @media (max-width: 768px) {
   .snap-btn { padding: 0 9px; }
@@ -1134,7 +1149,8 @@ button { font: inherit; color: inherit; }
   .finish-btn, .draw-btn { min-height: 44px; }
   /* 휴대폰: 위쪽 버튼 묶음 아래로 (스냅 버튼과 겹치지 않게) */
   .draw-actions { top: calc(var(--stage-top-h, 56px) + 12px + var(--ruler)); }
-  .len-box { top: calc(var(--stage-top-h, 56px) + 64px + var(--ruler)); left: calc(12px + var(--ruler)); right: 12px; width: auto; }
+  /* 가로 휴대폰처럼 낮은 화면에서도 서랍에 가리지 않게: 보이는 칸 안으로 올리고 서랍 위에 */
+  .len-box { top: max(8px, min(calc(var(--stage-top-h, 56px) + 64px + var(--ruler)), calc(100% - var(--sheet-h, 0px) - 160px))); left: calc(12px + var(--ruler)); right: 12px; width: auto; z-index: 22; }
   .tool-opt { min-height: 44px; }
   .modal { padding: 0; align-items: stretch; }
   .modal-card { max-width: none; max-height: none; height: 100%; border-radius: 0; }
@@ -1237,7 +1253,8 @@ button { font: inherit; color: inherit; }
   .mode-tab { padding: 0 8px; min-height: 36px; font-size: 12.5px; }
   .mode-tab .ico { display: none; }
   /* 휴대폰: 오른쪽 3D 버튼을 가리지 않게 왼쪽으로 붙임 */
-  .quick-bar { left: 8px; right: 66px; transform: none; max-width: none; bottom: calc(var(--sheet-h, 0px) + 64px); }
+  .quick-bar { left: 8px; right: 66px; transform: none; max-width: none; bottom: calc(var(--sheet-h, 0px) + 64px); flex-wrap: wrap; gap: 5px; overflow: visible; }
+  .quick-bar .btn { padding: 0 9px; } /* 한 줄에 안 들어가면 두 줄로 — 숨은 버튼(줄 세우기·삭제)이 없게 */
   .pal-pic { width: 76px; min-width: 76px; }
   .pal-thumb { width: 60px; height: 54px; }
 }
@@ -1312,10 +1329,53 @@ button { font: inherit; color: inherit; }
 .est-info { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; }
 .est-info summary { cursor: pointer; font-weight: 700; min-height: 32px; display: flex; align-items: center; }
 .est-info .field { margin-top: 8px; }
-@media (min-width: 900px) { body.est-wide { --panel-w: 420px; } }
+@media (min-width: 769px) { body.est-wide { --panel-w: min(420px, 50vw); } } /* 견적은 칸이 많아 넓게 (태블릿 세로 포함) */
 
 /* ── 2.2: 처음 안내 ── */
 .guide-steps { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 10px; }
 .guide-steps li { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 10px; align-items: start; }
 .guide-steps p { margin: 3px 0 0; line-height: 1.55; }
 .guide-no { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: var(--accent-fg); font-weight: 800; }
+
+/* ── 2.3: 단가표 ── */
+.est-tools { display: flex; flex-wrap: wrap; gap: 6px; }
+.est-tools small { margin-left: 4px; color: var(--fg-muted); font-weight: 400; }
+.est-src { flex: none; padding: 1px 6px; border-radius: 8px; background: var(--surface-2); color: var(--fg-muted); font-size: 11px; }
+.lib-list { max-height: min(52vh, 460px); overflow-y: auto; margin: 8px 0; border-top: 1px solid var(--line); }
+.lib-row { display: grid; grid-template-columns: minmax(0, 1fr) 150px 40px; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.lib-row[hidden] { display: none; }
+.lib-name { min-width: 0; }
+.lib-name span { color: var(--fg-muted); }
+.lib-name small { display: block; color: var(--fg-muted); font-size: 12px; }
+.lib-row .est-price { max-width: none; }
+.lib-row .est-price input { width: 100%; min-width: 0; min-height: 40px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--fg); font: inherit; text-align: right; }
+.lib-actions { margin-top: 4px; }
+@media (max-width: 420px) { .lib-row { grid-template-columns: minmax(0, 1fr) 118px 40px; } }
+/* 자재 기준 표 */
+.mat-wrap { overflow-x: auto; }
+.mat-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.mat-table th, .mat-table td { padding: 6px 4px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; white-space: nowrap; }
+.mat-table th small { display: block; color: var(--fg-muted); font-weight: 400; font-size: 11.5px; white-space: normal; }
+.mat-table td input { width: 64px; min-height: 36px; padding: 0 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--fg); font: inherit; text-align: right; }
+.mat-table td small { margin-left: 3px; color: var(--fg-muted); }
+.lib-row > * { grid-area: auto; }
+.seat-check { margin: 4px 0 8px; padding: 0; }
+.seat-check small { display: block; color: var(--fg-muted); font-size: 12px; }
+
+/* ── 2.3: 3D에서 고르기·옮기기 ── */
+.v3-overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.v3-pick {
+  position: absolute; left: 50%; top: calc(max(12px, env(safe-area-inset-top, 0px)) + 58px); transform: translateX(-50%); z-index: 2;
+  display: flex; align-items: center; gap: 6px; max-width: calc(100% - 16px); padding: 6px 8px; border-radius: 14px;
+  background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); overflow-x: auto; scrollbar-width: none;
+}
+.v3-pick[hidden] { display: none; }
+.v3-pick::-webkit-scrollbar { display: none; }
+.v3-pick .btn { flex: none; min-height: 40px; padding: 0 11px; white-space: nowrap; }
+.v3-pick-name { flex: none; max-width: 110px; padding: 0 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; color: var(--accent); }
+@media (max-width: 600px) {
+  /* 휴대폰: 한 줄에 안 들어가므로 두 줄로 감싸 모든 버튼이 보이게 */
+  .v3-pick { top: calc(max(12px, env(safe-area-inset-top, 0px)) + 62px); width: calc(100% - 16px); flex-wrap: wrap; justify-content: center; gap: 5px; overflow: visible; }
+  .v3-pick .btn { padding: 0 10px; }
+  .v3-pick-name { flex: 1 0 100%; max-width: none; text-align: center; }
+}

@@ -21,6 +21,10 @@
   let stopped = false;      // 전체 초기화 중
   let warned = false;       // 저장 실패 경고는 한 번만 크게
   let quietVersion = -1;    // 연 직후의 도면 버전 (열기만 한 것은 고친 것으로 보지 않음)
+  let quietCurrent = '';    // 연 직후의 도면 설정(App.current) — 레이어·3D 바닥 등만 바꾼 것도 저장하려고
+  let savedVersion = -1, savedCurrent = ''; // 마지막으로 저장한 상태 (앱이 뒤로 갈 때 바뀐 게 있으면 바로 저장)
+  let lastSaved = '';       // 이 창이 읽거나 쓴 저장 시각: 다른 창(탭)이 더 새로 저장했으면 덮어쓰지 않음
+  let conflicted = false;
 
   const newId = () => `prj-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
   const index = () => {
@@ -114,6 +118,7 @@
     clearTimeout(timer);
     timer = 0;
     if (!current || loading || stopped) return true;
+    if (conflicted || newerElsewhere()) { showConflict(); return false; }
     const data = snapshot();
     const ok = S().write(keyOf(current.id), data);
     if (ok) {
@@ -128,6 +133,9 @@
       S().write(KEY_INDEX, list);
       S().write(KEY_CURRENT, current.id);
       warned = false;
+      lastSaved = data.savedAt;
+      savedVersion = App.doc.version;
+      savedCurrent = JSON.stringify(App.current);
     }
     setState(ok ? 'saved' : 'failed');
     if (!ok && !warned) {
@@ -143,14 +151,61 @@
   }
 
   function schedule() {
-    if (loading || stopped || !current || App.doc.version === quietVersion) return;
+    if (loading || stopped || !current) return;
+    // 열기만 한 것은 고친 것으로 보지 않음 (도면도 설정도 그대로일 때)
+    if (App.doc.version === quietVersion && JSON.stringify(App.current) === quietCurrent) return;
     setState('pending');
     clearTimeout(timer);
     timer = setTimeout(saveNow, SAVE_DELAY);
   }
-  /** 앱이 가려지거나 닫힐 때: 기다리지 않고 바로 저장 */
+  const dirty = () => !!current && (App.doc.version !== savedVersion || JSON.stringify(App.current) !== savedCurrent) && !(App.doc.version === quietVersion && JSON.stringify(App.current) === quietCurrent);
+  /** 앱이 가려지거나 닫힐 때: 입력 중이던 칸을 확정하고 기다리지 않고 바로 저장 */
   function flush() {
-    if (timer) saveNow();
+    const a = document.activeElement;
+    if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && a.closest('#panel, .est, #view3d')) a.blur(); // 'change'가 나며 값이 들어감
+    if (timer || dirty()) saveNow();
+  }
+
+  /* ── 같은 도면을 두 창(탭)에서 열었을 때: 다른 창이 더 새로 저장했으면 덮어쓰지 않고 물어봄 ── */
+  function newerElsewhere() {
+    if (!current || !lastSaved) return false;
+    const meta = index().find((p) => p.id === current.id);
+    return !!(meta && meta.updatedAt && meta.updatedAt > lastSaved);
+  }
+  function showConflict() {
+    if (conflicted) return;
+    conflicted = true;
+    clearTimeout(timer);
+    timer = 0;
+    setState('failed');
+    App.ui.dialog({
+      title: '다른 창에서 이 도면을 고쳤습니다',
+      html: `<p>같은 도면이 다른 창(탭)이나 앱에서도 열려 있어, 그쪽에서 더 나중에 저장했습니다. 이 창의 내용으로 덮어쓰면 그쪽에서 고친 것이 사라집니다.</p>
+        <p class="dialog-note">‘그 내용 불러오기’는 저장된 최신 내용을 이 창에 엽니다. ‘이 창 것을 사본으로’는 이 창의 내용을 새 도면으로 따로 저장합니다.</p>`,
+      actions: [{ id: 'copy', label: '이 창 것을 사본으로' }, { id: 'reload', label: '그 내용 불러오기', primary: true }],
+    }).then(async (r) => {
+      const id = current && current.id;
+      if (!id) { conflicted = false; return; }
+      if (r.id === 'copy') {
+        const data = snapshot();
+        const copy = { ...data, id: newId(), name: `${current.name} (이 창)`.slice(0, NAME_MAX), createdAt: new Date().toISOString() };
+        if (S().write(keyOf(copy.id), copy)) {
+          const list = index();
+          list.unshift({ id: copy.id, name: copy.name, createdAt: copy.createdAt, updatedAt: copy.savedAt, count: drawnCount(copy.elements), underlays: [...new Set(copy.elements.filter((e) => e.type === 'underlay').map((e) => e.dataId))], images: [...App.images.used(copy.elements)], mode: copy.current.mode });
+          S().write(KEY_INDEX, list);
+          conflicted = false;
+          current = null;
+          await open(copy.id);
+          App.ui.toast(`이 창의 내용을 ‘${copy.name}’로 따로 저장했습니다.`);
+          return;
+        }
+      }
+      // 불러오기 (사본 저장에 실패해도 최신 내용을 엶)
+      conflicted = false;
+      current = null;
+      await open(id);
+      App.ui.toast('다른 창에서 저장한 최신 내용을 열었습니다.');
+    });
   }
 
   /** 저장 데이터를 화면에 띄움 */
@@ -183,6 +238,11 @@
     App.ui.updateHistory();
     App.ui.emit('project');
     setState('saved');
+    quietCurrent = JSON.stringify(App.current);
+    savedVersion = App.doc.version;
+    savedCurrent = quietCurrent;
+    lastSaved = data.savedAt || '';
+    conflicted = false;
     App.images.loadAll(m.elements); // 넣은 이미지(현수막·벽보 등)를 미리 읽어 둠
     const missing = await App.underlay.loadAll();
     if (missing) App.ui.toast(`가져온 도면 ${missing}개의 밑그림 데이터를 이 기기에서 찾지 못했습니다. 지우고 다시 불러오세요.`);
@@ -213,7 +273,7 @@
     { id: 'apartment', mode: 'interior', name: '아파트 예시 (방 2·거실·주방·욕실)', desc: '9.6 × 7.2 m 아파트에 마루·타일 바닥, 방마다 벽지 색, 가구·주방·욕실까지 꾸몄습니다. 컬러 평면과 3D를 바로 볼 수 있습니다.' },
     { id: 'cafe', mode: 'interior', name: '카페 매장 예시', desc: '홀·주방·화장실이 있는 12 × 8 m 카페입니다. 카운터·진열장·테이블·라운지·펜던트 조명을 놓았습니다.' },
     { id: 'event-blank', mode: 'event', name: '빈 행사장', desc: '아무것도 없는 바닥에서 시작합니다. 물건·영역·동선을 놓아 보세요.' },
-    { id: 'ceremony', mode: 'event', name: '야외 기념식 예시', desc: '건물 앞마당에 무대·백월·의자 300석·텐트·스피커·주차장·동선까지 놓았습니다. 3D 조감도와 걸어서 둘러보기를 바로 볼 수 있습니다.' },
+    { id: 'ceremony', mode: 'event', name: '야외 기념식 예시', desc: '건물 앞마당에 무대·백월·의자 160석과 원형 테이블·텐트·스피커·주차장·동선까지 놓았습니다. 3D 조감도와 걸어서 둘러보기를 바로 볼 수 있습니다.' },
     { id: 'seminar', mode: 'event', name: '실내 세미나 예시', desc: '강당에 무대·LED 화면·의자 배열·등록 데스크와 입장·대피 동선을 놓았습니다.' },
     { id: 'soccer', mode: 'event', name: '축구 대회 예시 (운동장)', desc: '축구장·관람석·선수 벤치·점수판·시상대·팀 텐트·주차장까지 놓은 운동장입니다.' },
     { id: 'festival', mode: 'event', name: '야외 축제 예시 (광장)', desc: '부스 거리·무대·푸드트럭·분수·풍선 아치를 놓은 광장 축제입니다. 밤 장면으로 보면 조명이 켜집니다.' },
@@ -241,8 +301,8 @@
       doc.add(it);
       return it;
     };
-    const zone = (x0, y0, x1, y1, name, surface, color = '#2f9e44') =>
-      doc.add(T.zone.create([{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }], name, color, surface));
+    const zone = (x0, y0, x1, y1, name, surface, color = '#2f9e44', patch = {}) =>
+      doc.add(Object.assign(T.zone.create([{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }], name, color, surface), patch));
     const route = (kind, name, pts) => {
       const d = App.routes.def(kind);
       return doc.add(T.route.create(pts.map(([x, y]) => ({ x, y })), name, d.kind, d.color, d.width));
@@ -363,7 +423,7 @@
       // 광장 60 × 48 m: 왼쪽이 입구, 가운데 부스 거리, 오른쪽 끝에 무대
       App.current.ground = 'paver';
       doc.transact('템플릿', () => {
-        zone(8000, 1500, 52000, 11000, '잔디 1', 'grass');
+        zone(8000, 1500, 52000, 11000, '잔디 1', 'grass', '#2f9e44', { crowd: true });
         put('분수', 30000, 6200, 0);
         [[24000, 6200, 90], [36000, 6200, 270]].forEach(([x, y, r]) => put('벤치', x, y, r));
         [[10000, 3500], [18000, 9000], [42000, 9000], [50000, 3500]].forEach(([x, y], i) => put('나무', x, y, 0, { style: ['단풍나무', '은행나무', '활엽수', '벚나무'][i] }));
@@ -534,7 +594,7 @@
         put('사람', 7200, 2300, 0, { style: '정장' });
         put('스피커', 5400, 3300, 0);
         put('스피커', 12600, 3300, 0);
-        put('의자 배열', 9000, 7300, 180, { cols: 14, rows: 5, seatW: 550, gap: 950, aisles: 1, aisleW: 1500, style: '연회 의자' });
+        put('의자 배열', 9000, 7300, 180, { cols: 14, rows: 5, seatW: 550, gap: 950, aisles: 1, aisleW: 1500, style: '연회 의자', seatNo: true });
         put('데스크', 1300, 8600, 270, { text: '등록' });
         put('X배너', 6300, 13300, 0, { text: '세미나\n입장' });
         put('포토월', 1750, 11450, 180, { size: 2400, text: 'PHOTO' });
@@ -596,7 +656,7 @@
           frame.text = '우리 집';
           doc.add(frame);
         });
-        decorate({ '거실·방': { floorLook: 'oak', wallColor: '#f6f1e6' }, 욕실: { floorLook: 'bath' } });
+        decorate({ '거실·방': { floorLook: 'oak', wallColor: '#f6f1e6', wallWork: 'silk', ceilWork: 'silk' }, 욕실: { floorLook: 'bath', wallWork: 'walltile', ceilWork: 'paint' } });
       }
     } else if (id === 'apartment') {
       // 9.6 × 7.2 m. 위쪽이 남쪽 창, 왼쪽에 안방·작은방, 오른쪽에 거실·주방, 오른쪽 아래 욕실
@@ -621,8 +681,8 @@
         { at: { x: 6600, y: 2400 }, name: '거실·주방' }, { at: { x: 8550, y: 6000 }, name: '욕실' },
       ]));
       decorate({
-        안방: { floorLook: 'walnut', wallColor: '#ece3d3' }, 작은방: { floorLook: 'oak', wallColor: '#dfe9f0' },
-        '거실·주방': { floorLook: 'oak', wallColor: '#f6f1e6' }, 욕실: { floorLook: 'bath' },
+        안방: { floorLook: 'walnut', wallColor: '#ece3d3', wallWork: 'silk', ceilWork: 'silk' }, 작은방: { floorLook: 'oak', wallColor: '#dfe9f0', wallWork: 'silk', ceilWork: 'silk' },
+        '거실·주방': { floorLook: 'oak', wallColor: '#f6f1e6', wallWork: 'silk', ceilWork: 'silk' }, 욕실: { floorLook: 'bath', wallWork: 'walltile', ceilWork: 'paint' },
       });
       doc.transact('가구', () => {
         // 안방
@@ -680,7 +740,7 @@
       doc.transact('방', () => addRooms([
         { at: { x: 6000, y: 6000 }, name: '홀' }, { at: { x: 10200, y: 1800 }, name: '주방' }, { at: { x: 1200, y: 1200 }, name: '화장실' },
       ]));
-      decorate({ 홀: { floorLook: 'chevron', wallColor: '#d9d2c5' }, 주방: { floorLook: 'tile' }, 화장실: { floorLook: 'bath', wallColor: '#dcebe2' } });
+      decorate({ 홀: { floorLook: 'chevron', wallColor: '#d9d2c5', wallWork: 'paint', ceilWork: 'paint' }, 주방: { floorLook: 'tile', wallWork: 'walltile', ceilWork: 'paint' }, 화장실: { floorLook: 'bath', wallColor: '#dcebe2', wallWork: 'walltile', ceilWork: 'paint' } });
       doc.transact('가구', () => {
         put('카운터', 9800, 4400, 0, { size: 2400, depth: 600, color: '#3f4650' });
         put('진열장', 7900, 4400, 0, { size: 1200, depth: 450 });
@@ -733,6 +793,8 @@
   const safeFile = (s) => s.replace(/[\\/:*?"<>|]+/g, '_').trim() || '도면';
 
   async function exportBackup() {
+    // 단가표에서 가져온 단가도 이 도면에 붙박아 백업에 함께 (다른 기기에서도 같은 견적)
+    try { if (App.estimate) App.estimate.totals(App.estimate.lines()); } catch (_) { /* 견적을 셀 수 없는 도면 */ }
     saveNow();
     const data = snapshot();
     const underlays = {};
@@ -747,8 +809,7 @@
       if (rec) data.images[id] = rec;
     }
     const name = `${safeFile(current.name)}_${App.exporter.stamp()}.json`;
-    App.exporter.download(name, JSON.stringify(data), 'application/json');
-    App.ui.toast(`‘${name}’을 저장했습니다. 다른 기기에서는 ‘파일 → 백업 불러오기’로 열 수 있습니다.`);
+    App.exporter.saved(App.exporter.download(name, JSON.stringify(data), 'application/json'), `‘${name}’을 저장했습니다. 다른 기기에서는 ‘파일 → 백업 불러오기’로 열 수 있습니다.`);
   }
 
   async function importBackup(file) {
@@ -826,11 +887,19 @@
   }
 
   /** 어느 도면에서도 쓰지 않는 밑그림·이미지 데이터를 지움 */
+  /** 실행 취소·다시 실행 기록과 복사해 둔 것에 남은 요소: 되살리면 다시 쓰이므로 그 데이터는 지우지 않음 */
+  const keptElements = () => {
+    const out = [];
+    [...App.doc.undoStack, ...App.doc.redoStack].forEach((step) => step.changes.forEach((c) => { if (c.before) out.push(c.before); if (c.after) out.push(c.after); }));
+    if (App.edit && App.edit.clipElements) out.push(...App.edit.clipElements());
+    return out;
+  };
   const cleanupBlobs = () => {
     App.underlay.cleanup(usedUnderlays());
     const used = new Set();
     index().forEach((p) => (p.images || []).forEach((id) => used.add(id)));
     App.images.used(App.doc.all()).forEach((id) => used.add(id));
+    App.images.used(keptElements()).forEach((id) => used.add(id));
     App.images.cleanup(used);
   };
 
@@ -838,6 +907,7 @@
     const used = new Set();
     index().forEach((p) => (p.underlays || []).forEach((id) => used.add(id)));
     if (current) App.underlay.list().forEach((u) => used.add(u.dataId));
+    keptElements().forEach((e) => { if (e.type === 'underlay' && e.dataId) used.add(e.dataId); });
     return used;
   };
 
@@ -890,7 +960,7 @@
   }
 
   function listHtml() {
-    if (current) saveNow();
+    if (current) flush(); // 고친 게 있을 때만 저장 (열어 보기만 한 도면이 맨 위로 올라가지 않게)
     const list = index();
     return `
       <div class="prj-list">
@@ -983,6 +1053,11 @@
     if (C && C.isNativePlatform && C.isNativePlatform() && C.Plugins && C.Plugins.App) C.Plugins.App.addListener('pause', flush);
     App.ui.on('settings', schedule); // 기본 벽 종류 등 고른 값도 저장
     App.ui.on('current', schedule);
+    // 다른 창(탭)이 이 도면을 저장하면 바로 알림 (같은 기기의 PC 브라우저 두 창, 앱과 브라우저 등)
+    window.addEventListener('storage', (e) => {
+      if (e.key !== KEY_INDEX || !current || loading || conflicted) return;
+      if (newerElsewhere()) showConflict();
+    });
 
     const fileInput = $('#projectFile');
     fileInput.addEventListener('change', () => {

@@ -46,7 +46,11 @@
     try {
       glCanvas = document.createElement('canvas');
       R = new App.gl3d.Renderer(glCanvas, { alpha: true });
-      glCanvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); R = null; failed = true; });
+      // 잃으면 잠깐 선 기호로 그리고, 되살아나면 그림을 처음부터 다시 만듦
+      glCanvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); failed = true; });
+      glCanvas.addEventListener('webglcontextrestored', () => {
+        try { R = new App.gl3d.Renderer(glCanvas, { alpha: true }); failed = false; tops.clear(); pixels = 0; if (App.plan) App.plan.render(); } catch (_) { R = null; }
+      });
     } catch (_) {
       R = null;
       failed = true;
@@ -141,7 +145,9 @@
       if (cur) { cur.used = performance.now(); tops.delete(key); tops.set(key, cur); } // 최근에 쓴 것으로
       const longest = Math.max(it.size, it.depth || it.size) / 1000;
       const enough = cur && (cur.ppm >= want || cur.ppm * longest >= MAX_SIDE * 0.95);
-      if (!enough && renderer()) enqueue(`top:${key}:${want}`, () => makeTop(it, key, want), !cur);
+      // 끄는 중(크기 손잡이 등)인 물건은 크기마다 새 그림을 만들지 않음: 손을 뗀 뒤 마지막 크기로 한 번만
+      const changing = App.doc && App.doc.tx && App.doc.tx.before.has(it.id);
+      if (!enough && !changing && renderer()) enqueue(`top:${key}:${want}`, () => makeTop(it, key, want), !cur);
       return cur && cur.canvas ? cur : null;
     },
     /** 미리보기 그림 주소. 아직 없으면 null */

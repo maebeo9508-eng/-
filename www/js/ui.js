@@ -65,6 +65,7 @@
   const ui = (App.ui = {
     TOOLS,
     tool: 'select',
+    fitMenu: (m) => fitMenu(m),
     mobile: window.matchMedia('(max-width: 768px)'),
     on(name, fn) {
       (handlers[name] = handlers[name] || []).push(fn);
@@ -162,6 +163,16 @@
     if (next !== pos) bar.scrollTo({ [horizontal ? 'left' : 'top']: next, behavior: 'smooth' });
   }
 
+  /** 펼친 메뉴가 화면 오른쪽·왼쪽 밖으로 나가면 안으로 밀어 넣음 */
+  function fitMenu(menu) {
+    menu.style.transform = '';
+    const r = menu.getBoundingClientRect(), W = document.documentElement.clientWidth;
+    let dx = 0;
+    if (r.right > W - 8) dx = W - 8 - r.right;
+    if (r.left + dx < 8) dx = 8 - r.left;
+    if (dx) menu.style.transform = `translateX(${Math.round(dx)}px)`;
+  }
+
   /* ── 상단바 ───────────────────────────── */
   function bindTopbar() {
     const btn = $('#btnFile');
@@ -174,6 +185,7 @@
       const open = menu.hidden;
       menu.hidden = !open;
       btn.setAttribute('aria-expanded', String(open));
+      if (open) fitMenu(menu);
     });
     document.addEventListener('pointerdown', (e) => {
       if (!menu.hidden && !e.target.closest('.menu-wrap')) close();
@@ -415,6 +427,20 @@
           sheet.set(Math.max(sheet.lastOpen || 0, sheet.max() * 0.42));
           auto = true;
         }
+        // 서랍이 방금 고른 것을 덮으면 도면을 위로 밀어 보이게 (빠른 막대 자리까지 비움)
+        requestAnimationFrame(() => {
+          const b = App.doc.bounds(App.selection.list());
+          if (!b) return;
+          const P = App.plan, qb = document.getElementById('quickBar'), cr = P.canvas.getBoundingClientRect();
+          // 빠른 막대(두 줄일 수 있음) 위까지가 보이는 칸
+          const bottom = (qb && !qb.hidden ? qb.getBoundingClientRect().top - cr.top : P.height - (P.insets.bottom || 0)) - 12;
+          // 고른 것의 가운데(작은 것은 아래 끝까지)가 보이면 그대로 — 긴 벽처럼 큰 것은 다 보이게 하려고 크게 밀지 않음
+          const top = P.view.toScreen(0, b.minY).y, low = P.view.toScreen(0, b.maxY).y, mid = (top + low) / 2;
+          const want = Math.min(low, mid + 40);
+          if (want <= bottom) return;
+          const dy = Math.max(bottom - want, 64 - top); // 위쪽 버튼 줄 밑으로는 올리지 않음
+          if (dy < 0) { P.view.panBy(0, dy); P.render(); }
+        });
       } else if (auto && sheet.isOpen()) {
         sheet.collapse();
         auto = false;
@@ -692,12 +718,22 @@
   }
   /** 줄 세우기: 고른 것을 같은 간격으로 여러 개 */
   async function arrayDialog(ids) {
-    const b = App.doc.bounds(ids);
+    // 고른 것 전체의 실제 폭·깊이 (물건은 돌린 모양 그대로의 실제 크기, 나머지는 범위). 물건 범위(bounds)는 돌려도 되게
+    // 긴 변 기준 정사각형이라 짧은 쪽으로 늘어놓으면 틈이 커지므로 쓰지 않음
+    const T = App.model.TYPES;
+    let b = null;
+    App.edit.expand(ids).forEach((el) => {
+      if (!el || !T[el.type] || T[el.type].catalog) return;
+      let e;
+      if (el.type === 'item' && el.size != null) {
+        const ex = T.item.extent(el, { x: 1, y: 0 }), ey = T.item.extent(el, { x: 0, y: 1 });
+        e = { minX: el.x - ex, maxX: el.x + ex, minY: el.y - ey, maxY: el.y + ey };
+      } else e = T[el.type].bounds(el);
+      if (!e) return;
+      b = b ? { minX: Math.min(b.minX, e.minX), minY: Math.min(b.minY, e.minY), maxX: Math.max(b.maxX, e.maxX), maxY: Math.max(b.maxY, e.maxY) } : e;
+    });
     if (!b) return;
-    const w = Math.round((b.maxX - b.minX) / 100) * 100, h = Math.round((b.maxY - b.minY) / 100) * 100;
-    const one = ids.length === 1 ? App.doc.get(ids[0]) : null;
-    // 물건 하나면 그 물건의 실제 폭 기준 (돌려 놓았어도)
-    const span = one && one.type === 'item' ? { x: Math.round(App.model.TYPES.item.extent(one, { x: 1, y: 0 }) * 2), y: Math.round(App.model.TYPES.item.extent(one, { x: 0, y: 1 }) * 2) } : { x: w, y: h };
+    const span = { x: Math.round(b.maxX - b.minX), y: Math.round(b.maxY - b.minY) };
     const r = await dialog({
       title: '줄 세우기',
       html: `
@@ -993,8 +1029,10 @@
       `<button type="button" class="btn${a.primary ? ' btn-primary' : ''}${a.danger ? ' btn-danger' : ''}" data-id="${escHtml(a.id)}">${escHtml(a.label)}</button>`).join('');
     modal.hidden = false;
     if (onOpen) onOpen(body);
-    const first = body.querySelector('input, select, textarea') || $('#dialogFoot .btn-primary') || $('#dialogFoot button');
-    if (first) first.focus();
+    // 손가락으로 쓰는 기기: 글자 칸에 바로 포커스하면 자판이 올라와 목록·템플릿을 가리므로 주 버튼에 (칸은 눌러서 씀)
+    const coarse = window.matchMedia('(pointer: coarse)').matches;
+    const first = (!coarse && body.querySelector('input, select, textarea')) || $('#dialogFoot .btn-primary') || $('#dialogFoot button');
+    if (first) first.focus({ preventScroll: true });
     return new Promise((resolve) => {
       dialogDone = (id) => {
         dialogDone = null;

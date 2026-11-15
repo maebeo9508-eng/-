@@ -87,9 +87,13 @@
     const w = it.size / 1000, d = (it.depth != null ? it.depth : it.size * (def.aspect || 1)) / 1000, h = App.catalog.itemHeight3(it) / 1000;
     try {
       if (it.category === 'event' && M3.EVENT[it.kind]) M3.EVENT[it.kind](C, it, w, d, h);
-      else if (M3.FURN[it.kind] && (it.category === 'furn' || it.category === 'event')) M3.FURN[it.kind](C, it, w, d, h);
+      else if (M3.FURN[it.kind] && (it.category === 'furn' || it.category === 'event')) {
+        // 벽 낮추기: 벽에 거는 것(액자 등)은 잘린 벽 위로 떠 보이지 않게 위 끝을 벽 높이 아래로
+        const lowIt = o.low && def.wall && it.height != null && it.height / 1000 + h / 2 > LOW_WALL - 0.02 ? { ...it, height: Math.max(h / 2 + 20 / 1000, LOW_WALL - h / 2 - 0.02) * 1000 } : it;
+        M3.FURN[it.kind](C, lowIt, w, d, h);
+      }
       else if (it.category === 'furn') S.box(-w / 2, 0, -d / 2, w / 2, h, d / 2, hex('#b08d6a'), MAT.grain);
-      else M3.symbol(C, it, def, Math.min(o.low && it.height != null ? LOW_WALL - 0.1 : 99, App.measure.itemHeight(it) / 1000));
+      else M3.symbol(C, it, def, Math.min(o.low && it.height != null ? LOW_WALL - Math.max(0.1, h / 2 + 0.03) : 99, App.measure.itemHeight(it) / 1000));
     } catch (err) {
       console.warn('3D 모형을 만들지 못함:', it.kind, err);
     }
@@ -116,7 +120,7 @@
     const C = makeCtx(L, textured, { lod: o.lod, crowd: it.kind === '사람' ? it.count || 1 : 0 });
     C.rnd = seeded(o.seed || it.id || it.kind);
     C.place(0, 0, 0, 0);
-    itemModel(C, it, { blobs: o.blobs });
+    itemModel(C, it, { blobs: o.blobs, low: o.low });
     const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
     [L.solid, L.glass, L.decals[2], ...textured.map((t) => t.mesh)].forEach((m) => {
       if (!m.n) return;
@@ -173,13 +177,13 @@
       if (y0 > 0.01) mesh.poly(pts, y0, c, mat);
     };
 
-    /* 영역: 바닥 재질, 잔디·흙·물은 둘레에 경계석 */
+    /* 영역: 바닥 재질, 잔디·흙·물은 둘레에 경계석. 방 바닥(decals[0]) 위에 그려야 방 안의 영역도 보임 (평면과 같게) */
     els.filter((e) => e.type === 'zone').forEach((z) => {
       const pts = z.points.map(P);
       const s = SURFACE[z.surface];
-      if (s) L.decals[0].poly(pts, 0.004, hex(s[1]), s[0]);
-      else if (z.surface === 'carpet') L.decals[0].poly(pts, 0.006, hex(z.color), MAT.fabric);
-      else L.decals[0].poly(pts, 0.004, mixc(hex(z.color), [1, 1, 1], 0.3), MAT.plain);
+      if (s) L.decals[1].poly(pts, 0.011, hex(s[1]), s[0]);
+      else if (z.surface === 'carpet') L.decals[1].poly(pts, 0.012, hex(z.color), MAT.fabric);
+      else L.decals[1].poly(pts, 0.011, mixc(hex(z.color), [1, 1, 1], 0.3), MAT.plain);
       if (['grass', 'soil', 'water'].includes(z.surface)) {
         pts.forEach((p, i) => slab(S, p, pts[(i + 1) % pts.length], 0.16, 0, 0.11, CURB, MAT.concrete));
         pts.forEach((p) => S.cube(p[0], 0, p[1], 0.16, 0.11, 0.16, CURB, MAT.concrete));
@@ -200,7 +204,7 @@
         c = hex(look.color);
         if (look.id === 'epoxy') mat = MAT.gloss;
       }
-      L.decals[1].poly(pts, 0.008, c, mat);
+      L.decals[0].poly(pts, 0.008, c, mat);
       L.ceil.poly(pts, (r.ceilingHeight || App.settings.ceilingHeight) / 1000, hex('#fafaf8'), MAT.plain);
     });
     const rooms = els.filter((e) => e.type === 'room' && !e.issue).map((r) => ({ r, b: App.model.TYPES.room.bounds(r) }));
@@ -474,8 +478,162 @@
       }
     }
     lastFrame = t0;
+    drawPick();
   }
   const requestDraw = () => { if (!raf) raf = requestAnimationFrame(draw); };
+
+  /* ── 3D에서 물건 고르기·옮기기 ──
+     누르면 그 물건을 고르고(테두리 상자 + 위쪽 작은 막대), 고른 물건을 끌면 바닥을 따라 옮김 (손을 떼면 도면에 반영).
+     돌리기·복제·지우기는 막대의 버튼으로. 도면이 바뀌면(실행 취소 포함) 장면을 다시 조립 */
+  let picked = null, ghost = null, rebuildTimer = 0;
+  const v3 = {
+    sub: (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]],
+    add: (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]],
+    mul: (a, k) => [a[0] * k, a[1] * k, a[2] * k],
+    dot: (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2],
+    cross: (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]],
+    norm: (a) => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; },
+  };
+  /** 지금 카메라의 기준 방향들 */
+  function basis() {
+    const c = camera(), f = v3.norm(v3.sub(c.target, c.eye)), r = v3.norm(v3.cross(f, [0, 1, 0])), u = v3.cross(r, f);
+    return { c, f, r, u, t: Math.tan(c.fov / 2), w: canvas.clientWidth || 1, h: canvas.clientHeight || 1 };
+  }
+  /** 화면 점(CSS px, 캔버스 기준) → 광선 */
+  function rayAt(x, y) {
+    const B = basis(), nx = (x / B.w) * 2 - 1, ny = 1 - (y / B.h) * 2;
+    return { o: B.c.eye, d: v3.norm(v3.add(B.f, v3.add(v3.mul(B.r, nx * B.t * (B.w / B.h)), v3.mul(B.u, ny * B.t)))) };
+  }
+  /** 3D 점 → 화면 점 (카메라 뒤면 null) */
+  function project(p, B) {
+    const v = v3.sub(p, B.c.eye), z = v3.dot(v, B.f);
+    if (z < B.c.near) return null;
+    return [((v3.dot(v, B.r) / (z * B.t * (B.w / B.h)) + 1) / 2) * B.w, ((1 - v3.dot(v, B.u) / (z * B.t)) / 2) * B.h];
+  }
+  const pickable = (e) => e && e.type === 'item' && e.depth != null && !e.wallId && (e.category === 'event' || e.category === 'furn') && App.layers.visible(e);
+  /** 물건의 상자 (m): 가운데·회전·폭·깊이·높이 */
+  function itemBox(it, at) {
+    const def = App.catalog.itemDef(it.kind) || {};
+    return {
+      cx: at ? at.cx : (it.x - scene.center.x) / 1000, cz: at ? at.cz : (it.y - scene.center.y) / 1000, a: ((it.rotation || 0) * Math.PI) / 180,
+      w: it.size / 1000, d: (it.depth != null ? it.depth : it.size * (def.aspect || 1)) / 1000, h: Math.max(0.06, App.catalog.itemHeight3(it) / 1000),
+    };
+  }
+  /** 광선이 상자에 닿는 거리 (안 닿으면 null) */
+  function hitBox(ray, b) {
+    const c = Math.cos(b.a), s = Math.sin(b.a), ox = ray.o[0] - b.cx, oz = ray.o[2] - b.cz;
+    const o = [ox * c + oz * s, ray.o[1], -ox * s + oz * c], d = [ray.d[0] * c + ray.d[2] * s, ray.d[1], -ray.d[0] * s + ray.d[2] * c];
+    const mn = [-b.w / 2, 0, -b.d / 2], mx = [b.w / 2, b.h, b.d / 2];
+    let t0 = 0, t1 = Infinity;
+    for (let i = 0; i < 3; i++) {
+      if (Math.abs(d[i]) < 1e-9) { if (o[i] < mn[i] || o[i] > mx[i]) return null; continue; }
+      let a = (mn[i] - o[i]) / d[i], z = (mx[i] - o[i]) / d[i];
+      if (a > z) [a, z] = [z, a];
+      t0 = Math.max(t0, a);
+      t1 = Math.min(t1, z);
+      if (t0 > t1) return null;
+    }
+    return t0;
+  }
+  /** 화면 점에서 가장 가까운 물건 */
+  function pickAt(x, y) {
+    if (!scene) return null;
+    const ray = rayAt(x, y);
+    let best = null, bestT = Infinity;
+    for (const it of App.doc.all()) {
+      if (!pickable(it)) continue;
+      const t = hitBox(ray, itemBox(it));
+      // 바닥에 깐 것(축구장·러그 등)은 그 위의 물건보다 뒤로
+      const flat = (App.catalog.itemDef(it.kind) || {}).flat ? 1e3 : 0;
+      if (t != null && t + flat < bestT) { bestT = t + flat; best = it; }
+    }
+    return best;
+  }
+  /** 화면 점이 가리키는 바닥 (y = 0) */
+  function groundAt(x, y) {
+    const r = rayAt(x, y);
+    if (r.d[1] > -1e-4) return null;
+    const t = -r.o[1] / r.d[1];
+    return t > 0 && t < 5000 ? [r.o[0] + r.d[0] * t, r.o[2] + r.d[2] * t] : null;
+  }
+  function setPicked(id) {
+    picked = id && App.doc.has(id) ? id : null;
+    ghost = null;
+    const bar = el.querySelector('.v3-pick');
+    bar.hidden = !picked;
+    if (picked) {
+      const it = App.doc.get(picked);
+      bar.querySelector('.v3-pick-name').textContent = it.kind;
+      bar.querySelector('[data-pk="rot-"]').disabled = bar.querySelector('[data-pk="rot+"]').disabled = !!it.locked;
+      App.selection.set([picked]);
+    }
+    drawPick();
+  }
+  /** 고른 물건의 테두리 상자와, 옮기는 중이면 옮겨 갈 자리 */
+  function drawPick() {
+    const ov = el && el.querySelector('.v3-overlay');
+    if (!ov) return;
+    const dpr = window.devicePixelRatio || 1, w = canvas.clientWidth, h = canvas.clientHeight;
+    if (ov.width !== Math.round(w * dpr) || ov.height !== Math.round(h * dpr)) { ov.width = Math.round(w * dpr); ov.height = Math.round(h * dpr); }
+    const ctx = ov.getContext('2d');
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, ov.width, ov.height);
+    const it = picked && scene && App.doc.get(picked);
+    if (!it) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const B = basis();
+    const box = (b, color, dash) => {
+      const c = Math.cos(b.a), s = Math.sin(b.a);
+      const corner = (lx, ly, lz) => [b.cx + lx * c - lz * s, ly, b.cz + lx * s + lz * c];
+      const P = [[-1, -1], [1, -1], [1, 1], [-1, 1]].flatMap(([i, k]) => [corner((i * b.w) / 2, 0, (k * b.d) / 2), corner((i * b.w) / 2, b.h, (k * b.d) / 2)]).map((p) => project(p, B));
+      const E = [[0, 2], [2, 4], [4, 6], [6, 0], [1, 3], [3, 5], [5, 7], [7, 1], [0, 1], [2, 3], [4, 5], [6, 7]];
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.setLineDash(dash ? [6, 5] : []);
+      ctx.beginPath();
+      E.forEach(([a, z]) => { if (P[a] && P[z]) { ctx.moveTo(P[a][0], P[a][1]); ctx.lineTo(P[z][0], P[z][1]); } });
+      ctx.stroke();
+      ctx.setLineDash([]);
+    };
+    const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#2563eb';
+    if (ghost) {
+      box(itemBox(it), 'rgba(255,255,255,0.7)', true);
+      box(itemBox(it, ghost), accent, false);
+    } else box(itemBox(it), accent, false);
+  }
+  /** 도면이 바뀌면 (3D에서 고친 것, 실행 취소 포함) 장면을 다시 조립 */
+  function scheduleRebuild() {
+    clearTimeout(rebuildTimer);
+    rebuildTimer = setTimeout(() => {
+      if (!isOpen()) return;
+      if (picked && !App.doc.has(picked)) setPicked(null);
+      if (rebuild()) requestDraw();
+    }, 40);
+  }
+  function pickAction(act) {
+    const it = picked && App.doc.get(picked);
+    if (!it && act !== 'close' && act !== 'undo') return;
+    if (act === 'rot-' || act === 'rot+') {
+      if (it.locked) return;
+      const d = act === 'rot+' ? 15 : -15;
+      App.doc.transact('3D에서 돌리기', () => App.doc.update(it.id, { rotation: ((((it.rotation || 0) + d) % 360) + 360) % 360 }));
+    } else if (act === 'dup') {
+      App.selection.set([it.id]);
+      App.edit.duplicate();
+      const nid = App.selection.list()[0];
+      if (nid && nid !== it.id) setPicked(nid);
+    } else if (act === 'del') {
+      App.doc.transact('3D에서 지우기', () => App.doc.remove(it.id));
+      setPicked(null);
+    } else if (act === 'plan') {
+      const id = it.id;
+      close(true);
+      App.selection.set([id]);
+      const b = App.doc.bounds([id]);
+      if (b) App.plan.fitToContent({ minX: b.minX - 3000, minY: b.minY - 3000, maxX: b.maxX + 3000, maxY: b.maxY + 3000 });
+    } else if (act === 'undo') App.actions.undo();
+    else if (act === 'close') setPicked(null);
+  }
 
   function rebuild() {
     scene = build({ low: low && mode !== 'walk', routes: showRoutes, lod: quality !== 'high' });
@@ -534,7 +692,15 @@
 
   /* ── 걷기 ── */
   const planPos = (x, z) => ({ x: scene.center.x + x * 1000, y: scene.center.y + z * 1000 });
-  const blocked = (x, z) => App.routes.nearest(planPos(x, z)).dist < BODY;
+  /** 걷기에서 부딪히는 것: 보이는 레이어의 벽·기둥·물건만 (숨긴 것은 그리지 않으니 지나감).
+      경사로·계단도 막음: 걷기에는 높낮이가 없어 올라서지 못하고 모형을 뚫고 지나가게 되므로 */
+  let walkObs = { key: '', list: [] };
+  function walkObstacles() {
+    const key = `${App.doc.version}|${App.layers.hidden().join(',')}`;
+    if (walkObs.key !== key) walkObs = { key, list: App.routes.obstacles().filter((ob) => { const e = App.doc.get(ob.id); return !e || App.layers.visible(e); }) };
+    return walkObs.list;
+  }
+  const blocked = (x, z) => App.routes.nearest(planPos(x, z), walkObstacles()).dist < BODY;
   const moving = () => walk.keys.size > 0 || Math.hypot(walk.joy.x, walk.joy.y) > 0.05 || !!(walk.auto && walk.auto.playing);
 
   function stepWalk(now) {
@@ -628,13 +794,34 @@
   /* ── 손가락·마우스 ── */
   function bindControls() {
     const pts = new Map();
+    const local = (e) => { const r = canvas.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
     canvas.addEventListener('pointerdown', (e) => {
       canvas.setPointerCapture(e.pointerId);
-      pts.set(e.pointerId, { x: e.clientX, y: e.clientY, pan: e.button === 1 || e.button === 2 || e.shiftKey });
+      const p = { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, pan: e.button === 1 || e.button === 2 || e.shiftKey, moved: false, drag: null };
+      if (pts.size) pts.forEach((q) => { q.drag = null; q.moved = true; }); // 두 손가락이면 고르기·옮기기 안 함
+      else if (!p.pan) {
+        const [lx, ly] = local(e);
+        const hit = pickAt(lx, ly);
+        p.hit = hit ? hit.id : null;
+        // 이미 고른 물건을 누르고 끌면 옮김
+        if (hit && hit.id === picked && !hit.locked) {
+          const g = groundAt(lx, ly), b = itemBox(hit);
+          if (g) p.drag = { id: hit.id, off: [b.cx - g[0], b.cz - g[1]] };
+        }
+      }
+      pts.set(e.pointerId, p);
     });
     canvas.addEventListener('pointermove', (e) => {
       const p = pts.get(e.pointerId);
       if (!p) return;
+      if (!p.moved && Math.hypot(e.clientX - p.x0, e.clientY - p.y0) > 6) p.moved = true;
+      if (p.drag) {
+        if (p.moved) {
+          const [lx, ly] = local(e), g = groundAt(lx, ly);
+          if (g) { ghost = { cx: g[0] + p.drag.off[0], cz: g[1] + p.drag.off[1] }; drawPick(); }
+        }
+        return;
+      }
       const dx = e.clientX - p.x, dy = e.clientY - p.y;
       if (mode === 'walk') {
         // 끌면 둘러봄 (장면이 손가락을 따라옴)
@@ -660,9 +847,25 @@
       p.y = e.clientY;
       requestDraw();
     });
-    const end = (e) => pts.delete(e.pointerId);
+    const end = (e) => {
+      const p = pts.get(e.pointerId);
+      pts.delete(e.pointerId);
+      if (!p || e.type === 'pointercancel') { if (p && p.drag) { ghost = null; drawPick(); } return; }
+      if (p.drag && p.moved && ghost) {
+        // 옮긴 자리를 도면에 (10mm 단위)
+        const id = p.drag.id, g = ghost;
+        ghost = null;
+        const x = Math.round((scene.center.x + g.cx * 1000) / 10) * 10, y = Math.round((scene.center.y + g.cz * 1000) / 10) * 10;
+        App.doc.transact('3D에서 옮기기', () => App.doc.update(id, { x, y }));
+        drawPick();
+      } else if (!p.moved && !p.pan) {
+        setPicked(p.hit);
+        if (p.hit) hint(App.ui.mobile.matches ? '고른 물건을 끌어 옮기세요 · 위 막대: 돌리기·복제·지우기' : '고른 물건을 끌어 옮기세요 · 위 막대: 돌리기·복제·지우기 · Esc: 고르기 풀기', 3500);
+      }
+    };
     canvas.addEventListener('pointerup', end);
     canvas.addEventListener('pointercancel', end);
+    App.doc.onChange(() => { if (isOpen()) scheduleRebuild(); });
     canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
       if (mode === 'walk') {
@@ -675,9 +878,20 @@
       requestDraw();
     }, { passive: false });
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    // 휴대폰은 앱을 뒤로 보내거나 메모리가 모자라면 WebGL을 잃음 → 돌아오면 그리개를 새로 만들고 장면을 다시 올림
     canvas.addEventListener('webglcontextlost', (e) => {
       e.preventDefault();
-      App.ui.toast('3D 화면을 그리지 못했습니다. 닫고 다시 열어 보세요.');
+      cancelAnimationFrame(raf);
+      raf = 0;
+      if (isOpen()) App.ui.toast('3D 화면이 잠시 끊겼습니다. 곧 다시 그립니다.');
+    });
+    canvas.addEventListener('webglcontextrestored', () => {
+      try {
+        R = new Renderer(canvas);
+        if (isOpen() && rebuild()) requestDraw();
+      } catch (_) {
+        if (isOpen()) App.ui.toast('3D 화면을 다시 그리지 못했습니다. 앱을 다시 열어 보세요.');
+      }
     });
 
     // 걷기 자판: W A S D·화살표, Shift 빠르게
@@ -686,8 +900,8 @@
       if (!isOpen() || mode !== 'walk' || !KEYS.has(e.code) || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
       e.preventDefault();
       if (walk.auto && walk.auto.playing && !e.code.startsWith('Shift')) walk.auto.playing = false; // 직접 걷기 시작하면 자동 걷기는 멈춤
+      if (!walk.keys.size) walk.last = performance.now(); // 멈춰 있다 누르면 지금부터 (예전 시각이면 첫 장면에 크게 튐)
       walk.keys.add(e.code);
-      walk.last = walk.last || performance.now();
       syncWalkUi();
       requestDraw();
     });
@@ -755,7 +969,7 @@
     const play = el.querySelector('[data-v3="play"]');
     play.hidden = !A;
     el.querySelector('[data-v3="restart"]').hidden = !A;
-    el.querySelector('[data-v3="route"]').hidden = App.routes.all().filter((r) => r.points.length >= 2).length < 2;
+    el.querySelector('[data-v3="route"]').hidden = App.routes.all().filter((r) => r.points.length >= 2 && App.layers.visible(r)).length < 2;
     if (A) {
       const len = App.routes.length(A.route);
       play.textContent = A.playing ? '멈춤' : A.s >= len - 1 ? '다시 걷기' : '길 따라 걷기';
@@ -791,6 +1005,17 @@
     el.setAttribute('aria-label', '3D 보기');
     el.innerHTML = `
       <canvas class="v3-canvas" aria-label="3D 도면"></canvas>
+      <canvas class="v3-overlay" aria-hidden="true"></canvas>
+      <div class="v3-pick" role="toolbar" aria-label="고른 물건" hidden>
+        <span class="v3-pick-name"></span>
+        <button type="button" class="btn" data-pk="rot-" aria-label="왼쪽으로 15도">↺ 15°</button>
+        <button type="button" class="btn" data-pk="rot+" aria-label="오른쪽으로 15도">↻ 15°</button>
+        <button type="button" class="btn" data-pk="dup">복제</button>
+        <button type="button" class="btn btn-danger" data-pk="del">지우기</button>
+        <button type="button" class="btn" data-pk="plan" title="3D를 닫고 평면에서 이 물건을 고름">평면에서</button>
+        <button type="button" class="btn" data-pk="undo" title="방금 고친 것 되돌리기 (Ctrl+Z)">↶ 되돌리기</button>
+        <button type="button" class="btn" data-pk="close" aria-label="고르기 풀기">✕</button>
+      </div>
       <div class="v3-bar">
         <button type="button" class="btn btn-primary" data-v3="close">닫기</button>
         <span class="v3-gap"></span>
@@ -830,6 +1055,8 @@
       el.querySelector('[data-v3="settings"]').setAttribute('aria-expanded', String(open));
     };
     el.addEventListener('click', (e) => {
+      const pk = e.target.closest('[data-pk]');
+      if (pk) { pickAction(pk.dataset.pk); return; }
       const b = e.target.closest('[data-v3], [data-sun], [data-ground], [data-opt]');
       if (!b) {
         if (!e.target.closest('.v3-settings')) toggleSettings(false);
@@ -873,7 +1100,7 @@
           startWalk(walk.auto.route.id);
           return;
         } else if (act === 'route') {
-          const routes = App.routes.all().filter((r) => r.points.length >= 2);
+          const routes = App.routes.all().filter((r) => r.points.length >= 2 && App.layers.visible(r));
           const i = walk.auto ? routes.findIndex((r) => r.id === walk.auto.route.id) : -1;
           const next = routes[(i + 1) % routes.length];
           if (next) { startWalk(next.id); App.ui.toast(`${next.name}을 따라 걷습니다.`); }
@@ -892,6 +1119,10 @@
   /** o: { walk: 걷기로 시작, routeId: 그 동선을 따라 바로 걷기 } */
   function open(o = {}) {
     ensureElement();
+    if (R && R.gl.isContextLost()) {
+      App.ui.toast('3D 화면을 다시 준비하고 있습니다. 잠시 뒤 다시 열어 보세요.');
+      return false;
+    }
     if (!R) {
       try {
         R = new Renderer(canvas);
@@ -906,6 +1137,9 @@
     mode = 'orbit';
     walk.auto = null;
     slow = 0;
+    picked = null;
+    ghost = null;
+    el.querySelector('.v3-pick').hidden = true;
     // 인테리어 도면은 방 안이 보이게 벽을 낮춰서 시작 (직접 바꾼 뒤에는 그대로 둠). 걷기에서는 늘 온전한 높이
     if (!lowChosen) low = App.modes.is('interior');
     if (!rebuild()) {
@@ -924,11 +1158,15 @@
   /** 닫기. 걷는 중이면 먼저 조감도로 돌아감 (뒤로 버튼·Esc) */
   function close(force = false) {
     if (!el || el.hidden) return false;
+    if (picked && !force) { setPicked(null); return true; } // Esc·뒤로: 먼저 고르기를 풂
     if (mode === 'walk' && !force) {
       stopWalk();
       resetView(false);
       return true;
     }
+    picked = null;
+    ghost = null;
+    el.querySelector('.v3-pick').hidden = true;
     el.hidden = true;
     el.querySelector('.v3-settings').hidden = true;
     mode = 'orbit';
@@ -941,9 +1179,16 @@
 
   App.view3d = {
     open, close, isOpen, build, buildItem, seeded, GROUNDS,
+    /** 시험용: 화면 점(캔버스 CSS px)의 물건, 고른 물건, 고르기 */
+    pickAt: (x, y) => pickAt(x, y),
+    get picked() { return picked; },
+    setPicked: (id) => setPicked(id),
+    /** 시험용: 3D 점(m) → 캔버스 CSS px */
+    toScreen: (p) => project(p, basis()),
     /** 시험용 */
     get gl() { return R ? R.gl : null; },
     get renderer() { return R; },
+    walkObstacles: () => walkObstacles(),
     get camera() { return R ? camera() : null; },
     get state() {
       return {

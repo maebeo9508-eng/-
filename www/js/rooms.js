@@ -16,7 +16,7 @@
 
   /** 닫힌 면 목록 { points, area(mm²), wallIds }. 도면이 바뀔 때만 다시 계산 */
   function faces() {
-    if (cache.version === App.doc.version) return cache.faces;
+    if (cache.version === App.doc.wallVersion) return cache.faces; // 면은 벽으로만 정해짐
     const walls = [...App.doc.all()].filter((e) => e.type === 'wall' && G.dist(e.start, e.end) > TOL);
 
     // 1) 벽마다 나눌 위치(0~1)
@@ -125,7 +125,7 @@
       });
     });
 
-    cache = { version: App.doc.version, faces: found };
+    cache = { version: App.doc.wallVersion, faces: found };
     return found;
   }
 
@@ -161,7 +161,8 @@
   /** 기록 직전 훅: 벽이 바뀐 변경이면 모든 방의 경계를 다시 맞춤 (같은 실행 취소 단계에 들어감)
       1차: 기준점이 들어 있는 면. 2차: 방이 줄어 기준점이 밖으로 나간 경우, 아무 방도 차지하지 않았고
       예전 모양 안에 있으면서 원래 벽을 공유하는 면 */
-  function syncRooms(tx) {
+  let splitNote = null; // 칸막이로 방이 나뉘어 방이 아닌 채 남은 면적 (기록 뒤 한 번 알림)
+  function syncRooms(tx, live = false) {
     let wallsChanged = false;
     for (const [id, before] of tx.before) {
       const now = App.doc.get(id);
@@ -221,7 +222,31 @@
       const changed = Object.keys(patch).some((k) => JSON.stringify(r[k]) !== JSON.stringify(patch[k]));
       if (changed) App.doc.update(r.id, patch);
     });
+
+    // 벽이 방을 가르면 기준점 쪽만 방으로 남고 나머지는 방이 아님 → 집계에서 빠지므로 알려 줌 (끄는 중이 아닐 때만)
+    if (live) return;
+    let left = 0, name = '';
+    rooms.forEach((r) => {
+      const f = result.get(r.id);
+      const before = tx.before.get(r.id) || r;
+      if (!f || f === 'overlap' || !before.points || before.points.length < 3) return;
+      const oldArea = Math.abs(G.signedArea(before.points));
+      if (oldArea - f.area < 1e5) return; // 0.1㎡ 넘게 줄었을 때만
+      all.forEach((g) => {
+        if (claimed.has(g) || !G.pointInPolygon(G.interiorPoint(g.points), before.points)) return;
+        left += g.area;
+        name = name || r.name;
+      });
+    });
+    splitNote = left > 0 ? { name, area: left } : null;
+  }
+  /** 기록이 끝난 뒤 한 번: 나뉜 쪽이 방이 아니라고 알림 */
+  function flushNotice() {
+    if (!splitNote || App.doc.tx) return;
+    const n = splitNote;
+    splitNote = null;
+    App.ui.toast(`‘${n.name}’이(가) 벽으로 나뉘어 ${App.units.formatArea(n.area)}는 아직 방이 아닙니다. 방 도구로 그 안을 누르면 방이 되어 집계에 들어갑니다.`, 6500);
   }
 
-  App.rooms = { faces, faceAt, nextName, syncRooms };
+  App.rooms = { faces, faceAt, nextName, syncRooms, flushNotice };
 })();

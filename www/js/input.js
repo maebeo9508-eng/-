@@ -55,7 +55,7 @@
         shift,
         alt: e.altKey,
         ctrl: e.ctrlKey || e.metaKey,
-        touch: e.pointerType === 'touch',
+        touch: (App.pointerTouch = e.pointerType === 'touch'), // 손잡이 크기를 고르려고 마지막 입력 종류를 기억
       };
     }
 
