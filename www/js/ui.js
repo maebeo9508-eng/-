@@ -369,6 +369,10 @@
     const menu = document.querySelector('.menu:not([hidden])');
     if (menu) {
       menu.hidden = true;
+      // 뒤로 가기로 닫아도 메뉴 버튼·서랍 위 표시를 원래대로
+      document.querySelectorAll('.stage-top.menu-open').forEach((e) => e.classList.remove('menu-open'));
+      const owner = document.querySelector(`[aria-controls="${menu.id}"]`);
+      if (owner) owner.setAttribute('aria-expanded', 'false');
       return true;
     }
     if (App.tools.escape()) return true; // 그리던 것 끝내기, 선택 풀기
