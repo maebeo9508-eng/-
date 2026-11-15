@@ -26,13 +26,33 @@
     r.onerror = () => reject(r.error);
     r.readAsDataURL(blob);
   });
+  /** 큰 파일(영상 등)은 조각으로 나눠 씀: 한꺼번에 base64로 바꾸면 수백 MB가 되어 앱이 멈출 수 있음.
+      조각 크기는 3의 배수라 조각마다 따로 base64로 바꿔 이어 붙여도 같은 파일이 됨 */
+  const CHUNK = 3 * 1024 * 1024;
+  async function writeNative(P, filename, blob) {
+    if (blob.size <= CHUNK || !P.Filesystem.appendFile) {
+      return P.Filesystem.writeFile({ path: filename, data: await blobToBase64(blob), directory: 'CACHE' });
+    }
+    const n = Math.ceil(blob.size / CHUNK);
+    let res = null;
+    try {
+      for (let i = 0; i < n; i++) {
+        App.ui.busy(`파일을 저장하는 중… ${Math.round((i / n) * 100)}%`);
+        const data = await blobToBase64(blob.slice(i * CHUNK, (i + 1) * CHUNK));
+        if (i === 0) res = await P.Filesystem.writeFile({ path: filename, data, directory: 'CACHE' });
+        else await P.Filesystem.appendFile({ path: filename, data, directory: 'CACHE' });
+      }
+    } finally {
+      App.ui.busy(false);
+    }
+    return res;
+  }
   function nativeSave(filename, blob) {
     const P = nativePlugins();
     if (!P) return false;
     (async () => {
       try {
-        const data = await blobToBase64(blob);
-        const res = await P.Filesystem.writeFile({ path: filename, data, directory: 'CACHE' });
+        const res = await writeNative(P, filename, blob);
         if (P.Share) await P.Share.share({ title: filename, url: res.uri, dialogTitle: '파일 저장·보내기' });
         else App.ui.toast(`앱 안에 저장했습니다: ${filename}`);
       } catch (e) {
@@ -199,6 +219,7 @@
     ctx.stroke();
     ctx.font = font;
     ctx.textBaseline = 'bottom';
+    ctx.textAlign = 'left'; // 앞에서 오른쪽 맞춤으로 쓴 글자가 있어도 막대 오른쪽에
     ctx.fillText(bar.text, x + w + about / 15, y + about / 40);
     ctx.restore();
   }

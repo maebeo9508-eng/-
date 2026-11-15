@@ -1489,13 +1489,20 @@
       const pr = this.press;
       this.press = null;
       if (!pr || dragged(ev, pr)) return;
-      const hit = App.doc.hitTest(ev.world, (ev.touch ? HIT_PX.touch : HIT_PX.mouse) / App.plan.view.scale, (el) => el.type === 'photo');
-      if (hit) { App.selection.set([hit]); App.ui.emit('picked', true); render(); return; }
+      const hit = App.doc.hitTest(ev.world, (ev.touch ? HIT_PX.touch : HIT_PX.mouse) / App.plan.view.scale, (el) => el.type === 'photo' && App.layers.visible(el));
+      if (hit) { // 꽂힌 핀: 고르고 사진을 크게 봄
+        App.selection.set([hit]);
+        App.ui.emit('picked', true);
+        render();
+        App.photos.open(hit);
+        return;
+      }
       const at = { ...ev.world };
       // 누른 순간에 파일 고르기를 열어야 휴대폰에서 막히지 않음
-      App.images.pickMany().then((photos) => {
+      App.photos.pick().then((photos) => {
         if (!photos.length) return;
         const el = App.model.TYPES.photo.create(at, photos);
+        if (!App.layers.visible(el)) App.layers.set(el.layer, true); // 메모 레이어를 숨겨 두었으면 보이게 (안 보이는 핀이 생기지 않게)
         App.doc.transact('사진 핀', () => App.doc.add(el));
         App.selection.set([el.id]);
         App.ui.emit('picked', true);

@@ -29,6 +29,13 @@
         </provider>
     </application>
 
+    <!-- 현장 사진 핀의 '사진 찍기': 안드로이드 11부터는 카메라 앱을 쓰겠다고 적어 두어야 찾을 수 있음 -->
+    <queries>
+        <intent>
+            <action android:name="android.media.action.IMAGE_CAPTURE" />
+        </intent>
+    </queries>
+
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />

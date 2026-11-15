@@ -493,13 +493,16 @@
       create(p, photos = []) {
         return { ...base('photo', 'memo'), x: p.x, y: p.y, photos, title: '' };
       },
+      // 핀은 화면에서 크기가 일정 (머리 반지름 14px, 머리 가운데는 놓은 자리 20px 위)
       bounds(ph) {
         const r = Math.max(150, minWorld(16));
-        return { minX: ph.x - r, minY: ph.y - r * 2, maxX: ph.x + r, maxY: ph.y + r * 0.4 };
+        return { minX: ph.x - r, minY: ph.y - Math.max(300, minWorld(38)), maxX: ph.x + r, maxY: ph.y + Math.max(60, minWorld(4)) };
       },
       distance(ph, p) {
-        const r = Math.max(150, minWorld(14));
-        return Math.max(0, Math.hypot(p.x - ph.x, p.y - (ph.y - r)) - r); // 핀 머리(동그라미)
+        // 누르는 범위도 그린 핀만큼 (크게 확대해도 핀 둘레의 벽·방을 가로채지 않게): 머리 동그라미 또는 아래 끝
+        const head = Math.hypot(p.x - ph.x, p.y - (ph.y - minWorld(20))) - minWorld(15);
+        const tip = Math.hypot(p.x - ph.x, p.y - ph.y) - minWorld(4);
+        return Math.max(0, Math.min(head, tip));
       },
       inRect(ph, r) {
         return G.pointInRect({ x: ph.x, y: ph.y }, r);

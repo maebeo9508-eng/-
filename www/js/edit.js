@@ -232,7 +232,7 @@
       App.ui.toast(`‘${broken[0].name}’과(와) 같이 쓰는 벽이 있어 돌리면 그 방이 끊깁니다. 두 방을 함께 골라 돌리세요.`);
       return false;
     }
-    const each = els.every((e) => e.type === 'item' || e.type === 'column');
+    const each = els.every((e) => e.type === 'item' || e.type === 'column' || e.type === 'text' || e.type === 'photo'); // 점 같은 것만 골랐으면 각자 제자리에서
     const b = doc().bounds(els.map((e) => e.id));
     const c = { x: snapStep((b.minX + b.maxX) / 2), y: snapStep((b.minY + b.maxY) / 2) };
     const turn = (o) => (p) => ({ x: o.x - (p.y - o.y), y: o.y + (p.x - o.x) });

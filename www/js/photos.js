@@ -19,11 +19,26 @@
   };
   const title = (ph) => ph.title || `사진 ${numberOf(ph.id)}`;
 
+  /** 사진 고르기. 안드로이드 앱은 파일 고르는 창에 카메라가 없어서 ‘찍기 / 고르기’를 먼저 물음
+      (아이폰·휴대폰 브라우저는 고르는 창에서 바로 찍을 수 있음) */
+  async function pick() {
+    const androidApp = App.platform.native && /android/i.test(navigator.userAgent);
+    if (!androidApp) return App.images.pickMany();
+    const r = await App.ui.dialog({
+      title: '현장 사진',
+      html: '<p>카메라로 바로 찍거나, 찍어 둔 사진을 여러 장 고르세요.</p>',
+      actions: [{ id: 'cancel', label: '취소' }, { id: 'pick', label: '사진첩에서 고르기' }, { id: 'camera', label: '사진 찍기', primary: true }],
+    });
+    if (r.id === 'camera') return App.images.pickMany({ camera: true });
+    if (r.id === 'pick') return App.images.pickMany();
+    return [];
+  }
+
   /** 핀에 사진 더하기 */
   async function addTo(id) {
     const ph = App.doc.get(id);
     if (!ph) return 0;
-    const more = await App.images.pickMany();
+    const more = await pick();
     if (!more.length || !App.doc.has(id)) return 0;
     App.doc.transact('사진 더하기', () => App.doc.update(id, { photos: [...(App.doc.get(id).photos || []), ...more] }));
     App.ui.toast(`사진 ${more.length}장을 더했습니다.`);
@@ -60,7 +75,11 @@
     viewer = { el, id: null, i: 0 };
     el.addEventListener('click', (e) => {
       const b = e.target.closest('[data-pv]');
-      if (!b) { if (e.target === el || e.target.classList.contains('pv-stage')) close(); return; }
+      if (!b) {
+        if (performance.now() - (viewer.swiped || 0) < 500) return; // 마우스로 밀어 넘긴 뒤의 클릭은 닫기가 아님
+        if (e.target === el || e.target.classList.contains('pv-stage')) close();
+        return;
+      }
       const act = b.dataset.pv;
       if (act === 'close') close();
       else if (act === 'prev') go(-1);
@@ -70,6 +89,7 @@
         if (!ph) return close();
         if (ph.locked) { App.ui.toast('잠긴 핀입니다. 속성에서 잠금을 풀고 빼세요.'); return; }
         removeAt(viewer.id, viewer.i);
+        App.ui.toast('사진을 뺐습니다. 되돌리려면 위쪽 ↶(Ctrl+Z)를 누르세요.');
         const left = (App.doc.get(viewer.id).photos || []).length;
         if (!left) close();
         else { viewer.i = Math.min(viewer.i, left - 1); show(); }
@@ -78,20 +98,31 @@
     // 밀어서 넘기기
     let sx = null;
     el.addEventListener('pointerdown', (e) => { sx = e.clientX; });
-    el.addEventListener('pointerup', (e) => { if (sx != null && Math.abs(e.clientX - sx) > 50) go(e.clientX < sx ? 1 : -1); sx = null; });
+    el.addEventListener('pointerup', (e) => {
+      if (sx != null && Math.abs(e.clientX - sx) > 50) { go(e.clientX < sx ? 1 : -1); viewer.swiped = performance.now(); }
+      sx = null;
+    });
+    // 보는 동안에는 도면 단축키가 먹지 않게 (화살표로 핀이 옮겨지거나 Delete로 핀이 지워지지 않게)
     document.addEventListener('keydown', (e) => {
       if (el.hidden) return;
-      if (e.key === 'Escape') { e.stopPropagation(); close(); }
-      else if (e.key === 'ArrowLeft') go(-1);
-      else if (e.key === 'ArrowRight') go(1);
+      if (e.key === 'Tab') return; // 버튼 사이 옮기기는 그대로
+      e.stopPropagation();
+      if (e.key === 'Escape') { e.preventDefault(); close(); }
+      else if (e.key === 'ArrowLeft') { e.preventDefault(); go(-1); }
+      else if (e.key === 'ArrowRight') { e.preventDefault(); go(1); }
+      else if (e.key !== 'Enter' && e.key !== ' ') e.preventDefault();
     }, true);
     App.ui.on('images', () => { if (!el.hidden) show(); });
+    // 되돌리기·다른 곳에서 고친 것도 바로 반영 (핀이 지워지면 닫음)
+    App.doc.onChange(() => { if (!el.hidden) show(); });
     return viewer;
   }
   function show() {
     const v = viewer, ph = App.doc.get(v.id);
     if (!ph || !(ph.photos || []).length) return close();
-    const list = ph.photos, p = list[v.i], url = App.images.url(p.id);
+    const list = ph.photos;
+    v.i = Math.max(0, Math.min(list.length - 1, v.i));
+    const p = list[v.i], url = App.images.url(p.id);
     v.el.querySelector('.pv-title').innerHTML = `<b>${esc(numberOf(ph.id))}. ${esc(title(ph))}</b>${p.at ? `<small>${esc(dateText(p.at))}</small>` : ''}`;
     const img = v.el.querySelector('.pv-img');
     if (url) img.src = url;
@@ -114,14 +145,20 @@
     ensureViewer();
     viewer.id = id;
     viewer.i = Math.max(0, Math.min(ph.photos.length - 1, i));
+    viewer.back = document.activeElement;
     viewer.el.hidden = false;
     show();
+    viewer.el.querySelector('[data-pv="close"]').focus({ preventScroll: true });
     return true;
   }
   function close() {
-    if (viewer) viewer.el.hidden = true;
+    if (!viewer || viewer.el.hidden) return;
+    viewer.el.hidden = true;
+    const back = viewer.back;
+    viewer.back = null;
+    if (back && back.focus && document.contains(back)) back.focus({ preventScroll: true });
   }
   const isOpen = () => !!viewer && !viewer.el.hidden;
 
-  App.photos = { all, numberOf, title, dateText, addTo, removeAt, open, close, isOpen };
+  App.photos = { all, numberOf, title, dateText, pick, addTo, removeAt, open, close, isOpen };
 })();

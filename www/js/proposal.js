@@ -106,6 +106,22 @@
   }
 
   /* ── 표지 ── */
+  const CARD_H = 170;
+  /** 표지 자리 계산 (그리기 전에 3D 큰 그림 높이를 정하려고 따로): 제목 줄 → 큰 그림 → 받는 분 → 인사말 → 핵심 숫자.
+      인사말이 길면 큰 그림을 줄여 자리를 냄 (인사말은 8줄까지) */
+  function coverMetrics(ctx, W, H, d) {
+    const P = pen(ctx);
+    let size = 92;
+    P.font(size, 800);
+    while (size > 56 && ctx.measureText(d.title).width > W - 2 * M) { size -= 4; P.font(size, 800); }
+    const bar = 340 + 92 + size * 0.5 + 56 + 62;   // 주황 막대 자리
+    const hy = bar + 70;
+    const intro = d.intro ? P.wrap(d.intro, 30, W - 2 * M) : [];
+    const shownIntro = Math.min(intro.length, 8);
+    const below = 80 + (d.to ? 84 : 0) + (shownIntro ? shownIntro * 50 + 34 : 0) + (d.figures.length ? CARD_H : 0);
+    const hh = Math.max(560, Math.min(COVER_H, Math.floor(H - 320 - hy - below)));
+    return { size, bar, hy, hh, intro };
+  }
   function drawCover(ctx, W, H, d) {
     const P = pen(ctx);
     ctx.fillStyle = '#ffffff';
@@ -120,23 +136,20 @@
     }
     P.text(d.date, W - M, M + 45, 28, 500, MUTE, 'right');
     // 제목
+    const L = coverMetrics(ctx, W, H, d);
     let y = 340;
     ctx.save();
     if ('letterSpacing' in ctx) ctx.letterSpacing = '8px';
     P.text('PROPOSAL', M, y, 28, 800, ACCENT);
     ctx.restore();
     y += 92;
-    let size = 92;
-    P.font(size, 800);
-    while (size > 56 && ctx.measureText(d.title).width > W - 2 * M) { size -= 4; P.font(size, 800); }
-    P.text(d.title, M, y, size, 800, INK, 'left', W - 2 * M);
-    y += size * 0.5 + 56;
+    P.text(d.title, M, y, L.size, 800, INK, 'left', W - 2 * M);
+    y += L.size * 0.5 + 56;
     P.text(projectName(), M, y, 48, 600, '#374151', 'left', W - 2 * M);
-    y += 62;
     ctx.fillStyle = ACCENT;
-    ctx.fillRect(M, y, 140, 10);
+    ctx.fillRect(M, L.bar, 140, 10);
     // 큰 그림: 3D면 쪽 너비 가득, 평면도면 흰 칸 안에
-    const hy = y + 70, hh = COVER_H;
+    const hy = L.hy, hh = L.hh;
     if (d.hero) {
       ctx.drawImage(d.hero, 0, hy, W, hh);
     } else if (d.plan) {
@@ -154,24 +167,23 @@
       y += 84;
     }
     // 인사말: 핵심 숫자 칸이 들어갈 자리를 남기고 (넘치면 마지막 줄 끝을 줄임표로)
-    const cardH = 170, bottom = H - 320;
-    if (d.intro) {
-      const lines = P.wrap(d.intro, 30, W - 2 * M);
-      const room = Math.max(0, Math.floor((bottom - (d.figures.length ? cardH + 50 : 0) - y) / 50));
-      const shown = lines.slice(0, room);
+    const bottom = H - 320;
+    if (L.intro.length) {
+      const room = Math.max(0, Math.min(8, Math.floor((bottom - (d.figures.length ? CARD_H : 0) - y) / 50)));
+      const shown = L.intro.slice(0, room);
       shown.forEach((l, i) => {
-        const cut = i === room - 1 && lines.length > room;
+        const cut = i === room - 1 && L.intro.length > room;
         P.text(cut ? `${l.slice(0, Math.max(1, l.length - 1))}…` : l, M, y + i * 50, 30, 400, '#374151', 'left', W - 2 * M);
       });
       if (shown.length) y += shown.length * 50 + 34;
     }
     // 핵심 숫자
-    if (d.figures.length && y + cardH <= bottom + 1) {
+    if (d.figures.length && y - 26 + CARD_H <= bottom + 1) {
       const n = d.figures.length, gap = 24, cw = (W - 2 * M - gap * (n - 1)) / n, top = y - 26;
       d.figures.forEach(([label, value], i) => {
         const x = M + i * (cw + gap);
         ctx.fillStyle = SOFT;
-        P.round(x, top, cw, cardH, 18);
+        P.round(x, top, cw, CARD_H, 18);
         ctx.fill();
         P.text(label, x + 30, top + 52, 26, 600, MUTE, 'left', cw - 60);
         let vs = n > 3 ? 40 : 46;
@@ -317,7 +329,10 @@
     page.items.push({ kind: 'intro', y });
     y += PH.intro;
     pins.forEach((pin) => {
-      const memo = pin.memo ? P.wrap(pin.memo, 26, cw - 100).slice(0, 6) : [];
+      // 메모는 10줄까지 (넘치면 마지막 줄 끝을 줄임표로)
+      const all = pin.memo ? P.wrap(pin.memo, 26, cw - 100) : [];
+      const memo = all.slice(0, 10);
+      if (all.length > 10) memo[9] = `${memo[9].slice(0, Math.max(1, memo[9].length - 1))}…`;
       const head = PH.head + memo.length * PH.memo + 14;
       const photos = pin.photos || [];
       const rowH = PH.cellH + PH.cap + PH.rowGap;
@@ -353,10 +368,16 @@
         ctx.fill();
         P.text(String(n), M + 32, y + 41, n > 99 ? 24 : 30, 800, '#ffffff', 'center');
         const count = (it.pin.photos || []).length;
-        const tw = P.text(`${App.photos.title(it.pin)}${it.cont ? ' (이어서)' : ''}`, M + 86, y + 40, 36, 800, INK, 'left', cw - 360);
-        P.text(`사진 ${count}장`, M + 86 + tw + 20, y + 42, 24, 600, MUTE);
         const first = (it.pin.photos || [])[0];
-        if (first && first.at && !it.cont) P.text(App.photos.dateText(first.at), W - M, y + 42, 24, 400, MUTE, 'right');
+        const date = first && first.at && !it.cont ? App.photos.dateText(first.at) : '';
+        P.font(24, 400);
+        const dw = date ? ctx.measureText(date).width + 30 : 0;
+        P.font(24, 600);
+        const countText = `사진 ${count}장`, kw = ctx.measureText(countText).width + 20;
+        // 제목이 길면 줄여서 ‘사진 N장’·날짜와 겹치지 않게
+        const tw = P.text(`${App.photos.title(it.pin)}${it.cont ? ' (이어서)' : ''}`, M + 86, y + 40, 36, 800, INK, 'left', Math.max(120, cw - 86 - kw - dw));
+        P.text(countText, M + 86 + tw + 20, y + 42, 24, 600, MUTE);
+        if (date) P.text(date, W - M, y + 42, 24, 400, MUTE, 'right');
         it.memo.forEach((l, i) => P.text(l, M + 86, y + PH.head + i * PH.memo, 26, 400, '#374151', 'left', cw - 100));
       } else if (it.kind === 'none') {
         P.text('사진이 아직 없습니다.', M + 86, y + 24, 24, 400, FAINT);
@@ -410,7 +431,7 @@
     img.onerror = () => resolve(null);
     img.src = src;
   });
-  /** 로고 파일 고르기 → 긴 쪽 600px PNG(투명 그대로)로 줄여 저장. 돌려주는 값: data URL 또는 null(취소·실패) */
+  /** 로고 파일 고르기 → 긴 쪽 600px PNG(투명 그대로)로 줄임. 돌려주는 값: data URL 또는 null(취소·실패). 저장은 saveLogo */
   function pickLogo() {
     return new Promise((resolve) => {
       const input = document.createElement('input');
@@ -433,17 +454,39 @@
         c.width = Math.max(1, Math.round(img.naturalWidth * k));
         c.height = Math.max(1, Math.round(img.naturalHeight * k));
         c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-        const data = c.toDataURL('image/png');
-        try {
-          await App.storage.blobs.put(LOGO_KEY, { data });
-          finish(data);
-        } catch (_) {
-          App.ui.toast('로고를 저장하지 못했습니다.');
-          finish(null);
-        }
+        finish(c.toDataURL('image/png'));
       });
       input.click();
     });
+  }
+
+  /** 로고 저장(data URL) 또는 지우기(null) */
+  async function saveLogo(data) {
+    try {
+      if (data) await App.storage.blobs.put(LOGO_KEY, { data });
+      else await App.storage.blobs.remove(LOGO_KEY);
+      return true;
+    } catch (_) {
+      App.ui.toast('로고를 저장하지 못했습니다.');
+      return false;
+    }
+  }
+
+  /** 이 기기에서 3D(WebGL)를 실제로 쓸 수 있는지 (한 번만 알아봄) */
+  let glOk = null;
+  function webgl() {
+    if (App.view3d && App.view3d.renderer) return true;
+    if (glOk == null) {
+      try {
+        const g = document.createElement('canvas').getContext('webgl') || document.createElement('canvas').getContext('experimental-webgl');
+        glOk = !!g;
+        const lose = g && g.getExtension('WEBGL_lose_context');
+        if (lose) lose.loseContext();
+      } catch (_) {
+        glOk = false;
+      }
+    }
+    return glOk;
   }
 
   /* ── 만들기 ── */
@@ -481,14 +524,22 @@
     const n = { no: 1 };
     const sec = {};
     const nextSec = (key, label) => { sec[key] = { no: String(++n.no).padStart(2, '0'), title: label }; };
-    // 3D 그림
-    let hero = null, shots = null;
+    const d = {
+      title, to, co, logo, hero: null, sec,
+      // 핵심 숫자: 넣지 않기로 한 견적서·현장 사진의 숫자는 표지에도 안 씀
+      figures: figures(s, parts.estimate ? t : null, parts.photos ? pins : []),
+      intro: o.intro != null ? String(o.intro).trim() : settings().intro || '',
+      date: new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' }),
+      plan: rect ? (ctx, box, k) => App.exporter.drawPlan(ctx, box, rect, k) : null,
+    };
+    // 3D 그림 (표지 큰 그림은 표지 자리에 맞는 높이로)
+    let shots = null;
     if (parts.d3 || !rect) {
       await step('3D 그림을 만드는 중…');
-      const v = App.view3d && App.view3d.stills;
-      const heroShot = v ? App.view3d.stills([{ yaw: -0.75, pitch: 0.5, box: [0.92, 0.95, -0.95] }], PORTRAIT.W, COVER_H) : null;
+      const heroH = coverMetrics(document.createElement('canvas').getContext('2d'), PORTRAIT.W, PORTRAIT.H, d).hh;
+      const heroShot = App.view3d && App.view3d.stills ? App.view3d.stills([{ yaw: -0.75, pitch: 0.5, box: [0.92, 0.95, -0.95] }], PORTRAIT.W, heroH) : null;
       if (heroShot) {
-        hero = heroShot[0];
+        d.hero = heroShot[0];
         if (parts.d3) {
           const big = App.view3d.stills([{ yaw: -0.6, pitch: 0.62 }], PORTRAIT.W - 2 * M, 1000);
           const small = App.view3d.stills([{ yaw: -0.6 + Math.PI, pitch: 0.55 }, { yaw: 0, pitch: 1.5 }], Math.round((PORTRAIT.W - 2 * M - 30) / 2), 560);
@@ -497,11 +548,6 @@
       }
       if (parts.d3 && !shots) skipped.push('3D 투시도');
     }
-    const d = {
-      title, to, co, logo, hero, sec, figures: figures(s, t, pins), intro: o.intro != null ? String(o.intro).trim() : settings().intro || '',
-      date: new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' }),
-      plan: rect ? (ctx, box, k) => App.exporter.drawPlan(ctx, box, rect, k) : null,
-    };
     // 쪽 계획: { kind, W, H, draw(ctx, no, total) }
     const jobs = [{ kind: 'cover', ...PORTRAIT, draw: (ctx) => drawCover(ctx, PORTRAIT.W, PORTRAIT.H, d) }];
     if (shots) {
@@ -530,7 +576,6 @@
     }
     if (parts.estimate) {
       if (est) {
-        nextSec('estimate', '견적서');
         for (let k = 0; k < est.count; k++) jobs.push({ kind: 'estimate', W: est.W, H: est.H, draw: (ctx, no, total) => est.draw(ctx, k, { page: no, pages: total, footer: `${co.name ? `${co.name} · ` : ''}${title}` }) });
       } else skipped.push('견적서');
     }
@@ -572,12 +617,14 @@
     const nPhotos = pins.reduce((k, p) => k + (p.photos || []).length, 0);
     const est = App.estimate.layout();
     const t = est ? est.t : null;
-    const can3d = !!(window.WebGLRenderingContext && App.view3d && App.view3d.stills);
-    const parts = { d3: can3d, plan: true, summary: true, estimate: !!(t && t.priced), photos: pins.length > 0, ...(st.parts || {}) };
+    const can3d = !!(App.view3d && App.view3d.stills && webgl());
+    // 처음 값: 3D·평면·물량은 넣고, 견적서는 단가를 넣었을 때, 사진은 핀이 있을 때. 사람이 바꾼 것만 이 도면에 기억
+    const def = { d3: can3d, plan: true, summary: true, estimate: !!(t && t.priced), photos: pins.length > 0 };
+    const parts = { ...def, ...(st.parts || {}) };
     if (!pins.length) parts.photos = false;
     if (!est) parts.estimate = false;
     if (!can3d) parts.d3 = false;
-    let logo = await logoData();
+    let logo = await logoData(), logoChanged = false;
     const check = (key, label, sub, disabled = false) => `
       <label class="check-row"><input type="checkbox" data-part="${key}" ${parts[key] ? 'checked' : ''} ${disabled ? 'disabled' : ''}><span>${label}<small>${sub}</small></span></label>`;
     const r = await App.ui.dialog({
@@ -621,12 +668,13 @@
         body.addEventListener('click', async (e) => {
           const b = e.target.closest('[data-act]');
           if (!b) return;
+          // 로고는 ‘PDF 만들기’를 누를 때 저장 (취소하면 그대로)
           if (b.dataset.act === 'pp-logo') {
             const data = await pickLogo();
-            if (data) setLogo(data);
+            if (data) { setLogo(data); logoChanged = true; }
           } else if (b.dataset.act === 'pp-logo-del') {
-            try { await App.storage.blobs.remove(LOGO_KEY); } catch (_) { /* 무시 */ }
             setLogo(null);
+            logoChanged = true;
           }
         });
       },
@@ -635,9 +683,16 @@
     const body = r.body;
     const val = (sel) => (body.querySelector(sel) ? body.querySelector(sel).value.trim() : '');
     // 고른 것 저장: 제목·인사말·넣을 내용은 이 도면, 받는 분은 견적서와 같이, 회사 정보는 이 기기
-    const chosen = {};
-    PARTS.forEach((k) => { const c = body.querySelector(`[data-part="${k}"]`); chosen[k] = !!(c && c.checked && !c.disabled); });
-    App.current.proposal = { title: val('#ppTitle'), intro: val('#ppIntro'), parts: chosen };
+    const chosen = {}, keep = {};
+    PARTS.forEach((k) => {
+      const c = body.querySelector(`[data-part="${k}"]`);
+      const on = !!(c && !c.disabled);
+      chosen[k] = on && c.checked;
+      // 못 고르게 막힌 것은 전에 기억한 대로, 고를 수 있던 것은 처음 값과 다를 때만 기억 (나중에 사진·단가가 생기면 처음 값을 따르게)
+      if (!on) { if (st.parts && typeof st.parts[k] === 'boolean') keep[k] = st.parts[k]; } else if (c.checked !== def[k]) keep[k] = c.checked;
+    });
+    App.current.proposal = { title: val('#ppTitle'), intro: val('#ppIntro'), parts: keep };
+    if (logoChanged) await saveLogo(logo);
     App.current.estimateTo = val('#ppTo');
     const nextCo = { ...App.estimate.company() };
     body.querySelectorAll('[data-co]').forEach((inp) => { nextCo[inp.dataset.co] = inp.value.trim(); });
@@ -647,5 +702,5 @@
     return !!res;
   }
 
-  App.proposal = { open, build, pickLogo, LOGO_KEY };
+  App.proposal = { open, build, pickLogo, saveLogo, LOGO_KEY };
 })();

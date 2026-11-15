@@ -111,10 +111,11 @@
         input.click();
       });
     },
-    /** 사진 여러 장 고르기 (휴대폰은 카메라로 찍기도 됨): [{ id, at(찍은·파일 시각) }]. 취소하면 [] */
-    pickMany() {
+    /** 사진 여러 장 고르기 (휴대폰은 카메라로 찍기도 됨): [{ id, at(찍은·파일 시각) }]. 취소하면 [].
+        o.camera: 바로 카메라로 찍기 (안드로이드 앱은 고르는 창에 카메라가 없어서 따로) */
+    pickMany(o = {}) {
       return new Promise((resolve) => {
-        const input = document.getElementById('photoFiles');
+        const input = document.getElementById(o.camera ? 'photoCamera' : 'photoFiles');
         let done = false;
         const finish = (v) => { if (!done) { done = true; resolve(v); } };
         input.value = '';

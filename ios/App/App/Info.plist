@@ -68,11 +68,11 @@
 	<true/>
 	<!-- 현수막·벽에 넣을 사진을 고를 때 (사진첩·카메라), 공유 창에서 '이미지 저장'을 누를 때 -->
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>현수막·벽보·벽에 넣을 사진을 고르기 위해 사진첩을 엽니다.</string>
+	<string>현장 사진 핀과 현수막·벽보·벽에 넣을 사진을 고르기 위해 사진첩을 엽니다.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>도면 그림과 3D 사진을 사진첩에 저장합니다.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>현장 사진을 찍어 현수막·벽보·벽에 넣습니다.</string>
+	<string>현장 사진을 찍어 도면의 사진 핀이나 현수막·벽보·벽에 넣습니다.</string>
 	<!-- 암호화 기능을 따로 쓰지 않음 (앱 심사 때 수출 규정 질문을 건너뜀) -->
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
