@@ -216,6 +216,7 @@
     item('#menuPdf', () => App.exporter.pdfDialog());
     // 견적서: 집계 탭의 '견적' 보기를 열고, 단가를 하나라도 넣었으면 바로 PDF로
     item('#menuEstimate', () => openEstimate());
+    item('#menuProposal', () => App.proposal.open());
     $('#btnUndo').addEventListener('click', () => App.actions.undo());
     $('#btnRedo').addEventListener('click', () => App.actions.redo());
     $('#btnSettings').addEventListener('click', () => App.settingsUI.open());

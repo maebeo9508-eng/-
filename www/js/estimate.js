@@ -266,6 +266,7 @@
         <div class="est-tools">
           <button type="button" class="btn" data-act="est-lib">단가표 관리 <small>${Object.keys(memory()).length}개</small></button>
           <button type="button" class="btn" data-act="est-apply" title="이 도면에서 고친 단가를 단가표 단가로 되돌림">단가표 단가로 채우기</button>
+          <button type="button" class="btn" data-act="proposal" title="표지·3D 그림·평면도·물량·견적·현장 사진을 한 묶음 PDF로">제안서 만들기</button>
         </div>
         ${secs.length ? '' : '<div class="empty"><div class="empty-title">값을 매길 물량이 없습니다</div><p>도면을 그리면 자재·물건 수량이 여기에 나옵니다. 아래 기타 항목은 지금도 넣을 수 있습니다.</p></div>'}
         ${secs.map((g) => `<section class="est-sec"><h3 class="sum-title">${esc(g.sec)}</h3>${g.rows.map(row).join('')}</section>`).join('')}
@@ -684,18 +685,16 @@
       if (App.current.estimateMemo) text(`※ ${App.current.estimateMemo}`, x0, y + 50, 26, 400, mute, 'left', tw);
     }
     text(`${o.page} / ${o.pages}`, W / 2, H - 70, 24, 400, mute, 'center');
-    text('현장도면으로 만든 견적서', x1, H - 70, 20, 400, '#9ca3af', 'right');
+    text(o.footer || '현장도면으로 만든 견적서', x1, H - 70, 20, 400, '#9ca3af', 'right');
   }
 
-  function exportPdf() {
+  const A4 = { DPI: 200, mmW: 210, mmH: 297 };
+  /** 견적서 쪽 나누기. 넣을 항목이 없으면 null, 있으면 { W, H, count, t, draw(ctx, k, o) }.
+      o: { page, pages, footer } — 제안서에 끼울 때 쪽 번호·바닥글을 바꿈 */
+  function layout() {
     const { items, t } = pages();
-    if (!items.length) {
-      App.ui.toast('견적서에 넣을 항목이 없습니다. 도면을 그리거나 기타 항목을 넣으세요.');
-      return false;
-    }
-    warnLater();
-    const DPI = 200, mmW = 210, mmH = 297;
-    const W = Math.round((mmW / 25.4) * DPI), H = Math.round((mmH / 25.4) * DPI);
+    if (!items.length) return null;
+    const W = Math.round((A4.mmW / 25.4) * A4.DPI), H = Math.round((A4.mmH / 25.4) * A4.DPI);
     // 쪽 나누기: 첫 쪽은 머리글 때문에 줄이 적음, 마지막 쪽은 합계 줄 자리
     const RH = 50, firstRows = Math.floor((H - 120 - 560 - 50 - 200) / RH), nextRows = Math.floor((H - 120 - 70 - 50 - 200) / RH);
     let no = 0;
@@ -709,26 +708,37 @@
     }
     const last = chunks[chunks.length - 1];
     if (last.length > (chunks.length > 1 ? nextRows : firstRows) - 4) chunks.push([]); // 합계 줄이 들어갈 자리
-    const jpegs = [];
+    return {
+      W, H, count: chunks.length, t,
+      draw(ctx, k, o = {}) {
+        const first = k === 0;
+        const tableTop = first ? 120 + 160 + 270 + 130 : 120 + 70;
+        drawPage(ctx, W, H, { rows: chunks[k], t, first, last: k === chunks.length - 1, page: o.page || k + 1, pages: o.pages || chunks.length, tableTop, footer: o.footer });
+      },
+    };
+  }
+
+  function exportPdf() {
+    const L = layout();
+    if (!L) {
+      App.ui.toast('견적서에 넣을 항목이 없습니다. 도면을 그리거나 기타 항목을 넣으세요.');
+      return false;
+    }
+    warnLater();
     const canvas = document.createElement('canvas');
-    canvas.width = W;
-    canvas.height = H;
+    canvas.width = L.W;
+    canvas.height = L.H;
     const ctx = canvas.getContext('2d');
-    chunks.forEach((rows, k) => {
-      const first = k === 0;
-      const tableTop = first ? 120 + 160 + 270 + 130 : 120 + 70;
-      drawPage(ctx, W, H, { rows, t, first, last: k === chunks.length - 1, page: k + 1, pages: chunks.length, tableTop });
-      const data = canvas.toDataURL('image/jpeg', 0.9);
-      const bin = atob(data.split(',')[1]);
-      const bytes = new Uint8Array(bin.length);
-      for (let j = 0; j < bin.length; j++) bytes[j] = bin.charCodeAt(j);
-      jpegs.push(bytes);
-    });
-    const blob = App.exporter.pdfFromPages(jpegs.map((jpeg) => ({ jpeg, w: W, h: H })), (mmW / 25.4) * 72, (mmH / 25.4) * 72);
+    const jpegs = [];
+    for (let k = 0; k < L.count; k++) {
+      L.draw(ctx, k);
+      jpegs.push(App.exporter.jpegBytes(canvas, 0.9));
+    }
+    const blob = App.exporter.pdfFromPages(jpegs.map((jpeg) => ({ jpeg, w: L.W, h: L.H })), (A4.mmW / 25.4) * 72, (A4.mmH / 25.4) * 72);
     const name = `견적서_${safeName(projectName())}_${App.exporter.stamp()}.pdf`;
-    App.exporter.saved(App.exporter.download(name, blob, 'application/pdf'), `‘${name}’을 저장했습니다 (${chunks.length}쪽).`);
+    App.exporter.saved(App.exporter.download(name, blob, 'application/pdf'), `‘${name}’을 저장했습니다 (${L.count}쪽).`);
     return true;
   }
 
-  App.estimate = { lines, totals, html, bind, refreshTotals, csvRows, exportCsv, exportPdf, hangul, priceOf, priceSource, memory, EXTRA_PRESETS, openLibrary, libraryCsv, importLibrary, parseCsv };
+  App.estimate = { lines, totals, html, bind, refreshTotals, csvRows, exportCsv, exportPdf, layout, company, saveCompany: (co) => App.storage.write(KEY_COMPANY, co), warnLater, hangul, priceOf, priceSource, memory, EXTRA_PRESETS, openLibrary, libraryCsv, importLibrary, parseCsv };
 })();

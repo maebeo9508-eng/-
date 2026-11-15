@@ -400,7 +400,7 @@
     const blocks = cost ? [] : BUILD[view](s);
     const scroll = pane.scrollTop;
     const bar = `
-      <div class="sum-bar">
+      <div class="sum-bar${cost ? ' is-cost' : ''}">
         <div class="sum-views" role="tablist" aria-label="집계 보기">
           ${VIEWS.map(([id, label]) => `<button type="button" class="seg-btn" role="tab" data-view="${id}" aria-selected="${id === view}">${label}</button>`).join('')}
         </div>
@@ -489,6 +489,7 @@
       }
       if (e.target.closest('[data-act="csv"]')) exportCsv();
       if (e.target.closest('[data-act="est-pdf"]')) App.estimate.exportPdf();
+      if (e.target.closest('[data-act="proposal"]')) App.proposal.open();
     });
     App.estimate.bind(pane);
     render();

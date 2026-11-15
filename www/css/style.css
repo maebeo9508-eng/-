@@ -536,6 +536,12 @@ button { font: inherit; color: inherit; }
 .sum-views { display: flex; flex: 1; gap: 4px; min-width: 0; }
 .sum-views .seg-btn { flex: 1; min-width: 0; padding: 0 6px; white-space: nowrap; }
 .sum-bar > .btn { flex: none; padding: 0 10px; white-space: nowrap; }
+/* 좁은 화면의 견적 보기: 보기 단추가 눌리지 않게 버튼은 아래 줄로 */
+@media (max-width: 480px) {
+  .sum-bar.is-cost { flex-wrap: wrap; }
+  .sum-bar.is-cost .sum-views { flex-basis: 100%; }
+  .sum-bar.is-cost > .btn { flex: 1; }
+}
 
 .draw-actions {
   position: absolute;
@@ -1425,3 +1431,16 @@ button { font: inherit; color: inherit; }
 .view3d[data-recording="1"] .v3-bar .btn:not([data-v3="close"]), .view3d[data-recording="1"] .v3-pick { pointer-events: none; opacity: 0.4; }
 .view3d[data-recording="1"] .v3-hint { display: none; }
 @media (prefers-reduced-motion: reduce) { .v3-rec-dot { animation: none; } }
+
+/* 제안서 창 */
+.pp-parts { margin-top: 12px; }
+.pp-parts .field-label { margin-bottom: 2px; }
+.pp-parts .check-row { padding: 6px 0; }
+.pp-parts .check-row input:disabled + span { opacity: 0.55; }
+.pp-co summary { flex-wrap: wrap; gap: 0 8px; }
+.pp-co-t { white-space: nowrap; }
+.pp-co summary small { font-weight: 400; font-size: 12px; color: var(--fg-muted); }
+.pp-logo { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.pp-logo-box { width: 132px; height: 52px; display: grid; place-items: center; border: 1px dashed var(--line); border-radius: 10px; background: #fff; overflow: hidden; }
+.pp-logo-box img { max-width: 120px; max-height: 44px; object-fit: contain; }
+.pp-logo-box span { font-size: 12px; color: #6b7280; }

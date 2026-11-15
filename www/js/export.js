@@ -315,11 +315,21 @@
     ctx.textAlign = 'left';
   }
 
+  /** 캔버스 → JPEG 바이트 (PDF에 넣을 것) */
+  function jpegBytes(canvas, q = 0.9) {
+    const data = canvas.toDataURL('image/jpeg', q);
+    const bin = atob(data.slice(data.indexOf(',') + 1));
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+  }
+
   /** JPEG 한 장짜리 PDF 만들기 */
   function pdfFromJpeg(jpeg, imgW, imgH, pageW, pageH) {
     return pdfFromPages([{ jpeg, w: imgW, h: imgH }], pageW, pageH);
   }
-  /** 쪽마다 JPEG 한 장을 꽉 채운 PDF. pages: [{ jpeg(Uint8Array), w, h }], pageW·pageH: 포인트(1/72인치) */
+  /** 쪽마다 JPEG 한 장을 꽉 채운 PDF. pages: [{ jpeg(Uint8Array), w, h, pw?, ph? }], pageW·pageH: 포인트(1/72인치).
+      쪽마다 pw·ph를 주면 그 쪽만 그 크기 (가로 쪽 섞기) */
   function pdfFromPages(pages, pageW, pageH) {
     const enc = new TextEncoder();
     const parts = [];
@@ -340,10 +350,11 @@
     push('%PDF-1.4\n%\xE2\xE3\xCF\xD3\n');
     obj(1, '<< /Type /Catalog /Pages 2 0 R >>');
     obj(2, `<< /Type /Pages /Kids [${pages.map((_, i) => `${pageNo(i)} 0 R`).join(' ')}] /Count ${n} >>`);
-    const content = `q ${pageW.toFixed(2)} 0 0 ${pageH.toFixed(2)} 0 0 cm /Im0 Do Q`;
     pages.forEach((p, i) => {
       const k = pageNo(i);
-      obj(k, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageW.toFixed(2)} ${pageH.toFixed(2)}] /Resources << /XObject << /Im0 ${k + 1} 0 R >> >> /Contents ${k + 2} 0 R >>`);
+      const pw = p.pw || pageW, ph = p.ph || pageH;
+      const content = `q ${pw.toFixed(2)} 0 0 ${ph.toFixed(2)} 0 0 cm /Im0 Do Q`;
+      obj(k, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pw.toFixed(2)} ${ph.toFixed(2)}] /Resources << /XObject << /Im0 ${k + 1} 0 R >> >> /Contents ${k + 2} 0 R >>`);
       offsets[k + 1] = length;
       push(`${k + 1} 0 obj\n<< /Type /XObject /Subtype /Image /Width ${p.w} /Height ${p.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${p.jpeg.length} >>\nstream\n`);
       push(p.jpeg);
@@ -402,10 +413,7 @@
     const blocks = App.summary.blocks('all');
     if (blocks.length) drawSummary(ctx, sx, top, W - m - sx, bottom - top, blocks);
     // JPEG로 넣기
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
-    const bin = atob(dataUrl.slice(dataUrl.indexOf(',') + 1));
-    const jpeg = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) jpeg[i] = bin.charCodeAt(i);
+    const jpeg = jpegBytes(canvas, 0.92);
     const pt = (mm) => (mm / 25.4) * 72;
     const blob = pdfFromJpeg(jpeg, W, H, pt(mmW), pt(mmH));
     const name = `${safeName(projectName())}_도면집계_${exporter.stamp()}.pdf`;
@@ -444,6 +452,6 @@
     }
   }
 
-  Object.assign(exporter, { exportPng, exportPdf, pdfDialog, pdfFromJpeg, pdfFromPages, planRect });
+  Object.assign(exporter, { exportPng, exportPdf, pdfDialog, pdfFromJpeg, pdfFromPages, planRect, drawPlan, scaleBar, jpegBytes });
   App.exporter = exporter;
 })();

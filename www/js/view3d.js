@@ -693,14 +693,13 @@
     R.setGround(g[1], hex(g[2]), [(b.min[0] + b.max[0]) / 2, (b.min[2] + b.max[2]) / 2], scene.radius * 2.5);
   }
 
-  /** 조감도 시점으로: 장면이 화면에 다 들어오게 */
-  function resetView(top = false) {
-    const aspect = canvas.clientWidth / Math.max(1, canvas.clientHeight);
+  /** 정한 방향(yaw·pitch)에서 장면이 화면(aspect)에 다 들어오는 거리로 카메라를 둠.
+      box: 장면 점이 들어와야 하는 화면 범위 [좌우, 위, 아래] (-1~1) */
+  function fitCam(yaw, pitch, aspect, box = [0.93, 0.76, -0.86]) {
     const b = scene.bounds;
     cam.target = [(b.min[0] + b.max[0]) / 2, Math.min(3, scene.height * 0.3), (b.min[2] + b.max[2]) / 2];
-    cam.yaw = top ? 0 : -0.6;
-    cam.pitch = top ? 1.5 : aspect < 1 ? 0.92 : 0.62; // 세로 화면은 더 위에서 내려다봐야 화면에 꽉 참
-    // 위쪽 버튼 줄과 아래 안내에 가리지 않게 여백을 둠
+    cam.yaw = yaw;
+    cam.pitch = pitch;
     const fits = (dist) => {
       cam.dist = dist;
       const c = camera();
@@ -708,13 +707,19 @@
       for (const q of scene.fit) {
         if (vp[3] * q[0] + vp[7] * q[1] + vp[11] * q[2] + vp[15] <= 0.01) return false; // 카메라 뒤
         const p = M4.point(vp, q);
-        if (Math.abs(p[0]) > 0.93 || p[1] > 0.76 || p[1] < -0.86) return false;
+        if (Math.abs(p[0]) > box[0] || p[1] > box[1] || p[1] < box[2]) return false;
       }
       return true;
     };
     let lo = 1.5, hi = 2500;
     for (let i = 0; i < 24; i++) { const mid = (lo + hi) / 2; if (fits(mid)) hi = mid; else lo = mid; }
     cam.dist = hi;
+  }
+  /** 조감도 시점으로: 장면이 화면에 다 들어오게 (위쪽 버튼 줄과 아래 안내에 가리지 않게 여백을 둠) */
+  function resetView(top = false) {
+    const aspect = canvas.clientWidth / Math.max(1, canvas.clientHeight);
+    // 세로 화면은 더 위에서 내려다봐야 화면에 꽉 참
+    fitCam(top ? 0 : -0.6, top ? 1.5 : aspect < 1 ? 0.92 : 0.62, aspect);
     requestDraw();
   }
   /** 지금 방향 그대로, 장면이 다 들어오게 거리만 다시 맞춤 */
@@ -1112,6 +1117,60 @@
   }
 
   /** 지금 시점을 그림 파일로. 긴 쪽이 2560px쯤 되게 크게 그려서 저장 (발표 자료·인쇄용) */
+  /** 제안서용 정지 그림: 3D 화면을 열지 않고(열려 있으면 지금 장면으로) 정한 방향들에서 그려 캔버스로 돌려줌.
+      views: [{ yaw, pitch, box? }] (box: fitCam의 화면 범위), w·h: 픽셀. 3D를 쓸 수 없거나 그릴 것이 없으면 null */
+  function stills(views, w, h) {
+    ensureElement();
+    if (rec) return null;
+    if (!R) {
+      try {
+        R = new Renderer(canvas);
+        maxSize = Math.min(4096, R.gl.getParameter(R.gl.MAX_RENDERBUFFER_SIZE) || 4096);
+      } catch (_) {
+        R = null;
+        return null;
+      }
+      bindControls();
+    }
+    if (R.gl.isContextLost()) return null;
+    const wasOpen = isOpen();
+    const saved = { cam: { ...cam, target: cam.target.slice() }, mode, w: canvas.width, h: canvas.height };
+    if (!wasOpen) {
+      // 인테리어 도면은 방 안이 보이게 벽을 낮춤 (3D 화면을 열 때와 같게), 물건은 세밀하게
+      scene = build({ low: lowChosen ? low : App.modes.is('interior'), routes: showRoutes, lod: false });
+      if (!scene) return null;
+      R.setScene(scene);
+      setGround();
+    }
+    const k = Math.min(1, maxSize / Math.max(w, h));
+    const W = Math.max(2, Math.round(w * k)), H = Math.max(2, Math.round(h * k));
+    const out = [];
+    try {
+      mode = 'orbit';
+      canvas.width = W;
+      canvas.height = H;
+      for (const v of views) {
+        fitCam(v.yaw, v.pitch, W / H, v.box || [0.9, 0.86, -0.9]);
+        R.render(camera(), { sun: sunIndex(), ceil: false, clouds: true, shadows: true, shadowSize: 2048, fog: 1 / 1500, focus: null });
+        const c = document.createElement('canvas'); // 같은 순간에 옮겨 담아야 그림이 남아 있음
+        c.width = W;
+        c.height = H;
+        c.getContext('2d').drawImage(canvas, 0, 0);
+        out.push(c);
+      }
+    } catch (e) {
+      console.warn('3D 정지 그림 실패', e);
+      return null;
+    } finally {
+      Object.assign(cam, saved.cam);
+      mode = saved.mode;
+      canvas.width = saved.w;
+      canvas.height = saved.h;
+      if (wasOpen) { resize(); requestDraw(); } else { R.clearScene(); scene = null; }
+    }
+    return out;
+  }
+
   function saveImage() {
     const base = Math.max(canvas.clientWidth, canvas.clientHeight) * pixelRatio;
     shotScale = clamp(2560 / base, 1, 3);
@@ -1370,6 +1429,8 @@
     stopRecording: () => stopRecording(),
     get recording() { return !!rec; },
     canRecord: () => !!(canvas && recType()),
+    /** 제안서용: [{ yaw, pitch }] 방향들의 정지 그림 (캔버스 배열) 또는 null */
+    stills: (views, w, h) => stills(views, w, h),
     /** 시험용: 화면 점(캔버스 CSS px)의 물건, 고른 물건, 고르기 */
     pickAt: (x, y) => pickAt(x, y),
     get picked() { return picked; },
