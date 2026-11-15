@@ -568,12 +568,20 @@
   /** 고른 물건과 같은 묶음의 것들 (평면처럼 묶음째 고르고 옮김) */
   const groupOf = (id) => (App.withGroups ? App.withGroups([id]) : [id]).filter((x) => App.doc.has(x));
   const anyLocked = (ids) => ids.some((x) => { const e = App.doc.get(x); return e && e.locked; });
+  /** 고른 물건 막대: 위 막대가 좁은 화면에서 두 줄이 되어도 가리지 않게 그 바로 아래에 */
+  function placePickBar() {
+    const bar = el && el.querySelector('.v3-pick');
+    if (!bar || bar.hidden) return;
+    const top = el.querySelector('.v3-bar').getBoundingClientRect(), box = el.getBoundingClientRect();
+    bar.style.top = `${Math.round(top.bottom - box.top + 8)}px`;
+  }
   function setPicked(id) {
     picked = id && App.doc.has(id) ? id : null;
     ghost = null;
     const bar = el.querySelector('.v3-pick');
     bar.hidden = !picked;
     if (picked) {
+      placePickBar();
       const it = App.doc.get(picked), ids = groupOf(picked), locked = anyLocked(ids);
       bar.querySelector('.v3-pick-name').textContent = ids.length > 1 ? `${it.kind} 외 ${ids.length - 1}개 (묶음)` : it.kind;
       bar.querySelector('[data-pk="rot-"]').disabled = bar.querySelector('[data-pk="rot+"]').disabled = locked;
@@ -1150,7 +1158,7 @@
       syncUi();
       requestDraw();
     });
-    window.addEventListener('resize', () => { if (isOpen()) requestDraw(); });
+    window.addEventListener('resize', () => { if (isOpen()) { placePickBar(); requestDraw(); } });
     App.ui.on('images', () => { if (isOpen() && rebuild()) requestDraw(); }); // 이미지를 다 읽으면 다시 조립
   }
 
