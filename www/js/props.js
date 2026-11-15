@@ -872,7 +872,7 @@
         ${App.modes.is('event') ? stat('서서 볼 수 있는 인원 (어림)', `여유 있게 ${Math.floor(area / 1e6).toLocaleString('ko-KR')}명 · 빽빽하게 ${Math.floor(area / 5e5).toLocaleString('ko-KR')}명`, '1㎡에 1~2명으로 어림한 값') : ''}
       </div>
       ${App.modes.is('event') ? `<label class="menu-check seat-check"><input type="checkbox" id="f-zoneCrowd" ${els.every((z) => z.crowd) ? 'checked' : ''}><span>관람·대기 구역 <small>집계의 수용 인원에 넣음</small></span></label>` : ''}
-      ${App.modes.is('event') && els.length === 1 ? '<button type="button" class="btn" data-act="zone-fence" title="둘레를 따라 펜스·차단봉·러버콘·생울타리를 놓음 (입구는 비움)">둘레에 펜스 두르기…</button>' : ''}
+      ${App.modes.is('event') && els.length === 1 ? '<div class="btn-row"><button type="button" class="btn" data-act="zone-fence" title="둘레를 따라 펜스·차단봉·러버콘·생울타리를 놓음 (입구는 비움)">둘레에 펜스 두르기…</button><button type="button" class="btn" data-act="zone-parking" title="영역을 표준 주차 칸 줄로 채움 (줄 — 통로 — 줄)">주차 칸 채우기…</button></div>' : ''}
       <p class="props-meta">동그란 꼭짓점을 끌면 모양을 고칠 수 있습니다.</p>
       ${commonFields(single)}
       ${deleteButton('영역')}`;
@@ -1530,6 +1530,7 @@
         case 'mat-basis': App.materials.openBasis(); break;
         case 'booth-number': App.booths.numberDialog(); break;
         case 'zone-fence': App.fences.dialog(els[0].id); break;
+        case 'zone-parking': App.parking.dialog(els[0].id); break;
         case 'booth-csv': App.booths.exportCsv(); break;
         case 'seat-csv': {
           const arrays = [...App.doc.all()].filter((e) => e.type === 'item' && e.kind === '의자 배열');

@@ -1,4 +1,4 @@
-/* 구역 둘레 두르기 (조감도 모드): 영역 둘레를 따라 펜스·차단봉·생울타리·담장(이어 붙임) 또는 러버콘(띄엄띄엄)을 놓음.
+/* 영역 도구 (조감도 모드) — 둘레 두르기: 영역 둘레를 따라 펜스·차단봉·생울타리·담장(이어 붙임) 또는 러버콘(띄엄띄엄)을 놓음.
    한 변에 입구(빈 곳)를 남길 수 있음. 놓은 개수는 물건이라 집계·견적(렌탈 수량)에 그대로 들어감 */
 (function () {
   'use strict';
@@ -216,4 +216,124 @@
   }
 
   App.fences = { KINDS, plan, around, dialog, existing, openingOf };
+  /* ── 주차 칸 채우기: 영역을 표준 주차 칸 줄로 채움 (줄 — 통로 — 줄, 칸 앞이 통로 쪽). 줄은 영역의 가장 긴 변 방향 ── */
+  const PARK = { w: 2500, d: 5000, aisle: 6000 };
+  function parkingPlan(zone, o = {}) {
+    const W = Math.max(2000, Number(o.w) || PARK.w), D = Math.max(4000, Number(o.d) || PARK.d), A = Math.max(3000, Number(o.aisle) || PARK.aisle);
+    const pts = zone.points;
+    if (!pts || pts.length < 3) return [];
+    // 가장 긴 변의 방향을 줄 방향(u)으로
+    let best = null;
+    pts.forEach((p, i) => { const q = pts[(i + 1) % pts.length], L = Math.hypot(q.x - p.x, q.y - p.y); if (!best || L > best.L) best = { L, a: Math.atan2(q.y - p.y, q.x - p.x) }; });
+    const c = Math.cos(best.a), sn = Math.sin(best.a);
+    const toL = (p) => ({ u: p.x * c + p.y * sn, v: -p.x * sn + p.y * c });
+    const toW = (u, v) => ({ x: u * c - v * sn, y: u * sn + v * c });
+    const L = pts.map(toL);
+    const v0 = Math.min(...L.map((p) => p.v)), v1 = Math.max(...L.map((p) => p.v));
+    // v = 일정한 선이 영역 안에 있는 u 구간들
+    const spans = (v) => {
+      const xs = [];
+      L.forEach((p, i) => { const q = L[(i + 1) % L.length]; if ((p.v <= v) !== (q.v <= v)) xs.push(p.u + ((v - p.v) / (q.v - p.v)) * (q.u - p.u)); });
+      xs.sort((a, b) => a - b);
+      const out = [];
+      for (let i = 0; i + 1 < xs.length; i += 2) out.push([xs[i], xs[i + 1]]);
+      return out;
+    };
+    // 띠 [va, vb]가 통째로 들어가는 가장 긴 u 구간
+    const usable = (va, vb) => {
+      const lines = [va + 60, (va + vb) / 2, vb - 60].map(spans);
+      let bestI = null;
+      lines[0].forEach(([a, b]) => {
+        let lo = a, hi = b;
+        for (const ls of lines.slice(1)) {
+          const m = ls.filter(([x, y]) => y > lo && x < hi);
+          if (!m.length) { hi = lo; break; }
+          const k = m.reduce((t, s) => (s[1] - s[0] > t[1] - t[0] ? s : t));
+          lo = Math.max(lo, k[0]); hi = Math.min(hi, k[1]);
+        }
+        if (hi - lo > (bestI ? bestI[1] - bestI[0] : 0)) bestI = [lo, hi];
+      });
+      return bestI;
+    };
+    // 줄 놓기: 아래에서부터 [줄(앞이 위) · 통로 · 줄(앞이 아래)] 묶음을 맞붙여 반복, 남으면 한쪽만 있는 줄 + 통로
+    const rows = [];
+    let v = v0 + 300;
+    while (v + D + A <= v1 - 300 + 1) {
+      rows.push({ va: v, vb: v + D, face: 1 });
+      if (v + D + A + D <= v1 - 300 + 1) { rows.push({ va: v + D + A, vb: v + D + A + D, face: -1 }); v += D + A + D; } else { v += D + A; break; }
+    }
+    const out = [];
+    rows.forEach((r) => {
+      const I = usable(r.va, r.vb);
+      if (!I) return;
+      let n = Math.floor((I[1] - I[0] - 200) / W);
+      let u = I[0] + (I[1] - I[0] - n * W) / 2;
+      while (n > 0) {
+        const k = Math.min(n, 100); // 한 물건은 100칸까지
+        const m = toW(u + (k * W) / 2, (r.va + r.vb) / 2);
+        out.push({ x: Math.round(m.x), y: Math.round(m.y), rotation: Math.round(((((best.a * 180) / Math.PI) + (r.face > 0 ? 0 : 180)) % 360 + 360) % 360 * 10) / 10, count: k, w: W, d: D });
+        u += k * W; n -= k;
+      }
+    });
+    return out;
+  }
+  const parkingOf = (zoneId) => [...App.doc.all()].filter((e) => e.type === 'item' && e.parkingOf === zoneId);
+  function parkingFill(zoneId, o = {}) {
+    const z = App.doc.get(zoneId);
+    if (!z || z.type !== 'zone') return [];
+    const list = parkingPlan(z, o);
+    if (!list.length) return [];
+    const def = App.catalog.itemDef('주차 구획');
+    const T = App.model.TYPES;
+    const ids = [];
+    App.doc.transact('주차 칸 채우기', () => {
+      parkingOf(zoneId).forEach((e) => App.doc.remove(e.id));
+      list.forEach((p) => {
+        const it = T.item.create({ x: p.x, y: p.y }, def.category, def, p.rotation, null);
+        it.count = p.count; it.size = p.count * p.w; it.depth = p.d;
+        it.parkingOf = zoneId;
+        App.doc.add(it);
+        ids.push(it.id);
+      });
+    });
+    return ids;
+  }
+  async function parkingDialog(zoneId) {
+    const z = App.doc.get(zoneId);
+    if (!z || z.type !== 'zone') return [];
+    const U = App.units;
+    const old = parkingOf(zoneId).reduce((t, e) => t + (e.count || 1), 0);
+    const r = await App.ui.dialog({
+      title: '주차 칸 채우기',
+      html: `
+        <p class="dialog-note">‘${(z.name || '영역').replace(/[<>&"]/g, '')}’을 주차 칸 줄로 채웁니다. 줄은 영역의 가장 긴 변 방향, 두 줄이 통로 하나를 같이 씁니다.</p>
+        <div class="field-grid">
+          <div class="field"><label class="field-label" for="pkW">칸 폭</label><div class="field-box"><input id="pkW" type="text" inputmode="decimal" autocomplete="off" value="${U.inputLength(PARK.w)}"><span class="field-unit">${U.lengthLabel()}</span></div></div>
+          <div class="field"><label class="field-label" for="pkD">칸 길이</label><div class="field-box"><input id="pkD" type="text" inputmode="decimal" autocomplete="off" value="${U.inputLength(PARK.d)}"><span class="field-unit">${U.lengthLabel()}</span></div></div>
+        </div>
+        <div class="field"><label class="field-label" for="pkA">통로 폭 <small>차가 다니는 길</small></label><div class="field-box"><input id="pkA" type="text" inputmode="decimal" autocomplete="off" value="${U.inputLength(PARK.aisle)}"><span class="field-unit">${U.lengthLabel()}</span></div></div>
+        <p class="props-meta pk-count" aria-live="polite"></p>`,
+      actions: [{ id: 'cancel', label: '취소' }, { id: 'ok', label: '채우기', primary: true }],
+      onOpen(body) {
+        const show = () => {
+          const o = { w: U.parseLength(body.querySelector('#pkW').value), d: U.parseLength(body.querySelector('#pkD').value), aisle: U.parseLength(body.querySelector('#pkA').value) };
+          const list = parkingPlan(z, o), n = list.reduce((t, p) => t + p.count, 0);
+          body.querySelector('.pk-count').textContent = n ? `주차 ${n}칸 (${list.length}줄)을 놓습니다${old ? ` · 전에 채운 ${old}칸은 바꿈` : ''}. 집계의 ‘주차’에 칸 수가 나옵니다.` : '영역이 좁아 칸이 들어가지 않습니다 (칸 길이 + 통로 폭보다 넓어야 함).';
+        };
+        body.addEventListener('input', show);
+        show();
+      },
+    });
+    if (r.id !== 'ok') return [];
+    const o = { w: U.parseLength(r.body.querySelector('#pkW').value), d: U.parseLength(r.body.querySelector('#pkD').value), aisle: U.parseLength(r.body.querySelector('#pkA').value) };
+    const ids = parkingFill(zoneId, o);
+    if (ids.length) {
+      App.selection.set(ids);
+      const n = ids.reduce((t, id) => t + (App.doc.get(id).count || 1), 0);
+      App.ui.toast(`주차 ${n}칸을 놓았습니다. 한 번에 되돌리려면 Ctrl+Z.`);
+    } else App.ui.toast('영역이 좁아 칸이 들어가지 않습니다.');
+    return ids;
+  }
+  App.parking = { PARK, plan: parkingPlan, fill: parkingFill, dialog: parkingDialog, existing: parkingOf };
+
 })();
