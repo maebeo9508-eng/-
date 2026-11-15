@@ -1383,3 +1383,5 @@ button { font: inherit; color: inherit; }
 .est-price .est-sign { flex: none; min-width: 36px; min-height: 36px; padding: 0; font-weight: 700; color: var(--fg-muted); }
 .est-price .est-sign.is-neg { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 .est-extra .est-price { max-width: 240px; }
+.est-price .est-price-in { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
+.est-price .est-price-in input { min-width: 0; }

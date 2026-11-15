@@ -169,7 +169,9 @@
     menu.style.maxHeight = '';
     // 아래로도: 메뉴가 열린 자리에서 화면(또는 도면 칸) 아래 끝까지만, 넘치면 메뉴 안에서 스크롤
     const r0 = menu.getBoundingClientRect(), vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
-    const stage = menu.closest('.stage'), bottom = Math.min(vh, stage ? stage.getBoundingClientRect().bottom : vh);
+    const stage = menu.closest('.stage');
+    let bottom = Math.min(vh, stage ? stage.getBoundingClientRect().bottom : vh);
+    if (ui.mobile.matches) { const p = document.getElementById('panel'); if (p) bottom = Math.min(bottom, p.getBoundingClientRect().top); } // 휴대폰: 아래 서랍 위까지
     if (r0.bottom > bottom - 8) menu.style.maxHeight = `${Math.max(120, Math.floor(bottom - 8 - r0.top))}px`;
     const r = menu.getBoundingClientRect(), W = document.documentElement.clientWidth;
     let dx = 0;
@@ -192,6 +194,10 @@
       btn.setAttribute('aria-expanded', String(open));
       if (open) fitMenu(menu);
     });
+    // 서랍 높이·화면 크기가 바뀌면 펼친 메뉴도 다시 맞춤
+    const refit = () => ['#fileMenu', '#layerMenu'].forEach((sel) => { const m = $(sel); if (m && !m.hidden) fitMenu(m); });
+    ui.on('sheet', refit);
+    window.addEventListener('resize', refit);
     document.addEventListener('pointerdown', (e) => {
       if (!menu.hidden && !e.target.closest('.menu-wrap')) close();
     });

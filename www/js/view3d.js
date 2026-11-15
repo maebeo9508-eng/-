@@ -611,8 +611,9 @@
     };
     const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#2563eb';
     if (ghost) {
-      box(itemBox(it), 'rgba(255,255,255,0.7)', true);
-      box({ ...itemBox(it, ghost), y0: itemBox(it).y0 }, accent, false);
+      const d = (ghost.id && App.doc.get(ghost.id)) || it; // 묶음에서 끄는 물건
+      box(itemBox(d), 'rgba(255,255,255,0.7)', true);
+      box({ ...itemBox(d, ghost), y0: itemBox(d).y0 }, accent, false);
     } else box(itemBox(it), accent, false);
   }
   /** 도면이 바뀌면 (3D에서 고친 것, 실행 취소 포함) 장면을 다시 조립 */
@@ -851,7 +852,7 @@
       if (p.drag) {
         if (p.moved) {
           const [lx, ly] = local(e), g = groundAt(lx, ly);
-          if (g) { ghost = { cx: g[0] + p.drag.off[0], cz: g[1] + p.drag.off[1] }; drawPick(); }
+          if (g) { ghost = { id: p.drag.id, cx: g[0] + p.drag.off[0], cz: g[1] + p.drag.off[1] }; drawPick(); }
         }
         return;
       }

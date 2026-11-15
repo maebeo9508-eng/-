@@ -165,8 +165,10 @@
   function flush() {
     const a = document.activeElement;
     if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && a.closest('#panel, .est, #view3d')) a.blur(); // 'change'가 나며 값이 들어감
+    if (!current) return true;
+    // 저장하지 않은 고친 내용이 있을 때만 막음 (엇갈림이면 다시 물어봄). 잃을 게 없으면 언제나 다른 도면으로 바꿔도 됨
     if (timer || dirty()) return saveNow() || !conflicted;
-    return !conflicted;
+    return true;
   }
 
   /* ── 같은 도면을 두 창(탭)에서 열었을 때: 다른 창이 더 새로 저장했으면 덮어쓰지 않고 물어봄 ── */
@@ -192,9 +194,12 @@
       const id = current && current.id;
       if (!id) { conflicted = false; return; }
       if (r.id !== 'copy' && r.id !== 'reload') {
-        // 그냥 닫음(Esc·바깥·뒤로·다른 창이 뜸): 이 창의 내용은 그대로 두고 저장만 멈춤. 다음에 저장하려 할 때 다시 물음
-        App.ui.toast('저장하지 않았습니다. 다른 창에서 고친 내용과 엇갈려 있어, 다음에 저장할 때 다시 물어봅니다.', 6500);
-        return;
+        if (dirty()) {
+          // 그냥 닫음(Esc·바깥·뒤로·다른 창이 뜸): 이 창의 고친 내용은 그대로 두고 저장만 멈춤. 다음에 저장하려 할 때 다시 물음
+          App.ui.toast('저장하지 않았습니다. 다른 창에서 고친 내용과 엇갈려 있어, 다음에 저장할 때 다시 물어봅니다.', 6500);
+          return;
+        }
+        // 이 창에서는 고친 게 없음: 지킬 것이 없으니 최신 내용으로 조용히 바꿈 (아래 불러오기)
       }
       if (r.id === 'copy') {
         const data = snapshot();
@@ -833,7 +838,7 @@
       await App.ui.dialog({ title: '백업 파일을 읽지 못했습니다', html: '<p>이 앱에서 저장한 도면 백업(.json) 파일인지 확인하세요.</p>' });
       return false;
     }
-    flush();
+    if (!flush()) return false; // 다른 창과 엇갈린 고친 내용이 있으면 먼저 정해야 (그냥 열면 사라짐)
     App.ui.busy('백업을 여는 중…');
     let lost = 0;
     try {
@@ -891,6 +896,10 @@
     const list = index().filter((p) => p.id !== id);
     S().write(KEY_INDEX, list);
     if (current && id === current.id) {
+      // 지우는 도면의 엇갈림은 더 지킬 것이 없음
+      conflicted = false;
+      clearTimeout(timer);
+      timer = 0;
       current = null;
       if (list.length) await open(list[0].id);
       else await create('새 도면', 'blank');
@@ -967,7 +976,7 @@
     });
     if (r.id !== 'ok') return;
     const name = r.body.querySelector('#d-pname').value.trim() || defaultName();
-    await create(name, pick);
+    if (!(await create(name, pick))) return;
     App.ui.toast(`‘${name}’ 도면을 만들었습니다.${TEMPLATES.find((t) => t.id === pick).mode === 'event' ? ' 오른쪽 아래 3D 버튼으로 조감도를 볼 수 있습니다.' : ''}`);
   }
 

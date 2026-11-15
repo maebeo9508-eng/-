@@ -254,7 +254,7 @@
       <div class="est-row est-extra" data-extra="${esc(x.id)}">
         <div class="est-name"><input type="text" data-x="name" value="${esc(x.name)}" placeholder="항목 이름" aria-label="항목 이름" autocomplete="off"></div>
         <div class="est-qty"><input type="text" inputmode="decimal" data-x="qty" value="${esc(x.qty)}" aria-label="수량" autocomplete="off"><input type="text" data-x="unit" value="${esc(x.unit)}" class="est-unit" aria-label="단위" autocomplete="off"></div>
-        <label class="est-price"><button type="button" class="btn est-sign${isNeg(x) ? ' is-neg' : ''}" data-act="est-sign" aria-pressed="${isNeg(x)}" title="빼는 금액(할인)으로 바꾸기" aria-label="할인으로 바꾸기">±</button><input type="text" inputmode="numeric" data-x="price" value="${signedText(extraPrice(x))}" placeholder="단가" aria-label="단가" autocomplete="off"><span>원</span></label>
+        <div class="est-price"><button type="button" class="btn est-sign${isNeg(x) ? ' is-neg' : ''}" data-act="est-sign" aria-pressed="${isNeg(x)}" title="빼는 금액(할인)으로 바꾸기" aria-label="할인으로 바꾸기">±</button><label class="est-price-in"><input type="text" inputmode="numeric" data-x="price" value="${signedText(extraPrice(x))}" placeholder="단가" aria-label="단가" autocomplete="off"><span>원</span></label></div>
         <div class="est-amt">${x.amount ? won(x.amount) : '–'}</div>
         <button type="button" class="btn est-del" data-act="est-del" aria-label="이 항목 지우기" title="지우기">×</button>
       </div>`;
