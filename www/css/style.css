@@ -1385,3 +1385,5 @@ button { font: inherit; color: inherit; }
 .est-extra .est-price { max-width: 240px; }
 .est-price .est-price-in { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
 .est-price .est-price-in input { min-width: 0; }
+/* 레이어 메뉴를 연 동안: 휴대폰의 아래 서랍(z 20)보다 위에 */
+.stage-top.menu-open { z-index: 25; }

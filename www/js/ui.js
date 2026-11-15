@@ -169,9 +169,9 @@
     menu.style.maxHeight = '';
     // 아래로도: 메뉴가 열린 자리에서 화면(또는 도면 칸) 아래 끝까지만, 넘치면 메뉴 안에서 스크롤
     const r0 = menu.getBoundingClientRect(), vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+    // (휴대폰의 레이어 메뉴는 열린 동안 아래 서랍보다 위에 그려지므로 서랍 높이로 줄이지 않음)
     const stage = menu.closest('.stage');
-    let bottom = Math.min(vh, stage ? stage.getBoundingClientRect().bottom : vh);
-    if (ui.mobile.matches) { const p = document.getElementById('panel'); if (p) bottom = Math.min(bottom, p.getBoundingClientRect().top); } // 휴대폰: 아래 서랍 위까지
+    const bottom = Math.min(vh, stage ? stage.getBoundingClientRect().bottom : vh);
     if (r0.bottom > bottom - 8) menu.style.maxHeight = `${Math.max(120, Math.floor(bottom - 8 - r0.top))}px`;
     const r = menu.getBoundingClientRect(), W = document.documentElement.clientWidth;
     let dx = 0;
@@ -1028,6 +1028,7 @@
   function dialog({ title, html, actions = [{ id: 'ok', label: '확인', primary: true }], onOpen }) {
     if (dialogDone) dialogDone('cancel');
     document.querySelectorAll('.menu:not([hidden])').forEach((m) => { m.hidden = true; }); // 열린 메뉴는 닫음
+    document.querySelectorAll('.stage-top.menu-open').forEach((e) => e.classList.remove('menu-open'));
     $('#btnFile').setAttribute('aria-expanded', 'false');
     const modal = $('#dialog');
     $('#dialogTitle').textContent = title;

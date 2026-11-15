@@ -418,15 +418,18 @@
   function init() {
     // 레이어 메뉴
     const btn = $('#btnLayers'), menu = $('#layerMenu');
+    const top = btn.closest('.stage-top');
     const close = () => {
       menu.hidden = true;
       btn.setAttribute('aria-expanded', 'false');
+      if (top) top.classList.remove('menu-open');
     };
     btn.addEventListener('click', () => {
       if (!menu.hidden) return close();
       menu.innerHTML = layerMenuHtml();
       menu.hidden = false;
       btn.setAttribute('aria-expanded', 'true');
+      if (top) top.classList.add('menu-open'); // 휴대폰: 열린 메뉴가 아래 서랍에 가리지 않게 서랍 위로
       App.ui.fitMenu(menu); // 좁은 휴대폰에서 화면 밖으로 나가지 않게
     });
     document.addEventListener('pointerdown', (e) => { if (!menu.hidden && !e.target.closest('.layer-wrap')) close(); });
