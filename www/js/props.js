@@ -986,8 +986,11 @@
         <span><b>${label}</b>${note ? `<small>${note}</small>` : ''}</span>
       </label>`;
     const opacity = Math.round(commonText((e) => e.opacity) * 100) || 60;
+    // 사진 밑그림(항공사진·지도)이면 사진에 맞는 말로
+    const photo = els.every((e) => { const x = App.underlay.data(e); return x && x.kind === 'image'; });
+    const img = photo && single && d ? App.images.get(u.imageId || d.imageId) : null;
     return `
-      ${head('가져온 도면', single ? u.name : `${els.length}개 선택`)}
+      ${head(photo ? '사진 밑그림' : '가져온 도면', single ? u.name : `${els.length}개 선택`)}
       ${check('f-visible', '보이기', els.every((e) => e.visible))}
       ${check('f-locked', '잠금', els.every((e) => e.locked), '잠겨 있으면 도면에서 눌러도 골라지지 않아 그 위에 바로 그릴 수 있습니다. 옮기려면 잠금을 푸세요.')}
       <div class="field">
@@ -997,7 +1000,7 @@
       ${single && d ? `
         <div class="stats">
           ${stat('크기', `${U.formatLength(d.width * u.scale)} × ${U.formatLength(d.height * u.scale)}`)}
-          ${stat('내용', `선 ${d.lines.toLocaleString('ko-KR')}개 · 글자 ${d.textCount.toLocaleString('ko-KR')}개`)}
+          ${photo ? (img ? stat('사진', `${img.naturalWidth || img.width} × ${img.naturalHeight || img.height} 화소`) : '') : stat('내용', `선 ${d.lines.toLocaleString('ko-KR')}개 · 글자 ${d.textCount.toLocaleString('ko-KR')}개`)}
         </div>
         <div class="field">
           <label class="field-label" for="f-scale">배율</label>
@@ -1005,13 +1008,13 @@
           <div class="field-error" role="alert" hidden></div>
         </div>
         <button type="button" class="btn" data-act="calibrate">두 점으로 길이 맞추기</button>
-        <p class="props-meta">밑그림 크기가 실제와 다르면 길이를 아는 두 점(벽 끝과 끝 등)을 눌러 실제 길이를 넣으세요.</p>
+        <p class="props-meta">${photo ? '사진 크기가 실제와 다르면 사진에서 길이를 아는 두 점(도로 폭, 건물 한 변, 주차 칸 등)을 눌러 실제 길이를 넣으세요.' : '밑그림 크기가 실제와 다르면 길이를 아는 두 점(벽 끝과 끝 등)을 눌러 실제 길이를 넣으세요.'}</p>
         <div class="field-group-label">왼쪽 위 위치</div>
         <div class="field-grid">${numberField('x')}${numberField('y')}</div>
         ${selectField('f-urot', '회전', [['0', '0°'], ['90', '90°'], ['180', '180°'], ['270', '270°']], String(u.rotation || 0))}
-        <button type="button" class="btn" data-act="fit-underlay">이 도면에 화면 맞추기</button>` : ''}
-      <button type="button" class="btn btn-danger" data-act="delete">${single ? '이 도면 지우기' : `${els.length}개 지우기`}</button>
-      <p class="props-meta">밑그림은 집계에 들어가지 않습니다. 벽·문·기호를 그 위에 따라 그리면 집계됩니다.</p>`;
+        <button type="button" class="btn" data-act="fit-underlay">${photo ? '이 사진에 화면 맞추기' : '이 도면에 화면 맞추기'}</button>` : ''}
+      <button type="button" class="btn btn-danger" data-act="delete">${single ? (photo ? '이 사진 지우기' : '이 도면 지우기') : `${els.length}개 지우기`}</button>
+      <p class="props-meta">${photo ? '사진 밑그림은 집계에 들어가지 않습니다. 그 위에 물건·영역·동선을 놓으면 집계되고, 3D에서는 바닥에 깔립니다.' : '밑그림은 집계에 들어가지 않습니다. 벽·문·기호를 그 위에 따라 그리면 집계됩니다.'}</p>`;
   }
 
   function mixedForm() {

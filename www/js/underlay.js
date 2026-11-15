@@ -573,17 +573,28 @@
       return null;
     }
     const ratio = App.images.aspect(imageId) || 1.5; // 가로 ÷ 세로
-    const r = await App.ui.dialog({
-      title: '사진 밑그림 크기',
-      html: `
-        <p>사진의 <b>가로가 실제로 몇 m</b>인지 넣으세요. 지도 앱의 축척 막대로 어림하면 됩니다. 나중에 속성의 ‘두 점으로 길이 맞추기’로 정확히 맞출 수 있습니다.</p>
-        <div class="field"><label class="field-label" for="ph-w">사진 가로 실제 길이</label>
-          <div class="field-box"><input id="ph-w" type="text" inputmode="decimal" autocomplete="off" value="${App.units.inputLength(100000)}"><span class="field-unit">${App.units.lengthLabel()}</span></div></div>`,
-      actions: [{ id: 'cancel', label: '취소' }, { id: 'ok', label: '깔기', primary: true }],
-    });
-    if (r.id !== 'ok') return null;
-    const width = App.units.parseLength(r.body.querySelector('#ph-w').value);
-    if (!(width > 0)) { App.ui.toast('길이를 숫자로 넣으세요.'); return null; }
+    // 항공사진·지도는 수십~수백 m라 이 칸은 늘 m (설정 단위와 상관없이). 80m·8000cm처럼 단위를 붙여도 됨
+    const parseM = (t) => {
+      const m = String(t).trim().replace(/,/g, '').match(/^([\d.]+)\s*(mm|cm|m|미터)?$/i);
+      if (!m || !(Number(m[1]) > 0)) return null;
+      return Number(m[1]) * ({ mm: 1, cm: 10, m: 1000, 미터: 1000 }[(m[2] || 'm').toLowerCase()]);
+    };
+    let width = null, tries = 0, last = '100';
+    while (width == null && tries++ < 5) {
+      const r = await App.ui.dialog({
+        title: '사진 밑그림 크기',
+        html: `
+          <p>사진의 <b>가로가 실제로 몇 m</b>인지 넣으세요. 지도 앱의 축척 막대로 어림하면 됩니다. 나중에 속성의 ‘두 점으로 길이 맞추기’로 정확히 맞출 수 있습니다.</p>
+          ${tries > 1 ? '<p class="dialog-note is-warn">길이를 숫자로 넣으세요 (예: 80 또는 80m).</p>' : ''}
+          <div class="field"><label class="field-label" for="ph-w">사진 가로 실제 길이</label>
+            <div class="field-box"><input id="ph-w" type="text" inputmode="decimal" autocomplete="off" value="${String(last).replace(/[<>&"]/g, '')}"><span class="field-unit">m</span></div></div>`,
+        actions: [{ id: 'cancel', label: '취소' }, { id: 'ok', label: '깔기', primary: true }],
+      });
+      if (r.id !== 'ok') { App.images.prune && App.images.prune(); return null; }
+      last = r.body.querySelector('#ph-w').value;
+      width = parseM(last);
+    }
+    if (width == null) return null;
     const d = index({ id: `udl-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name: String(file.name || '사진').slice(0, 80), width, height: width / ratio, polys: [], texts: [], lines: 0, textCount: 0, kind: 'image', imageId });
     store.set(d.id, d);
     const el = App.model.TYPES.underlay.create(d);
