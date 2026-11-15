@@ -1006,7 +1006,7 @@
       if (ui.mobile.matches) {
         sheet.set(sheet.h || sheet.peek());
       } else {
-        $('#app').style.removeProperty('--sheet-h');
+        document.documentElement.style.removeProperty('--sheet-h');
         sheet.h = 0;
         ui.emit('sheet', 0);
       }

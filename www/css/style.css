@@ -3,6 +3,7 @@
    모바일(768px 이하): 상단바 / 캔버스 / 하단 도구 바, 속성·집계는 아래에서 올라오는 서랍 */
 
 :root {
+  --sheet-h: 0px;               /* 모바일 서랍 높이 (ui.js가 <html>에 갱신: 앱 칸 밖의 알림도 같은 값을 씀) */
   /* 밝은 테마. 어두운 테마는 html[data-theme="dark"]로 전환 (7단계 설정 화면) */
   --bg: #e8ecf0;
   --surface: #ffffff;
@@ -124,7 +125,6 @@ button { font: inherit; color: inherit; }
 .ico-sm { width: 14px; height: 14px; }
 
 .app {
-  --sheet-h: 0px;               /* 모바일 서랍 높이 (ui.js가 갱신) */
   position: fixed;
   inset: 0;
   display: grid;

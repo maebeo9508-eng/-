@@ -1041,7 +1041,8 @@
     const onStop = (recorder) => {
       if (!rec || rec.recorder !== recorder) return;
       const r = rec;
-      if (!r.t1) r.t1 = performance.now(); // 녹화기가 스스로 멈춘 경우 (부호화 오류 등)
+      if (!r.stopping) r.failed = true; // 누르지 않았는데 녹화기가 스스로 멈춤 (부호화기를 못 연 기기 등)
+      if (!r.t1) r.t1 = performance.now();
       try { r.stream.getTracks().forEach((tr) => tr.stop()); } catch (_) { /* 무시 */ }
       rec = null;
       el.querySelector('.v3-rec').hidden = true;
@@ -1051,9 +1052,9 @@
       const secs = Math.max(0, Math.round((r.t1 - r.t0) / 1000));
       const blob = new Blob(r.chunks, { type: r.type.split(';')[0] });
       if (!blob.size) {
-        // 지원한다면서 아무것도 못 만든 형식: 다음에는 다른 형식으로 (아주 짧게 멈춘 것은 형식 탓이 아님)
+        // 지원한다면서 아무것도 못 만든 형식: 다음에는 다른 형식으로 (오류로 멈췄거나, 충분히 녹화했는데 비었을 때. 바로 멈춘 것은 형식 탓이 아님)
         const other = recTypes().some((t) => t !== r.type);
-        if (r.frames >= 10 && secs >= 2 && other) {
+        if ((r.failed || (r.frames >= 10 && secs >= 2)) && other) {
           recBroken.add(r.type);
           App.ui.toast('이 형식으로는 영상이 만들어지지 않았습니다. 한 번 더 누르면 다른 형식으로 녹화합니다.', 6000);
         } else App.ui.toast('영상이 비어 있어 저장하지 않았습니다. 조금 더 길게 녹화해 보세요.');
@@ -1074,7 +1075,7 @@
         recorder = new MediaRecorder(stream, { mimeType: t, videoBitsPerSecond: 6e6 });
         recorder.ondataavailable = (e) => { if (e.data && e.data.size && rec && rec.recorder === recorder) rec.chunks.push(e.data); };
         recorder.onstop = () => onStop(recorder);
-        recorder.onerror = () => { if (rec && rec.recorder === recorder) stopRecording(); };
+        recorder.onerror = () => { if (rec && rec.recorder === recorder) { rec.failed = true; stopRecording(); } };
         rec.type = t;
         rec.recorder = recorder;
         recorder.start(1000);
