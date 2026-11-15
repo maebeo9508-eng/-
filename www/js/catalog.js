@@ -294,6 +294,11 @@
     { kind: '바닥 화살표', cat: '안내·장식', size: 1000, depth: 2500, h3: 10, pass: true, flat: true, colors: '색' },
     // 편의·안전
     { kind: '구급차', cat: '편의·안전', size: 5600, depth: 2100, h3: 2500 },
+    {
+      kind: '의무실 텐트', cat: '편의·안전', size: 3000, depth: 3000, h3: 2500, // 안전 점검에서 의료·구급 자리로 셈
+      sizes: [['3×3', 3000, 3000], ['4×4', 4000, 4000], ['5×5', 5000, 5000]],
+      options: { variant: { label: '옆 천막', values: ['없음', '뒤', '뒤·양옆'], default: '뒤·양옆' } },
+    },
     { kind: '안내 키오스크', cat: '편의·안전', size: 600, depth: 500, h3: 1800, back: true, face: '화면 글자' },
     { kind: '분리수거함', cat: '편의·안전', size: 1800, depth: 600, h3: 1000, back: true },
     { kind: '경사로', cat: '편의·안전', size: 1200, depth: 3000, h3: 450, sizes: [['폭 1.2m', 1200, 3000], ['폭 1.5m', 1500, 4000]] },

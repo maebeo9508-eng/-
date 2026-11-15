@@ -253,17 +253,25 @@
       const tw = P.text(x.title, M + 160, y + 25, 32, 800, INK);
       P.text(x.value, M + 160 + tw + 22, y + 26, 28, 700, LV_COLOR[lv.cls], 'left', cw - 200 - tw);
       P.text(x.detail, M + 160, y + 72, 23, 400, MUTE, 'left', cw - 170);
-      P.text(x.advice, M + 160, y + 110, 25, 500, '#374151', 'left', cw - 170);
+      P.text(x.print || x.detail, M + 160, y + 110, 25, 500, '#374151', 'left', cw - 170); // 고객이 읽는 문장 (앱 쓰는 법은 빼고)
       y += 150;
     });
     // 안전 계획도: 소화기 닿는 거리·먼 물건·관람 구역 밀집도·비상구를 겹쳐 그린 도면
-    const bottom = H - FOOT - 50;
+    const bottom = H - FOOT - 50 - 56; // 아래에 범례 한 줄
     if (rect && bottom - y > 420) {
       const box = { x: M, y: y + 10, width: cw, height: bottom - y - 10 };
       ctx.strokeStyle = LINE;
       ctx.lineWidth = 3;
       ctx.strokeRect(box.x, box.y, box.width, box.height);
       App.safety.withOverlay(() => App.exporter.drawPlan(ctx, { x: box.x + 16, y: box.y + 16, width: box.width - 32, height: box.height - 32 }, rect, 2.2));
+      // 범례: 도면에 겹친 표시가 무엇인지
+      let lx = M;
+      const ly = box.y + box.height + 34;
+      const key = (draw, label) => { draw(lx, ly); lx += 44; lx += P.text(label, lx, ly + 1, 22, 600, MUTE) + 34; };
+      key((x, yy) => { ctx.beginPath(); ctx.arc(x + 16, yy, 15, 0, Math.PI * 2); ctx.fillStyle = 'rgba(28,126,214,0.12)'; ctx.fill(); ctx.setLineDash([6, 4]); ctx.lineWidth = 2.5; ctx.strokeStyle = 'rgba(28,126,214,0.8)'; ctx.stroke(); ctx.setLineDash([]); }, '소화기 닿는 거리 20m');
+      key((x, yy) => { ctx.lineWidth = 4; ctx.strokeStyle = '#e03131'; ctx.strokeRect(x + 2, yy - 13, 28, 26); }, '소화기에서 먼 곳');
+      key((x, yy) => { ['#2f9e44', '#e8590c', '#e03131'].forEach((c, i) => { ctx.fillStyle = c; ctx.globalAlpha = 0.55; ctx.fillRect(x + i * 11, yy - 12, 10, 24); }); ctx.globalAlpha = 1; }, '관람 구역 밀집 (여유·주의·위험)');
+      key((x, yy) => { ctx.fillStyle = '#2b8a3e'; P.round(x, yy - 13, 32, 26, 7); ctx.fill(); }, '비상구');
     }
     P.text('현장에서 흔히 쓰는 어림 기준입니다. 법정 기준·인허가는 관할 기관에 확인하세요.', M, H - FOOT + 40, 22, 400, FAINT);
   }
@@ -612,8 +620,8 @@
     }
     const scratch = document.createElement('canvas').getContext('2d');
     if (parts.summary) {
-      // 현장 사진 목록은 사진 쪽에 따로 나오므로 뺌
-      const blocks = App.summary.blocks('all').filter((b) => !(parts.photos && pins.length && b.title === '현장 사진'));
+      // 현장 사진 목록은 사진 쪽에 따로 나오므로 뺌. 안전 점검은 제 쪽에만 (넣지 않기로 했으면 어디에도 안 나옴)
+      const blocks = App.summary.blocks('all').filter((b) => !(parts.photos && pins.length && b.title === '현장 사진') && b.title !== '안전 점검');
       if (blocks.length) {
         nextSec('summary', '물량 집계');
         const L = planSummary(blocks, PORTRAIT.W, PORTRAIT.H);

@@ -1570,6 +1570,23 @@
     });
     S.box(bx - 0.3, h, -d * 0.3, bx + 0.1, h + 0.14, d * 0.3, hex('#ef4444'), MAT.emissive, { bottom: true });
   };
+  // 의무실 텐트: 흰 몽골텐트 + 둘레 천(밸런스) 네 면과 지붕 꼭대기에 빨간 십자
+  E['의무실 텐트'] = (C, it, w, d, h) => {
+    const S = C.S, red = hex('#dc2626');
+    E['몽골텐트'](C, { ...it, color: null, variant: it.variant || '뒤·양옆' }, w, d, h);
+    const y = h - 0.14, a = 0.12, t = 0.04;
+    [-1, 1].forEach((s) => {
+      const z = s * (d / 2 + 0.006), x = s * (w / 2 + 0.006);
+      S.quad([-a, y - t, z], [a, y - t, z], [a, y + t, z], [-a, y + t, z], red);
+      S.quad([-t, y - a, z], [t, y - a, z], [t, y + a, z], [-t, y + a, z], red);
+      S.quad([x, y - t, -a], [x, y - t, a], [x, y + t, a], [x, y + t, -a], red);
+      S.quad([x, y - a, -t], [x, y - a, t], [x, y + a, t], [x, y + a, -t], red);
+    });
+    // 지붕 위 깃발판 (멀리서도 보이게)
+    const top = h + Math.min(w, d) * 0.42 + 0.02, b = Math.min(w, d) * 0.14, bt = b * 0.34;
+    S.box(-b, top, -bt, b, top + 0.02, bt, red, 0, { bottom: true });
+    S.box(-bt, top, -b, bt, top + 0.02, b, red, 0, { bottom: true });
+  };
   E['트럭'] = (C, it, w, d, h) => { van(C, w, d, h, WHITE, { cab: col(it, '#2563eb') }); };
   E['자전거'] = (C, it, w, d, h) => {
     const S = C.S, c = col(it, '#dc2626'), r = Math.min(0.34, h * 0.32), x = w / 2 - r;

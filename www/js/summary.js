@@ -213,7 +213,7 @@
     const crowd = s.zones.filter((z) => z.crowd).reduce((t, z) => t + z.area, 0);
     if (crowd > 0 || seats) {
       const easy = Math.floor(crowd / 1e6), full = Math.floor(crowd / 5e5);
-      rows.push(row('수용 인원 (어림)', V.count(seats + easy, '명'), crowd > 0 ? `좌석 ${seats.toLocaleString('ko-KR')} + 서서 ${easy.toLocaleString('ko-KR')}명 · 빽빽하면 ${(seats + full).toLocaleString('ko-KR')}명` : '좌석만 · 영역을 ‘관람·대기 구역’으로 표시하면 서서 볼 인원도 더함'));
+      rows.push(row('수용 인원 (어림)', V.count(seats + easy, '명'), crowd > 0 ? `좌석 ${seats.toLocaleString('ko-KR')} + 서서 ${easy.toLocaleString('ko-KR')}명 · 권장 상한 ${(seats + full).toLocaleString('ko-KR')}명 (1㎡에 2명)` : '좌석만 · 영역을 ‘관람·대기 구역’으로 표시하면 서서 볼 인원도 더함'));
     }
     if (people) rows.push(row('배치한 사람', V.count(people, '명')));
     if (parking) rows.push(row('주차', V.count(parking, '칸')));
@@ -435,11 +435,14 @@
   function csvRows() {
     const label = VIEWS.find(([id]) => id === view)[1];
     const rows = [['구분', '분류', '항목', '수량', '단위', '비고']];
-    BUILD[view](compute()).forEach((b) => {
+    BUILD[view](compute()).filter((b) => !b.screenOnly).forEach((b) => {
       b.rows.forEach((r) => {
         if (r.cls === 'head') return;
         const item = view === 'kind' && r.cls === 'item' ? '합계' : r.label;
-        rows.push([b.title, r.cat || '', item, r.value.num, r.value.unit, r.note || '']);
+        // 숫자가 아닌 값(부스 업체 이름 등)은 비고에 글로
+        const num = r.value.num != null ? r.value.num : '';
+        const note = r.value.num == null && r.value.text ? [r.value.text, r.note].filter(Boolean).join(' · ') : r.note || '';
+        rows.push([b.title, r.cat || '', item, num, r.value.num != null ? r.value.unit : '', note]);
       });
     });
     return { rows, label };
@@ -504,7 +507,7 @@
   App.summary = {
     init, compute, render, exportCsv, csvRows, sections,
     /** 보기(room·all·kind)의 표 블록 (PDF에 그릴 때) */
-    blocks: (v) => BUILD[v](compute()),
+    blocks: (v) => BUILD[v](compute()).filter((b) => !b.screenOnly), // 내보내기용 (화면에서만 보이는 묶음은 뺌)
     get view() { return view; },
     setView(v) { view = v; render(); },
   };

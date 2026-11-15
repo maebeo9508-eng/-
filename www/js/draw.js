@@ -80,6 +80,7 @@
     if (underlays.length) App.underlay.draw(plan, underlays, vis); // 가져온 도면은 맨 아래
     drawRooms(plan, rooms, marks);
     drawZones(plan, zones, marks);
+    if (App.safety) App.safety.drawUnder(plan); // 안전 점검 겹쳐 보기: 밀집도 색·소화기 닿는 곳 (물건 아래)
 
     // 벽: 확대했으면 층을 나눠 그리고, 멀리서는 한 색으로
     const solid = [];
@@ -1061,6 +1062,18 @@
         const v = it && it.variant;
         if (v === '뒤' || v === '뒤·양옆') { lw(2.8); seg(-W, -H, W, -H); }
         if (v === '뒤·양옆') { seg(-W, -H, -W, H); seg(W, -H, W, H); }
+        return true;
+      }
+      case '의무실 텐트': {
+        outline();
+        seg(-W, -H, W, H); seg(-W, H, W, -H);
+        const v = it && it.variant;
+        if (v !== '없음') { lw(2.8); seg(-W, -H, W, -H); if (v !== '뒤') { seg(-W, -H, -W, H); seg(W, -H, W, H); } lw(0.9); }
+        // 가운데 빨간 십자
+        const f = ctx.fillStyle, k = m * 0.2, t = m * 0.07;
+        ctx.fillStyle = '#e03131';
+        ctx.fillRect(-k, -t, k * 2, t * 2); ctx.fillRect(-t, -k, t * 2, k * 2);
+        ctx.fillStyle = f;
         return true;
       }
       case '대형 텐트': {
