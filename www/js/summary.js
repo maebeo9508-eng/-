@@ -332,9 +332,11 @@
     const nameOf = (id) => (id ? roomName.get(id) || '이름 없음' : OUTSIDE);
     if (s.rooms.length) {
       const areaRows = [];
-      [['바닥 면적', (q) => q.floor], ['천장 면적', (q) => q.ceiling], ['벽 면적 (방 쪽)', (q) => q.wallArea]].forEach(([label, get]) => {
-        areaRows.push(row(label, V.area(s.rooms.reduce((t, r) => t + get(r.q), 0)), '', 'item', label));
-        s.rooms.forEach((r) => areaRows.push(row(r.name, V.area(get(r.q)), '', 'sub', label)));
+      // 합계는 전체·방별과 같게 겹친 방을 뺌 (겹친 방 줄에는 표시)
+      const counted = s.rooms.filter((r) => r.issue !== 'overlap');
+      [['바닥 면적', (q) => q.floor], ['천장 면적', (q) => q.ceiling], ['벽 면적 (방 쪽)', (q) => q.wallArea], ['도배·도장 면적 (안목)', (q) => q.paintArea]].forEach(([label, get]) => {
+        areaRows.push(row(label, V.area(counted.reduce((t, r) => t + get(r.q), 0)), '', 'item', label));
+        s.rooms.forEach((r) => areaRows.push(row(r.name, V.area(get(r.q)), r.issue === 'overlap' ? '겹침 · 합계에서 뺌' : '', 'sub', label)));
       });
       blocks.push({ title: '면적', rows: areaRows });
     }

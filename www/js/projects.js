@@ -25,6 +25,7 @@
   let savedVersion = -1, savedCurrent = ''; // 마지막으로 저장한 상태 (앱이 뒤로 갈 때 바뀐 게 있으면 바로 저장)
   let lastSaved = '';       // 이 창이 읽거나 쓴 저장 시각: 다른 창(탭)이 더 새로 저장했으면 덮어쓰지 않음
   let conflicted = false;
+  let conflictOpen = false; // 물어보는 창이 떠 있음
 
   const newId = () => `prj-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
   const index = () => {
@@ -159,11 +160,13 @@
     timer = setTimeout(saveNow, SAVE_DELAY);
   }
   const dirty = () => !!current && (App.doc.version !== savedVersion || JSON.stringify(App.current) !== savedCurrent) && !(App.doc.version === quietVersion && JSON.stringify(App.current) === quietCurrent);
-  /** 앱이 가려지거나 닫힐 때: 입력 중이던 칸을 확정하고 기다리지 않고 바로 저장 */
+  /** 앱이 가려지거나 닫힐 때: 입력 중이던 칸을 확정하고 기다리지 않고 바로 저장.
+      다른 창과 내용이 엇갈려 저장하지 못했으면 false */
   function flush() {
     const a = document.activeElement;
     if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && a.closest('#panel, .est, #view3d')) a.blur(); // 'change'가 나며 값이 들어감
-    if (timer || dirty()) saveNow();
+    if (timer || dirty()) return saveNow() || !conflicted;
+    return !conflicted;
   }
 
   /* ── 같은 도면을 두 창(탭)에서 열었을 때: 다른 창이 더 새로 저장했으면 덮어쓰지 않고 물어봄 ── */
@@ -173,19 +176,26 @@
     return !!(meta && meta.updatedAt && meta.updatedAt > lastSaved);
   }
   function showConflict() {
-    if (conflicted) return;
     conflicted = true;
     clearTimeout(timer);
     timer = 0;
     setState('failed');
+    if (conflictOpen) return;
+    conflictOpen = true;
     App.ui.dialog({
       title: '다른 창에서 이 도면을 고쳤습니다',
       html: `<p>같은 도면이 다른 창(탭)이나 앱에서도 열려 있어, 그쪽에서 더 나중에 저장했습니다. 이 창의 내용으로 덮어쓰면 그쪽에서 고친 것이 사라집니다.</p>
         <p class="dialog-note">‘그 내용 불러오기’는 저장된 최신 내용을 이 창에 엽니다. ‘이 창 것을 사본으로’는 이 창의 내용을 새 도면으로 따로 저장합니다.</p>`,
       actions: [{ id: 'copy', label: '이 창 것을 사본으로' }, { id: 'reload', label: '그 내용 불러오기', primary: true }],
     }).then(async (r) => {
+      conflictOpen = false;
       const id = current && current.id;
       if (!id) { conflicted = false; return; }
+      if (r.id !== 'copy' && r.id !== 'reload') {
+        // 그냥 닫음(Esc·바깥·뒤로·다른 창이 뜸): 이 창의 내용은 그대로 두고 저장만 멈춤. 다음에 저장하려 할 때 다시 물음
+        App.ui.toast('저장하지 않았습니다. 다른 창에서 고친 내용과 엇갈려 있어, 다음에 저장할 때 다시 물어봅니다.', 6500);
+        return;
+      }
       if (r.id === 'copy') {
         const data = snapshot();
         const copy = { ...data, id: newId(), name: `${current.name} (이 창)`.slice(0, NAME_MAX), createdAt: new Date().toISOString() };
@@ -241,7 +251,8 @@
     quietCurrent = JSON.stringify(App.current);
     savedVersion = App.doc.version;
     savedCurrent = quietCurrent;
-    lastSaved = data.savedAt || '';
+    const ix = index().find((p) => p.id === meta.id);
+    lastSaved = [data.savedAt || '', (ix && ix.updatedAt) || ''].sort().pop(); // 이 창이 지금 저장된 내용 그대로를 가짐
     conflicted = false;
     App.images.loadAll(m.elements); // 넣은 이미지(현수막·벽보 등)를 미리 읽어 둠
     const missing = await App.underlay.loadAll();
@@ -252,7 +263,7 @@
 
   async function open(id) {
     if (current && id === current.id) return true;
-    flush();
+    if (!flush()) return false; // 다른 창과 엇갈린 고친 내용이 있으면 먼저 정해야 (그냥 바꾸면 사라짐)
     const data = S().read(keyOf(id));
     if (!data) {
       App.ui.toast('그 도면을 찾지 못했습니다.');
@@ -774,7 +785,7 @@
 
   /** 새 도면 만들어 열기 */
   async function create(name, templateId = 'blank') {
-    flush();
+    if (!flush()) return null;
     loading = true;
     let elements;
     try {
@@ -866,10 +877,11 @@
     const data = S().read(keyOf(id));
     const p = index().find((x) => x.id === id);
     if (!data || !p) return null;
-    const copy = { ...data, id: newId(), name: `${p.name} 사본`.slice(0, NAME_MAX), createdAt: new Date().toISOString() };
+    const now = new Date().toISOString();
+    const copy = { ...data, id: newId(), name: `${p.name} 사본`.slice(0, NAME_MAX), createdAt: now, savedAt: now }; // 저장 시각도 새로 (목록 시각과 같게)
     if (!S().write(keyOf(copy.id), copy)) return null;
     const list = index();
-    list.splice(list.findIndex((x) => x.id === id) + 1, 0, { ...p, id: copy.id, name: copy.name, createdAt: copy.createdAt, updatedAt: copy.createdAt });
+    list.splice(list.findIndex((x) => x.id === id) + 1, 0, { ...p, id: copy.id, name: copy.name, createdAt: copy.createdAt, updatedAt: copy.savedAt });
     S().write(KEY_INDEX, list);
     return copy.id;
   }

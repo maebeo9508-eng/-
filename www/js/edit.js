@@ -210,21 +210,23 @@
   /** 방을 고르면 둘레 벽도 함께 (옮기기·돌리기에서 방만 움직여 벽과 떨어지면 물량이 조용히 틀어짐) */
   function withRoomWalls(ids) {
     const set = new Set(ids);
-    ids.forEach((id) => { const el = doc().get(id); if (el && el.type === 'room') el.wallIds.forEach((w) => doc().has(w) && set.add(w)); });
+    ids.forEach((id) => { const el = doc().get(id); if (el && el.type === 'room' && !el.locked) el.wallIds.forEach((w) => doc().has(w) && set.add(w)); }); // 잠긴 방의 벽은 그대로
     return [...set];
   }
 
   function rotate() {
-    const all = withRoomWalls(App.selection.list()).map((id) => doc().get(id)).filter(Boolean);
-    const els = all.filter((e) => !(e.locked && e.type !== 'underlay') && !(e.type === 'item' && e.wallId));
-    if (!els.length) {
+    const movable = (e) => !(e.locked && e.type !== 'underlay') && !(e.type === 'item' && e.wallId);
+    const all = App.selection.list().map((id) => doc().get(id)).filter(Boolean);
+    const base = all.filter(movable); // 잠긴 것을 먼저 뺀 뒤에 방의 벽을 더함 (잠긴 방이 벽을 따라 바뀌지 않게)
+    if (!base.length) {
       if (all.some((e) => e.type === 'item' && e.wallId)) App.ui.toast('벽에 붙은 기호는 벽 방향을 따릅니다. ‘벽에서 떼기’ 뒤에 돌릴 수 있습니다.');
       else if (all.length) App.ui.toast('잠긴 항목은 돌리지 않습니다.');
       return false;
     }
+    const els = withRoomWalls(base.map((e) => e.id)).map((id) => doc().get(id)).filter((e) => e && movable(e));
     // 옆 방과 같이 쓰는 벽까지 돌리면 옆 방이 끊기므로 멈추고 알려 줌 (두 방을 함께 고르면 돌림)
     const moving = new Set(els.map((e) => e.id));
-    const broken = [...doc().all()].filter((r) => r.type === 'room' && !moving.has(r.id) && r.wallIds.some((w) => moving.has(w)) && els.some((e) => e.type === 'room'));
+    const broken = base.some((e) => e.type === 'room') ? [...doc().all()].filter((r) => r.type === 'room' && !moving.has(r.id) && r.wallIds.some((w) => moving.has(w))) : [];
     if (broken.length) {
       App.ui.toast(`‘${broken[0].name}’과(와) 같이 쓰는 벽이 있어 돌리면 그 방이 끊깁니다. 두 방을 함께 골라 돌리세요.`);
       return false;
@@ -292,7 +294,8 @@
       벽에서 멀어지는 방향이면 벽에서 떼어 옮김 */
   function nudge(dx, dy) {
     const T = App.model.TYPES;
-    const ids = withRoomWalls(App.selection.list()).filter((id) => { const el = doc().get(id); return el && !el.locked && T[el.type].movedBy && el.type !== 'door' && el.type !== 'window'; });
+    const ok = (id) => { const el = doc().get(id); return el && !el.locked && T[el.type].movedBy && el.type !== 'door' && el.type !== 'window'; };
+    const ids = withRoomWalls(App.selection.list().filter(ok)).filter(ok); // 잠긴 방은 벽도 그대로
     if (!ids.length) return false;
     // '늘리기'가 켜져 있으면 옮기는 벽에 이어진 다른 벽 끝도 같이 (끌어 옮길 때와 같게)
     const attached = App.settings.stretchWalls && App.tools.attachedEnds

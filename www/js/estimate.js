@@ -26,14 +26,32 @@
   let shown = []; // 지금 화면에 보이는 줄 (단가를 치는 동안 도면을 다시 세지 않게)
   /** 자주 넣는 기타 항목: [이름, 단위] */
   const EXTRA_PRESETS = {
-    interior: [['인건비', '인'], ['자재 운반비', '식'], ['폐기물 처리', '식'], ['철거', '식'], ['공구·소모품', '식']],
-    event: [['설치·철거 인건비', '인'], ['운반비', '식'], ['장비 대여', '일'], ['진행 요원', '인'], ['전기 공사', '식']],
+    interior: [['인건비', '인'], ['자재 운반비', '식'], ['폐기물 처리', '식'], ['철거', '식'], ['공구·소모품', '식'], ['할인', '식']],
+    event: [['설치·철거 인건비', '인'], ['운반비', '식'], ['장비 대여', '일'], ['진행 요원', '인'], ['전기 공사', '식'], ['할인', '식']],
   };
 
   /* ── 단가 저장 ── */
+  /** 이름이 바뀐 줄의 예전 단가 열쇠 → 새 열쇠 (앞부분, 뒤의 단위는 그대로) */
+  const RENAMED = [['건축|벽|방 쪽 벽 면적|', '건축|벽|도배·도장 면적 (안목)|']];
+  const renamedKey = (k) => { for (const [o, n] of RENAMED) if (k.startsWith(o)) return n + k.slice(o.length); return k; };
+  /** obj(열쇠 → 단가)의 예전 열쇠를 새 열쇠로 옮김 (새 열쇠에 이미 값이 있으면 그것을 둠). 바뀐 게 있으면 true */
+  function migrateKeys(obj, marks) {
+    let changed = false;
+    Object.keys(obj).forEach((k) => {
+      const nk = renamedKey(k);
+      if (nk === k) return;
+      if (typeof obj[nk] !== 'number') { obj[nk] = obj[k]; if (marks && marks[k]) marks[nk] = true; }
+      delete obj[k];
+      if (marks) delete marks[k];
+      changed = true;
+    });
+    return changed;
+  }
   function memory() {
     const m = App.storage.read(KEY_MEMORY);
-    return m && typeof m === 'object' ? m : {};
+    if (!m || typeof m !== 'object') return {};
+    if (migrateKeys(m)) App.storage.write(KEY_MEMORY, m);
+    return m;
   }
   function remember(key, price) {
     const m = memory();
@@ -41,26 +59,39 @@
     else delete m[key];
     App.storage.write(KEY_MEMORY, m);
   }
+  // 읽기만 할 때는 App.current에 빈 그릇을 만들지 않음 (견적을 보기만 해도 고친 도면으로 저장되지 않게). 쓸 때는 …W()
+  const NONE = Object.freeze({});
+  const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
   function prices() {
     const c = App.current;
-    if (!c.prices || typeof c.prices !== 'object') c.prices = {};
+    if (!isObj(c.prices)) return NONE;
+    if (migrateKeys(c.prices, isObj(c.priceLib) ? c.priceLib : null)) save(); // 2.2 도면의 벽 단가
+    return c.prices;
+  }
+  function pricesW() {
+    const c = App.current;
+    if (!isObj(c.prices)) c.prices = {};
     return c.prices;
   }
   /** 단가표에서 가져와 이 도면에 붙박은 단가 표시 (key → true) */
   function libMarks() {
     const c = App.current;
-    if (!c.priceLib || typeof c.priceLib !== 'object') c.priceLib = {};
+    return isObj(c.priceLib) ? c.priceLib : NONE;
+  }
+  function libMarksW() {
+    const c = App.current;
+    if (!isObj(c.priceLib)) c.priceLib = {};
     return c.priceLib;
   }
   /** 단가표 단가를 이 도면에 붙박음: 나중에 다른 도면에서 단가표가 바뀌어도 이 도면 견적 금액은 그대로이고,
       백업·다른 기기에서도 같은 금액. 단가표의 새 단가로 바꾸려면 ‘단가표 단가로 채우기’ */
   function freeze(ls) {
-    const m = memory(), p = prices(), lib = libMarks();
+    const m = memory();
     let n = 0;
     ls.forEach((l) => {
-      if (typeof p[l.key] === 'number' || typeof m[l.key] !== 'number') return;
-      p[l.key] = m[l.key];
-      lib[l.key] = true;
+      if (typeof prices()[l.key] === 'number' || typeof m[l.key] !== 'number') return;
+      pricesW()[l.key] = m[l.key];
+      libMarksW()[l.key] = true;
       n++;
     });
     if (n) save();
@@ -80,9 +111,16 @@
   }
   function extras() {
     const c = App.current;
+    return Array.isArray(c.costExtras) ? c.costExtras : [];
+  }
+  function extrasW() {
+    const c = App.current;
     if (!Array.isArray(c.costExtras)) c.costExtras = [];
     return c.costExtras;
   }
+  /** 기타 항목의 단가 (할인이면 음수): ‘-’를 쳤거나 ± 버튼·‘할인’으로 뺄 금액으로 정한 것 */
+  const extraPrice = (x) => { const v = numSigned(x.price); return v < 0 ? v : x.neg ? -v : v; };
+  const isNeg = (x) => numSigned(x.price) < 0 || !!x.neg; // 단가가 아직 0이어도 할인 줄
   function company() {
     const c = App.storage.read(KEY_COMPANY);
     return c && typeof c === 'object' ? c : {};
@@ -162,7 +200,7 @@
       supply += l.amount;
     });
     extras().forEach((x) => {
-      x.amount = Math.round(numIn(x.qty) * numSigned(x.price));
+      x.amount = Math.round(numIn(x.qty) * extraPrice(x));
       supply += x.amount;
     });
     const vatOn = App.current.vat !== false;
@@ -216,7 +254,7 @@
       <div class="est-row est-extra" data-extra="${esc(x.id)}">
         <div class="est-name"><input type="text" data-x="name" value="${esc(x.name)}" placeholder="항목 이름" aria-label="항목 이름" autocomplete="off"></div>
         <div class="est-qty"><input type="text" inputmode="decimal" data-x="qty" value="${esc(x.qty)}" aria-label="수량" autocomplete="off"><input type="text" data-x="unit" value="${esc(x.unit)}" class="est-unit" aria-label="단위" autocomplete="off"></div>
-        <label class="est-price"><input type="text" inputmode="numeric" data-x="price" value="${signedText(numSigned(x.price))}" placeholder="단가 (할인은 -)" aria-label="단가" autocomplete="off"><span>원</span></label>
+        <label class="est-price"><button type="button" class="btn est-sign${isNeg(x) ? ' is-neg' : ''}" data-act="est-sign" aria-pressed="${isNeg(x)}" title="빼는 금액(할인)으로 바꾸기" aria-label="할인으로 바꾸기">±</button><input type="text" inputmode="numeric" data-x="price" value="${signedText(extraPrice(x))}" placeholder="단가" aria-label="단가" autocomplete="off"><span>원</span></label>
         <div class="est-amt">${x.amount ? won(x.amount) : '–'}</div>
         <button type="button" class="btn est-del" data-act="est-del" aria-label="이 항목 지우기" title="지우기">×</button>
       </div>`;
@@ -287,14 +325,14 @@
       const t = e.target;
       if (!t.closest('.est')) return;
       if (t.dataset.price != null) {
-        prices()[t.dataset.price] = digits(t);
-        delete libMarks()[t.dataset.price];
+        pricesW()[t.dataset.price] = digits(t);
+        delete libMarksW()[t.dataset.price];
         refreshTotals(pane);
       } else if (t.dataset.x) {
         const row = t.closest('[data-extra]');
         const x = extras().find((v) => v.id === row.dataset.extra);
         if (!x) return;
-        x[t.dataset.x] = t.dataset.x === 'price' ? Math.round(numSigned(t.value)) : t.value;
+        x[t.dataset.x] = t.dataset.x === 'price' ? Math.round(numSigned(t.value)) : t.value; // 할인 줄(±)은 양수로 쳐도 빼는 금액
         refreshTotals(pane);
       }
     });
@@ -303,18 +341,19 @@
       if (!t.closest('.est')) return;
       if (t.dataset.price != null) {
         const v = digits(t);
-        prices()[t.dataset.price] = v;
-        delete libMarks()[t.dataset.price]; // 직접 친 단가
+        pricesW()[t.dataset.price] = v;
+        delete libMarksW()[t.dataset.price]; // 직접 친 단가
         remember(t.dataset.price, v);
         t.value = priceText(v);
         const cnt = pane.querySelector('[data-act="est-lib"] small');
         if (cnt) cnt.textContent = `${Object.keys(memory()).length}개`;
         save();
       } else if (t.dataset.x) {
-        if (t.dataset.x === 'price') t.value = signedText(numSigned(t.value));
+        const xr = extras().find((v) => v.id === t.closest('[data-extra]').dataset.extra);
+        if (t.dataset.x === 'price') t.value = signedText(xr ? extraPrice(xr) : numSigned(t.value));
         // 기타 항목도 이름·단위로 단가를 기억 (다음에 같은 항목을 넣으면 자동으로). 할인(-)은 기억하지 않음
         const x = extras().find((v) => v.id === t.closest('[data-extra]').dataset.extra);
-        if (x && x.name && numSigned(x.price) > 0) remember(extraKey(x), Math.round(numIn(x.price)));
+        if (x && x.name && extraPrice(x) > 0) remember(extraKey(x), Math.round(numIn(x.price)));
         save();
       } else if (t.id === 'estVatOn') {
         App.current.vat = t.checked;
@@ -341,19 +380,28 @@
       if (b.dataset.act === 'est-add') {
         const id = `x${Date.now().toString(36)}${Math.floor(Math.random() * 1e4)}`;
         const nx = { id, name: b.dataset.name || '', qty: 1, unit: b.dataset.unit || '식', price: 0 };
-        nx.price = nx.name ? memory()[extraKey(nx)] || 0 : 0;
-        extras().push(nx);
+        if (nx.name === '할인') nx.neg = true; // 숫자만 쳐도 빼는 금액 (아이폰 숫자 자판에는 ‘-’가 없음)
+        else nx.price = nx.name ? memory()[extraKey(nx)] || 0 : 0;
+        extrasW().push(nx);
         save();
         App.summary.render();
         const input = pane.querySelector(`[data-extra="${id}"] [data-x="${b.dataset.name ? 'price' : 'name'}"]`);
         if (input) input.focus();
+      } else if (b.dataset.act === 'est-sign') {
+        const x = extras().find((v) => v.id === b.closest('[data-extra]').dataset.extra);
+        if (!x) return;
+        const neg = isNeg(x);
+        x.price = Math.abs(numSigned(x.price));
+        x.neg = !neg;
+        save();
+        App.summary.render();
       } else if (b.dataset.act === 'est-lib') {
         openLibrary();
       } else if (b.dataset.act === 'est-apply') {
         const m = memory();
         let n = 0;
-        shown.forEach((l) => { if (typeof m[l.key] === 'number' && (prices()[l.key] !== m[l.key] || !libMarks()[l.key])) { if (prices()[l.key] !== m[l.key]) n++; delete prices()[l.key]; delete libMarks()[l.key]; } });
-        extras().forEach((x) => { const v = m[extraKey(x)]; if (x.name && typeof v === 'number' && numSigned(x.price) >= 0 && numIn(x.price) !== v) { x.price = v; n++; } });
+        shown.forEach((l) => { if (typeof m[l.key] === 'number' && (prices()[l.key] !== m[l.key] || !libMarks()[l.key])) { if (prices()[l.key] !== m[l.key]) n++; delete pricesW()[l.key]; delete libMarksW()[l.key]; } });
+        extras().forEach((x) => { const v = m[extraKey(x)]; if (x.name && typeof v === 'number' && extraPrice(x) >= 0 && numIn(x.price) !== v) { x.price = v; n++; } });
         save();
         App.summary.render();
         App.ui.toast(n ? `${n}줄을 단가표 단가로 채웠습니다.` : '단가표와 다른 단가가 없습니다.');
@@ -395,18 +443,26 @@
     return App.exporter.csvText(rows);
   }
   /** CSV 글을 단가표에 합침. 돌려주는 값: 넣은 줄 수 */
+  /** 파일 글자: UTF-8이 아니면 엑셀이 저장하는 한글 윈도 인코딩(CP949)으로 */
+  function decodeText(bytes) {
+    try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch (_) { /* UTF-8 아님 */ }
+    try { return new TextDecoder('euc-kr').decode(bytes); } catch (_) { return new TextDecoder().decode(bytes); }
+  }
+  /** CSV 줄을 단가표에 넣음. 넣은 개수를 돌려주고, 글자가 깨진 줄 수는 importLibrary.skipped */
   function importLibrary(text) {
     const rows = parseCsv(text);
     if (rows.length && /구분/.test(rows[0][0]) && /단가/.test(rows[0].join(','))) rows.shift();
     const m = memory();
-    let n = 0;
+    let n = 0, bad = 0;
     rows.forEach((r) => {
       const [sec, name, spec, unit, price] = r.map((v) => String(v == null ? '' : v).trim());
+      if (/\uFFFD/.test(`${sec}${name}${spec}${unit}`)) { bad++; return; }
       const v = numIn(price);
       if (!sec || !name || !(v > 0)) return;
-      m[`${sec}|${name}|${spec}|${unit}`] = Math.round(v);
+      m[renamedKey(`${sec}|${name}|${spec}|${unit}`)] = Math.round(v);
       n++;
     });
+    importLibrary.skipped = bad;
     App.storage.write(KEY_MEMORY, m);
     return n;
   }
@@ -464,9 +520,10 @@
           input.onchange = async () => {
             const f = input.files && input.files[0];
             if (!f) return;
-            const n = importLibrary(await f.text());
+            const n = importLibrary(decodeText(new Uint8Array(await f.arrayBuffer())));
+            const bad = importLibrary.skipped;
             list.innerHTML = listHtml();
-            App.ui.toast(n ? `단가 ${n}개를 단가표에 넣었습니다.` : '넣을 단가가 없습니다. 구분·품명·규격·단위·단가 순서의 CSV인지 확인하세요.');
+            App.ui.toast(n ? `단가 ${n}개를 단가표에 넣었습니다.${bad ? ` 글자가 깨진 ${bad}줄은 뺐습니다.` : ''}` : bad ? `글자가 깨져 넣지 못했습니다 (${bad}줄). 엑셀에서 ‘CSV UTF-8’로 저장해 보세요.` : '넣을 단가가 없습니다. 구분·품명·규격·단위·단가 순서의 CSV인지 확인하세요.');
           };
           input.click();
         });
@@ -480,7 +537,7 @@
     const t = totals(ls);
     const rows = [['구분', '품명', '규격', '수량', '단위', '단가', '금액', '비고']];
     ls.forEach((l) => rows.push([l.sec, l.name, l.spec, l.qty, l.unit, l.price || '', l.amount || '', l.note]));
-    extras().filter((x) => x.name || x.amount).forEach((x) => rows.push(['기타', x.name, '', numIn(x.qty), x.unit, numSigned(x.price) || '', x.amount || '', '']));
+    extras().filter((x) => x.name || x.amount).forEach((x) => rows.push(['기타', x.name, '', numIn(x.qty), x.unit, extraPrice(x) || '', x.amount || '', '']));
     rows.push([]);
     rows.push(['', '공급가액', '', '', '', '', t.supply, '']);
     rows.push(['', t.vatOn ? '부가세 10%' : '부가세 (별도)', '', '', '', '', t.vat, '']);
@@ -522,7 +579,7 @@
     const ex = extras().filter((x) => x.name || x.amount);
     if (ex.length) {
       items.push({ head: '기타' });
-      ex.forEach((x) => items.push({ name: x.name || '기타', spec: '', qty: numIn(x.qty), unit: x.unit, price: numSigned(x.price), amount: x.amount, note: '' }));
+      ex.forEach((x) => items.push({ name: x.name || '기타', spec: '', qty: numIn(x.qty), unit: x.unit, price: extraPrice(x), amount: x.amount, note: '' }));
     }
     return { items, t };
   }

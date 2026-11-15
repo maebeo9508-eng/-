@@ -1,5 +1,5 @@
 /* 마감 자재 수량: 방마다 고른 바닥 모양·벽 마감·천장 마감으로 벽지 롤 수, 페인트 리터, 마루 박스, 타일 장 수를 계산.
-   - 바닥은 '바닥 모양'을 직접 고른 방만 (마감재 목록으로 짐작한 바닥은 마감재 집계에 이미 들어가므로 두 번 세지 않음)
+   - 바닥은 '바닥 모양'을 직접 고른 방만. 바닥 마감재(프리셋)를 고른 방은 마감재 집계에 이미 들어가므로 두 번 세지 않음
    - 기준(1롤 면적, 로스 %, 1L당 면적, 박스 면적 …)은 이 기기에 저장되고 '자재 기준' 창에서 고침
    - 수량은 면적을 모두 더한 뒤 로스를 붙이고 올림 (방마다 올려서 더하지 않음) */
 (function () {
@@ -64,7 +64,9 @@
     const out = [];
     if (r.issue) return out;
     const fl = r.floorLook && FLOOR[r.floorLook];
-    if (fl) out.push({ mat: fl, part: '바닥', area: q.clearArea, look: r.floorLook });
+    // 바닥 마감재(프리셋)를 고른 방은 그 마감재 집계에 이미 들어가므로 바닥 모양으로 또 세지 않음
+    const finished = (q.finishes || []).some((f) => f.target === 'floor');
+    if (fl && !finished) out.push({ mat: fl, part: '바닥', area: q.clearArea, look: r.floorLook });
     if (r.wallWork && DEFAULTS[r.wallWork]) out.push({ mat: r.wallWork, part: '벽', area: q.paintArea != null ? q.paintArea : App.measure.wallFinishArea(r, 0) });
     if (r.ceilWork && DEFAULTS[r.ceilWork]) out.push({ mat: r.ceilWork, part: '천장', area: q.ceiling });
     return out.filter((p) => p.area > 0);

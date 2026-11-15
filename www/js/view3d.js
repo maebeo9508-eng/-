@@ -9,7 +9,9 @@
   const { M4, MAT, Mesh, Renderer, SUNS, hex, shade, mixc } = App.gl3d;
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
-  const LOW_WALL = 1.2;   // '벽 낮추기': 이 높이(m)에서 자른 것처럼
+  const LOW_WALL = 1.2;
+  /** 벽 낮추기에서 벽에 붙은 기호를 잘린 벽 아래로 내릴 때 쓰는 판의 반 높이(m) — models3d.js symbol()의 판 크기와 같게 */
+  const PLATE_HALF = { 분전반: 0.3, 보일러: 0.325, '에어컨 실내기': 0.15, 환기구: 0.125, 월패드: 0.08, 유도등: 0.07 };   // '벽 낮추기': 이 높이(m)에서 자른 것처럼
   const EYE = 1.6;        // 걷기: 눈높이(m)
   const BODY = 280;       // 걷기: 몸 반지름(mm) — 이보다 좁은 틈은 못 지나감
   const FOV_ORBIT = (38 * Math.PI) / 180, FOV_WALK = (68 * Math.PI) / 180;
@@ -93,7 +95,7 @@
         M3.FURN[it.kind](C, lowIt, w, d, h);
       }
       else if (it.category === 'furn') S.box(-w / 2, 0, -d / 2, w / 2, h, d / 2, hex('#b08d6a'), MAT.grain);
-      else M3.symbol(C, it, def, Math.min(o.low && it.height != null ? LOW_WALL - Math.max(0.1, h / 2 + 0.03) : 99, App.measure.itemHeight(it) / 1000));
+      else M3.symbol(C, it, def, Math.min(o.low && it.height != null ? LOW_WALL - Math.max(0.1, (PLATE_HALF[it.kind] || 0.06) + 0.03) : 99, App.measure.itemHeight(it) / 1000));
     } catch (err) {
       console.warn('3D 모형을 만들지 못함:', it.kind, err);
     }
@@ -140,7 +142,8 @@
     if (!drawn.some((e) => e.type !== 'route')) return null;
     const pb = doc.bounds(drawn.map((e) => e.id));
     if (!pb) return null;
-    const cx = (pb.minX + pb.maxX) / 2, cy = (pb.minY + pb.maxY) / 2;
+    // o.center: 3D를 연 채 다시 조립할 때 원점을 그대로 (물건을 옮겨 범위가 바뀌어도 화면·걷는 자리가 튀지 않게)
+    const cx = o.center ? o.center.x : (pb.minX + pb.maxX) / 2, cy = o.center ? o.center.y : (pb.minY + pb.maxY) / 2;
     const X = (x) => (x - cx) / 1000, Z = (y) => (y - cy) / 1000;
     const P = (p) => [X(p.x), Z(p.y)];
     const event = App.modes.is('event');
@@ -366,9 +369,12 @@
       }
       return 0;
     };
+    const baseY = new Map(); // 물건 id → 놓인 높이 (m, 무대 위면 무대 높이)
     items.forEach((it) => {
       C.rnd = seeded(it.id);
-      C.place(X(it.x), Z(it.y), it.rotation || 0, stageUnder(it));
+      const y0 = stageUnder(it);
+      if (y0) baseY.set(it.id, y0);
+      C.place(X(it.x), Z(it.y), it.rotation || 0, y0);
       itemModel(C, it, { low: o.low });
     });
     world();
@@ -407,7 +413,7 @@
     min[1] = Math.min(min[1], 0);
     const radius = Math.hypot(max[0] - min[0], max[2] - min[2]) / 2;
     return {
-      layers: L, textured, bounds: { min, max }, center: { x: cx, y: cy }, radius, height: max[1], fit,
+      layers: L, textured, bounds: { min, max }, center: { x: cx, y: cy }, radius, height: max[1], fit, baseY,
       stats: { solid: L.solid.n, glass: L.glass.n, ceil: L.ceil.n, decal: L.decals.reduce((n, m) => n + m.n, 0), textured: textured.length, maxY: max[1] },
     };
   }
@@ -517,13 +523,16 @@
     return {
       cx: at ? at.cx : (it.x - scene.center.x) / 1000, cz: at ? at.cz : (it.y - scene.center.y) / 1000, a: ((it.rotation || 0) * Math.PI) / 180,
       w: it.size / 1000, d: (it.depth != null ? it.depth : it.size * (def.aspect || 1)) / 1000, h: Math.max(0.06, App.catalog.itemHeight3(it) / 1000),
+      y0: (scene && scene.baseY && scene.baseY.get(it.id)) || 0, // 무대 위에 놓인 것은 무대 높이부터
     };
   }
   /** 광선이 상자에 닿는 거리 (안 닿으면 null) */
   function hitBox(ray, b) {
     const c = Math.cos(b.a), s = Math.sin(b.a), ox = ray.o[0] - b.cx, oz = ray.o[2] - b.cz;
     const o = [ox * c + oz * s, ray.o[1], -ox * s + oz * c], d = [ray.d[0] * c + ray.d[2] * s, ray.d[1], -ray.d[0] * s + ray.d[2] * c];
-    const mn = [-b.w / 2, 0, -b.d / 2], mx = [b.w / 2, b.h, b.d / 2];
+    const mn = [-b.w / 2, b.y0 || 0, -b.d / 2], mx = [b.w / 2, (b.y0 || 0) + b.h, b.d / 2];
+    // 눈이 상자 안이면(천막·파라솔 아래에서 걷는 중) 그 물건은 건너뜀: 안 그러면 무엇을 눌러도 천막이 골라짐
+    if (o.every((v, i) => v >= mn[i] && v <= mx[i])) return null;
     let t0 = 0, t1 = Infinity;
     for (let i = 0; i < 3; i++) {
       if (Math.abs(d[i]) < 1e-9) { if (o[i] < mn[i] || o[i] > mx[i]) return null; continue; }
@@ -556,16 +565,20 @@
     const t = -r.o[1] / r.d[1];
     return t > 0 && t < 5000 ? [r.o[0] + r.d[0] * t, r.o[2] + r.d[2] * t] : null;
   }
+  /** 고른 물건과 같은 묶음의 것들 (평면처럼 묶음째 고르고 옮김) */
+  const groupOf = (id) => (App.withGroups ? App.withGroups([id]) : [id]).filter((x) => App.doc.has(x));
+  const anyLocked = (ids) => ids.some((x) => { const e = App.doc.get(x); return e && e.locked; });
   function setPicked(id) {
     picked = id && App.doc.has(id) ? id : null;
     ghost = null;
     const bar = el.querySelector('.v3-pick');
     bar.hidden = !picked;
     if (picked) {
-      const it = App.doc.get(picked);
-      bar.querySelector('.v3-pick-name').textContent = it.kind;
-      bar.querySelector('[data-pk="rot-"]').disabled = bar.querySelector('[data-pk="rot+"]').disabled = !!it.locked;
-      App.selection.set([picked]);
+      const it = App.doc.get(picked), ids = groupOf(picked), locked = anyLocked(ids);
+      bar.querySelector('.v3-pick-name').textContent = ids.length > 1 ? `${it.kind} 외 ${ids.length - 1}개 (묶음)` : it.kind;
+      bar.querySelector('[data-pk="rot-"]').disabled = bar.querySelector('[data-pk="rot+"]').disabled = locked;
+      bar.querySelector('[data-pk="del"]').disabled = ids.every((x) => App.doc.get(x).locked);
+      App.selection.set(ids);
     }
     drawPick();
   }
@@ -585,7 +598,8 @@
     const box = (b, color, dash) => {
       const c = Math.cos(b.a), s = Math.sin(b.a);
       const corner = (lx, ly, lz) => [b.cx + lx * c - lz * s, ly, b.cz + lx * s + lz * c];
-      const P = [[-1, -1], [1, -1], [1, 1], [-1, 1]].flatMap(([i, k]) => [corner((i * b.w) / 2, 0, (k * b.d) / 2), corner((i * b.w) / 2, b.h, (k * b.d) / 2)]).map((p) => project(p, B));
+      const y0 = b.y0 || 0;
+      const P = [[-1, -1], [1, -1], [1, 1], [-1, 1]].flatMap(([i, k]) => [corner((i * b.w) / 2, y0, (k * b.d) / 2), corner((i * b.w) / 2, y0 + b.h, (k * b.d) / 2)]).map((p) => project(p, B));
       const E = [[0, 2], [2, 4], [4, 6], [6, 0], [1, 3], [3, 5], [5, 7], [7, 1], [0, 1], [2, 3], [4, 5], [6, 7]];
       ctx.strokeStyle = color;
       ctx.lineWidth = 2;
@@ -598,7 +612,7 @@
     const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#2563eb';
     if (ghost) {
       box(itemBox(it), 'rgba(255,255,255,0.7)', true);
-      box(itemBox(it, ghost), accent, false);
+      box({ ...itemBox(it, ghost), y0: itemBox(it).y0 }, accent, false);
     } else box(itemBox(it), accent, false);
   }
   /** 도면이 바뀌면 (3D에서 고친 것, 실행 취소 포함) 장면을 다시 조립 */
@@ -613,30 +627,49 @@
   function pickAction(act) {
     const it = picked && App.doc.get(picked);
     if (!it && act !== 'close' && act !== 'undo') return;
+    const ids = it ? groupOf(it.id) : [];
     if (act === 'rot-' || act === 'rot+') {
-      if (it.locked) return;
+      if (anyLocked(ids)) { App.ui.toast('잠긴 항목은 돌리지 않습니다.'); return; }
       const d = act === 'rot+' ? 15 : -15;
-      App.doc.transact('3D에서 돌리기', () => App.doc.update(it.id, { rotation: ((((it.rotation || 0) + d) % 360) + 360) % 360 }));
+      if (ids.length === 1) {
+        App.doc.transact('3D에서 돌리기', () => App.doc.update(it.id, { rotation: ((((it.rotation || 0) + d) % 360) + 360) % 360 }));
+      } else {
+        // 묶음은 묶음 가운데를 중심으로 함께 돌림
+        const b = App.doc.bounds(ids), c = { x: (b.minX + b.maxX) / 2, y: (b.minY + b.maxY) / 2 };
+        const a = (d * Math.PI) / 180, cs = Math.cos(a), sn = Math.sin(a);
+        const f = (p) => ({ x: Math.round(c.x + (p.x - c.x) * cs - (p.y - c.y) * sn), y: Math.round(c.y + (p.x - c.x) * sn + (p.y - c.y) * cs) });
+        App.doc.transact('3D에서 돌리기', () => ids.forEach((x) => {
+          const e = App.doc.get(x);
+          if (e.type === 'item' && !e.wallId) App.doc.update(x, { ...f(e), rotation: ((((e.rotation || 0) + d) % 360) + 360) % 360 });
+          else if (e.type === 'column' || e.type === 'text') App.doc.update(x, f(e));
+          else if (e.start && e.end) App.doc.update(x, { start: f(e.start), end: f(e.end) });
+          else if (Array.isArray(e.points)) App.doc.update(x, { points: e.points.map(f), ...(e.seed ? { seed: f(e.seed) } : {}) });
+        }));
+      }
     } else if (act === 'dup') {
-      App.selection.set([it.id]);
+      App.selection.set(ids);
       App.edit.duplicate();
-      const nid = App.selection.list()[0];
-      if (nid && nid !== it.id) setPicked(nid);
+      const copies = App.selection.list();
+      const nid = copies.find((x) => { const e = App.doc.get(x); return e && e.kind === it.kind && pickable(e); }) || copies[0];
+      if (nid && !ids.includes(nid)) setPicked(nid);
     } else if (act === 'del') {
-      App.doc.transact('3D에서 지우기', () => App.doc.remove(it.id));
-      setPicked(null);
+      // 평면의 삭제와 같은 규칙 (잠긴 것은 남김)
+      App.selection.set(ids);
+      App.actions.deleteSelection();
+      setPicked(App.doc.has(it.id) ? it.id : null);
     } else if (act === 'plan') {
-      const id = it.id;
       close(true);
-      App.selection.set([id]);
-      const b = App.doc.bounds([id]);
+      App.selection.set(ids);
+      const b = App.doc.bounds(ids);
       if (b) App.plan.fitToContent({ minX: b.minX - 3000, minY: b.minY - 3000, maxX: b.maxX + 3000, maxY: b.maxY + 3000 });
     } else if (act === 'undo') App.actions.undo();
     else if (act === 'close') setPicked(null);
   }
 
-  function rebuild() {
-    scene = build({ low: low && mode !== 'walk', routes: showRoutes, lod: quality !== 'high' });
+  /** fresh: 새로 열 때만 원점을 다시 잡음. 연 채로 다시 조립할 때는 원점을 그대로 */
+  function rebuild(fresh = false) {
+    const center = !fresh && scene && isOpen() ? scene.center : null;
+    scene = build({ low: low && mode !== 'walk', routes: showRoutes, lod: quality !== 'high', center });
     if (!scene) return false;
     R.setScene(scene);
     setGround();
@@ -804,7 +837,7 @@
         const hit = pickAt(lx, ly);
         p.hit = hit ? hit.id : null;
         // 이미 고른 물건을 누르고 끌면 옮김
-        if (hit && hit.id === picked && !hit.locked) {
+        if (hit && picked && groupOf(picked).includes(hit.id) && !anyLocked(groupOf(picked))) {
           const g = groundAt(lx, ly), b = itemBox(hit);
           if (g) p.drag = { id: hit.id, off: [b.cx - g[0], b.cz - g[1]] };
         }
@@ -853,10 +886,14 @@
       if (!p || e.type === 'pointercancel') { if (p && p.drag) { ghost = null; drawPick(); } return; }
       if (p.drag && p.moved && ghost) {
         // 옮긴 자리를 도면에 (10mm 단위)
-        const id = p.drag.id, g = ghost;
+        // 끈 물건이 10mm 단위 자리에 오게, 같은 묶음도 같은 만큼 (평면의 화살표 이동과 같은 규칙)
+        const it = App.doc.get(p.drag.id), g = ghost;
         ghost = null;
-        const x = Math.round((scene.center.x + g.cx * 1000) / 10) * 10, y = Math.round((scene.center.y + g.cz * 1000) / 10) * 10;
-        App.doc.transact('3D에서 옮기기', () => App.doc.update(id, { x, y }));
+        if (it) {
+          const x = Math.round((scene.center.x + g.cx * 1000) / 10) * 10, y = Math.round((scene.center.y + g.cz * 1000) / 10) * 10;
+          App.selection.set(groupOf(it.id));
+          if (x !== it.x || y !== it.y) App.edit.nudge(x - it.x, y - it.y);
+        }
         drawPick();
       } else if (!p.moved && !p.pan) {
         setPicked(p.hit);
@@ -1142,7 +1179,7 @@
     el.querySelector('.v3-pick').hidden = true;
     // 인테리어 도면은 방 안이 보이게 벽을 낮춰서 시작 (직접 바꾼 뒤에는 그대로 둠). 걷기에서는 늘 온전한 높이
     if (!lowChosen) low = App.modes.is('interior');
-    if (!rebuild()) {
+    if (!rebuild(true)) {
       App.ui.toast('벽이나 가구, 조감도 물건을 놓으면 3D로 볼 수 있습니다.');
       return false;
     }

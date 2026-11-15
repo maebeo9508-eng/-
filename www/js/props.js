@@ -258,7 +258,7 @@
         <label class="field-label" for="${id}">${label}</label>
         <div class="field-row">
           <select id="${id}" class="field-select">
-            ${current === null ? '<option value="" selected>여러 값</option>' : ''}
+            ${current === null ? '<option value="" data-mixed="1" selected disabled hidden>여러 값</option>' : ''}
             ${options.map(([v, text]) => `<option value="${esc(v)}" ${v === current ? 'selected' : ''}>${esc(text)}</option>`).join('')}
           </select>
           ${extra}
@@ -479,11 +479,11 @@
       <p class="props-meta">방을 지워도 벽은 남습니다.</p>`;
   }
 
-  /** 방 꾸미기: 바닥 모양과 벽지 색 (평면 색·무늬와 3D에 보임, 물량에는 영향 없음) */
+  /** 방 꾸미기: 바닥 모양과 벽지 색 (평면 색·무늬와 3D에 보임). 바닥 모양은 마감 자재(마루 박스·타일 장)에도 들어감 */
   function roomLook() {
     const looks = [['', '자동 (바닥 마감 따라)'], ...App.catalog.FLOOR_LOOKS.map((l) => [l.id, l.name])];
     return `
-      <div class="field-group-label">방 꾸미기 (평면·3D에 보임)</div>
+      <div class="field-group-label">방 꾸미기 (평면·3D, 바닥 모양은 마감 자재에도)</div>
       ${selectField('f-floorLook', '바닥 모양', looks, commonText((r) => r.floorLook || ''))}
       ${colorField('f-roomWallColor', '벽지 색', commonText((r) => r.wallColor || ''), '기본 (흰색)', App.catalog.WALL_COLORS)}
       <div class="field-grid">
@@ -1128,6 +1128,8 @@
     pane.addEventListener('change', (e) => {
       const t = e.target;
       const id = t.id;
+      // '여러 값' 자리표는 고를 수 없음 (값 ''인 '없음'·'기본'과 헷갈리지 않게 따로 표시)
+      if (t.tagName === 'SELECT' && t.selectedOptions[0] && t.selectedOptions[0].dataset.mixed) return;
       if (id === 'f-layer') {
         if (t.value) apply('레이어 변경', () => ({ layer: t.value }));
         return;
@@ -1219,7 +1221,7 @@
         return;
       }
       if (id === 'f-itemColor' || id === 'f-wallColor') {
-        if (t.value !== '' || commonText((e) => e.color || '') !== null) apply('색 변경', () => ({ color: t.value || null }));
+        apply('색 변경', () => ({ color: t.value || null }));
         return;
       }
       if (id === 'f-itemColorPick' || id === 'f-wallColorPick') {
@@ -1255,15 +1257,15 @@
       if (id === 'f-zoneCrowd') { apply('관람 구역', () => ({ crowd: t.checked })); return; }
       if (id === 'f-wallWork' || id === 'f-ceilWork') {
         const key = id === 'f-wallWork' ? 'wallWork' : 'ceilWork';
-        if (t.value !== '' || commonText((r) => r[key] || '') !== null) apply(id === 'f-wallWork' ? '벽 마감' : '천장 마감', () => ({ [key]: t.value || null }));
+        apply(id === 'f-wallWork' ? '벽 마감' : '천장 마감', () => ({ [key]: t.value || null }));
         return;
       }
       if (id === 'f-floorLook') {
-        if (t.value !== '' || commonText((r) => r.floorLook || '') !== null) apply('바닥 모양', () => ({ floorLook: t.value || null }));
+        apply('바닥 모양', () => ({ floorLook: t.value || null }));
         return;
       }
       if (id === 'f-roomWallColor') {
-        if (t.value !== '' || commonText((r) => r.wallColor || '') !== null) apply('벽지 색', () => ({ wallColor: t.value || null }));
+        apply('벽지 색', () => ({ wallColor: t.value || null }));
         return;
       }
       if (id === 'f-roomWallColorPick') {
@@ -1272,7 +1274,7 @@
       }
       if (id === 'f-wallFinish' || id === 'f-floorFinish') {
         const key = id === 'f-wallFinish' ? 'wallFinishId' : 'floorFinishId';
-        if (t.value !== '' || commonText((r) => r[key] || '') !== null) apply(id === 'f-wallFinish' ? '벽 마감 변경' : '바닥 마감 변경', () => ({ [key]: t.value || null }));
+        apply(id === 'f-wallFinish' ? '벽 마감 변경' : '바닥 마감 변경', () => ({ [key]: t.value || null }));
         return;
       }
       if (id === 'f-furnSize') {
@@ -1298,7 +1300,7 @@
         return;
       }
       if (id === 'f-zoneSurface') {
-        if (t.value !== '' || commonText((z) => z.surface || '') !== null) apply('바닥 변경', () => ({ surface: t.value }));
+        apply('바닥 변경', () => ({ surface: t.value }));
         return;
       }
       if (id === 'f-routeKind') {

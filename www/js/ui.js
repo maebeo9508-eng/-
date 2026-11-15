@@ -166,6 +166,11 @@
   /** 펼친 메뉴가 화면 오른쪽·왼쪽 밖으로 나가면 안으로 밀어 넣음 */
   function fitMenu(menu) {
     menu.style.transform = '';
+    menu.style.maxHeight = '';
+    // 아래로도: 메뉴가 열린 자리에서 화면(또는 도면 칸) 아래 끝까지만, 넘치면 메뉴 안에서 스크롤
+    const r0 = menu.getBoundingClientRect(), vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+    const stage = menu.closest('.stage'), bottom = Math.min(vh, stage ? stage.getBoundingClientRect().bottom : vh);
+    if (r0.bottom > bottom - 8) menu.style.maxHeight = `${Math.max(120, Math.floor(bottom - 8 - r0.top))}px`;
     const r = menu.getBoundingClientRect(), W = document.documentElement.clientWidth;
     let dx = 0;
     if (r.right > W - 8) dx = W - 8 - r.right;
