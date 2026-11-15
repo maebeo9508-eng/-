@@ -158,6 +158,52 @@
     return out;
   }
 
+  /** 인파 보기: 관람·대기 구역마다 넓이에 비례해 서 있을 자리 (고르게 흩고 물건 자리는 피함, 무대·화면 쪽을 봄).
+      돌려주는 값: [{ x, y, rot, style }], 사람 수는 safety의 예상 인원 기준 (안 넣었으면 1㎡에 1명) */
+  const CROWD_MAX = 1000;
+  function crowdInfo(els) {
+    const zones = els.filter((e) => e.type === 'zone' && e.crowd && e.points.length >= 3);
+    if (!zones.length || !App.safety) return { zones, want: 0, n: 0 };
+    const r = App.safety.run();
+    const total = zones.reduce((t, z) => t + App.model.TYPES.zone.area(z) / 1e6, 0);
+    const want = r.auto ? Math.floor(total) : Math.max(0, r.expected - r.seats);
+    return { zones, total, want, n: Math.min(CROWD_MAX, want) };
+  }
+  function crowdSpots(els, items) {
+    const info = crowdInfo(els);
+    if (!info.n) return [];
+    const area = (z) => App.model.TYPES.zone.area(z) / 1e6;
+    const obs = items.filter((it) => it.kind !== '사람' && !(App.catalog.itemDef(it.kind) || {}).flat).map((it) => App.model.TYPES.item.bounds(it));
+    const free = (x, y) => !obs.some((b) => x > b.minX - 250 && x < b.maxX + 250 && y > b.minY - 250 && y < b.maxY + 250);
+    // 구역 가장자리에서 0.45m 안쪽에만 (사람이 구역 밖으로 비어져 나와 장면 범위가 커지지 않게)
+    const inside = (p, z) => z.points.every((q, i) => App.geom.closestOnSegment(p, q, z.points[(i + 1) % z.points.length]).dist >= 450);
+    const looks = items.filter((it) => it.kind === '무대' || it.kind === 'LED 스크린');
+    const rnd = seeded('crowd-spots');
+    const STY = ['일반', '일반', '일반', '정장', '어린이'];
+    const out = [];
+    info.zones.forEach((z, zi) => {
+      const want = zi === info.zones.length - 1 ? info.n - out.length : Math.round((info.n * area(z)) / info.total);
+      if (want <= 0) return;
+      const b = App.model.TYPES.zone.bounds(z);
+      const cell = Math.max(420, Math.sqrt((area(z) * 1e6) / want) * 0.85);
+      const pts = [];
+      for (let y = b.minY + cell / 2; y < b.maxY; y += cell) {
+        for (let x = b.minX + cell / 2; x < b.maxX; x += cell) {
+          const p = { x: x + (rnd() - 0.5) * cell * 0.8, y: y + (rnd() - 0.5) * cell * 0.8 };
+          if (App.geom.pointInPolygon(p, z.points) && free(p.x, p.y) && inside(p, z)) pts.push(p);
+        }
+      }
+      for (let i = pts.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [pts[i], pts[j]] = [pts[j], pts[i]]; }
+      pts.slice(0, want).forEach((p) => {
+        // 가장 가까운 무대·화면 쪽을 봄 (없으면 아무 쪽)
+        const t = looks.reduce((m, it) => (!m || Math.hypot(it.x - p.x, it.y - p.y) < Math.hypot(m.x - p.x, m.y - p.y) ? it : m), null);
+        const rot = t ? (Math.atan2(-(t.x - p.x), t.y - p.y) * 180) / Math.PI + (rnd() - 0.5) * 50 : rnd() * 360;
+        out.push({ x: p.x, y: p.y, rot, style: STY[Math.floor(rnd() * STY.length)] });
+      });
+    });
+    return out;
+  }
+
   function build(o = {}) {
     const doc = App.doc;
     const els = [...doc.all()].filter((e) => App.model.TYPES[e.type] && !App.model.TYPES[e.type].catalog && e.type !== 'underlay' && App.layers.visible(e));
@@ -400,6 +446,16 @@
       C.place(X(it.x), Z(it.y), it.rotation || 0, y0);
       itemModel(C, it, { low: o.low });
     });
+    /* 인파 보기 (조감도): 예상 인원에서 좌석을 뺀 서 있는 사람을 관람·대기 구역에 세움 (그림은 최대 CROWD_MAX명) */
+    const crowd = event && (o.crowd != null ? o.crowd : App.settings.crowd3d === true) ? crowdSpots(els, items) : [];
+    if (crowd.length) {
+      C.crowd = Math.max(C.crowd, crowd.length); // 사람이 많으면 간단한 모양으로
+      crowd.forEach((p, i) => {
+        C.rnd = seeded(`crowd${i}`);
+        C.place(X(p.x), Z(p.y), p.rot, 0);
+        itemModel(C, { id: `crowd${i}`, type: 'item', kind: '사람', category: 'event', size: 500, depth: 400, count: 1, style: p.style, rotation: p.rot }, { low: o.low });
+      });
+    }
     world();
 
     /* 동선: 바닥의 색 띠와 화살표 */
@@ -1374,6 +1430,9 @@
     const lb = set.querySelector('[data-opt="labels"]');
     lb.hidden = !App.modes.is('event');
     lb.setAttribute('aria-pressed', String(App.settings.labels3d !== false));
+    const cb = set.querySelector('[data-opt="crowd"]');
+    cb.hidden = !App.modes.is('event');
+    cb.setAttribute('aria-pressed', String(App.settings.crowd3d === true));
     set.querySelector('[data-opt="quality"]').setAttribute('aria-pressed', String(quality === 'high'));
     if (mode === 'walk') syncWalkUi();
   }
@@ -1425,6 +1484,7 @@
           <button type="button" class="btn" data-opt="low" title="벽을 낮춰 방 안이 보이게 (조감도에서)">벽 낮추기</button>
           <button type="button" class="btn" data-opt="routes" title="동선을 바닥에 표시">동선 표시</button>
           <button type="button" class="btn" data-opt="labels" title="영역 이름·무대·화장실·입구·메모를 3D에 표시 (사진·영상에도)">이름표</button>
+          <button type="button" class="btn" data-opt="crowd" title="예상 인원만큼 관람·대기 구역에 사람을 세워 봄 (그림은 최대 ${CROWD_MAX}명, 사진·영상에도)">인파</button>
           <button type="button" class="btn" data-opt="quality" title="끄면 빠르게 (그림자·해상도를 낮춤)">고화질</button>
         </div></div>
         <div class="v3-set-row"><span>시점</span><div class="v3-seg v3-views"></div></div>
@@ -1488,6 +1548,18 @@
       } else if (b.dataset.opt === 'routes') {
         showRoutes = !showRoutes;
         rebuild();
+      } else if (b.dataset.opt === 'crowd') {
+        App.settings.crowd3d = App.settings.crowd3d !== true;
+        App.saveSettings();
+        rebuild();
+        syncUi();
+        requestDraw();
+        if (App.settings.crowd3d) {
+          const info = crowdInfo([...App.doc.all()].filter((e) => App.layers.visible(e)));
+          App.ui.toast(!info.zones.length ? '관람·대기 구역이 없습니다. 영역을 고르고 속성에서 ‘관람·대기 구역’을 체크하세요.'
+            : !info.want ? '서 있을 사람이 없습니다 (예상 인원이 좌석 수보다 적음).'
+              : `관람·대기 구역에 ${info.want.toLocaleString('ko-KR')}명을 세웠습니다${info.want > info.n ? ` (그림은 ${info.n}명까지, 밀도는 예상 인원 기준)` : ''}. 예상 인원은 안전 점검에서 바꿉니다.`);
+        }
       } else if (b.dataset.opt === 'labels') {
         App.settings.labels3d = App.settings.labels3d === false;
         App.saveSettings();
@@ -1616,7 +1688,7 @@
   const isOpen = () => !!el && !el.hidden;
 
   App.view3d = {
-    open, close, isOpen, build, buildItem, seeded, GROUNDS,
+    open, close, isOpen, build, buildItem, seeded, GROUNDS, crowdInfo, CROWD_MAX,
     /** 영상: kind 'orbit'|'route'|'free', o: { duration(초), noSave, longSide } → Promise<{ blob, name, type } | null> */
     record: (kind, o) => startRecording(kind, o),
     stopRecording: () => stopRecording(),
