@@ -1062,7 +1062,7 @@
       }
       const ext = /mp4/.test(r.type) ? 'mp4' : 'webm';
       const name = `${((App.projects && App.projects.current && App.projects.current.name) || '도면').replace(/[\\/:*?"<>|]+/g, '_').trim() || '도면'}_${r.kind === 'orbit' ? '돌려보기' : r.kind === 'route' ? '걷기' : '3D'}_${App.exporter.stamp()}.${ext}`;
-      const why = { cap: ' · 최대 3분이라 여기서 멈췄습니다', hidden: ' · 화면이 꺼지거나 다른 앱으로 가서 멈췄습니다', resize: ' · 화면 방향·크기가 바뀌어 멈췄습니다' }[r.reason] || '';
+      const why = { cap: ' · 최대 3분이라 여기서 멈췄습니다', resize: ' · 화면 방향·크기가 바뀌어 멈췄습니다' }[r.reason] || '';
       if (!o.noSave) App.exporter.saved(App.exporter.download(name, blob), `‘${name}’을 저장했습니다 (${secs}초${why}).`);
       resolveDone({ blob, name, type: r.type, reason: r.reason });
     };
@@ -1096,6 +1096,8 @@
       return Promise.resolve(null);
     }
     rec.done = done;
+    clearTimeout(hintTimer); // 녹화 중에는 안내를 숨기므로, 끝난 뒤 예전 안내가 다시 나오지 않게 지움
+    el.querySelector('.v3-hint').hidden = true;
     el.querySelector('.v3-rec').hidden = false;
     el.querySelector('.v3-rec-time').textContent = '0:00';
     syncUi();
@@ -1114,7 +1116,7 @@
     else if (routeDone) stopRecording();
     else requestDraw(); // 녹화 중에는 계속 그림
   }
-  /** 녹화 멈추고 저장. reason: ''(직접·끝까지) · 'cap'(3분) · 'hidden'(화면 꺼짐·다른 앱) · 'resize'(화면 방향) */
+  /** 녹화 멈추고 저장. reason: ''(직접·끝까지) · 'cap'(3분) · 'resize'(화면 방향) */
   function stopRecording(reason = '') {
     if (!rec || rec.stopping) return;
     rec.stopping = true;
@@ -1124,8 +1126,21 @@
     try { rec.recorder.stop(); } catch (_) { /* 이미 멈춤 */ }
     try { rec.stream.getTracks().forEach((tr) => tr.stop()); } catch (_) { /* 무시 */ }
   }
-  // 화면이 꺼지거나 다른 앱으로 가면 장면이 멈추므로 거기까지 저장. 화면 방향·크기가 크게 바뀌어도 (영상 크기는 처음 그대로라 늘어나 보임)
-  document.addEventListener('visibilitychange', () => { if (document.hidden && rec) stopRecording('hidden'); });
+  // 화면이 꺼지거나 다른 앱으로 가면 녹화를 잠시 멈췄다가 돌아오면 이어서 (멈춘 동안은 시간에 넣지 않음, 장면이 굳은 영상이 되지 않게)
+  document.addEventListener('visibilitychange', () => {
+    if (!rec || rec.stopping) return;
+    if (document.hidden) {
+      try { if (rec.recorder.state === 'recording') rec.recorder.pause(); } catch (_) { /* 무시 */ }
+      rec.hiddenAt = performance.now();
+    } else if (rec.hiddenAt) {
+      rec.t0 += performance.now() - rec.hiddenAt;
+      rec.hiddenAt = 0;
+      walk.last = 0; // 걷기: 멈춘 시간만큼 한 번에 튀지 않게
+      try { if (rec.recorder.state === 'paused') rec.recorder.resume(); } catch (_) { /* 무시 */ }
+      requestDraw();
+    }
+  });
+  // 화면 방향·크기가 크게 바뀌면 거기까지 저장 (영상 크기는 처음 그대로라 늘어나 보임)
   window.addEventListener('resize', () => {
     if (!rec || rec.stopping || !canvas) return;
     const a = (canvas.clientWidth || 1) / (canvas.clientHeight || 1);

@@ -215,6 +215,9 @@
         else if (hitEl && hitEl.type === 'text' && !ev.shift && sel.size === 1 && sel.has(p.hit)) {
           App.textEditor.open({ x: hitEl.x, y: hitEl.y }, hitEl); // 고른 메모를 한 번 더 누르면 고치기
         }
+        else if (hitEl && hitEl.type === 'photo' && !ev.shift && sel.size === 1 && sel.has(p.hit)) {
+          App.photos.open(hitEl.id); // 고른 사진 핀을 한 번 더 누르면 사진을 크게 봄
+        }
         else if (p.hit) ev.shift ? sel.toggleAll(withGroups([p.hit])) : sel.set(withGroups([p.hit]));
         else if (!ev.shift) sel.clear();
         if (ev.touch) App.ui.emit('picked', !!p.hit); // 휴대폰: 누른 것의 속성이 보이게 서랍을 올림

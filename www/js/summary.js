@@ -268,7 +268,7 @@
     if (pins.length) {
       const n = pins.reduce((t, p) => t + (p.photos || []).length, 0);
       blocks.push({
-        title: '현장 사진', sub: '사진 도구로 꽂은 핀. 사진 도구로 핀을 누르면 사진을 크게 봅니다',
+        title: '현장 사진', sub: '사진 도구로 꽂은 핀. 고른 핀을 한 번 더 누르면 사진을 크게 봅니다',
         rows: [...pins.map((p) => row(`${App.photos.numberOf(p.id)}. ${App.photos.title(p)}`, V.count((p.photos || []).length, '장'), p.memo ? String(p.memo).slice(0, 40) : '', 'item', '사진')),
           row('현장 사진 총계', V.count(n, '장'), `핀 ${pins.length}곳`, 'total')],
       });

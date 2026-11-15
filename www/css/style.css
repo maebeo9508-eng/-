@@ -1421,9 +1421,9 @@ button { font: inherit; color: inherit; }
 .pv-title { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .pv-title b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pv-title small { color: rgba(255, 255, 255, 0.7); font-size: 12px; }
-.pv-stage { position: relative; flex: 1; min-height: 0; display: grid; place-items: center; padding: 0 8px; }
-/* 사진을 화면에 맞춤 (가로 화면·PC에서도 잘리지 않게): 칸을 꽉 채운 상자 안에서 비율 그대로 */
-.pv-img { position: absolute; inset: 0 8px; width: calc(100% - 16px); height: 100%; object-fit: contain; user-select: none; -webkit-user-drag: none; }
+.pv-stage { flex: 1; min-height: 0; display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); place-items: center; padding: 0 8px; overflow: hidden; }
+/* 사진을 화면에 맞춤 (가로 화면·PC에서도 잘리지 않게): 칸의 크기가 정해져 있어야 max-height가 먹음. 사진 둘레 빈 곳을 누르면 닫힘 */
+.pv-img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 4px; user-select: none; -webkit-user-drag: none; }
 .pv-missing { color: rgba(255, 255, 255, 0.75); }
 .pv-count { min-width: 64px; text-align: center; font-variant-numeric: tabular-nums; }
 .photo-viewer .btn { min-height: 44px; min-width: 44px; background: rgba(255, 255, 255, 0.12); border-color: rgba(255, 255, 255, 0.25); color: #fff; }
