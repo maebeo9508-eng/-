@@ -188,7 +188,7 @@
       checks.push({
         id: 'fire', title: '소화기', level, value: far.length ? `먼 곳 ${far.length}개` : `${ext.length}개 · 모두 20m 안`,
         detail: `불을 쓰는 물건 ${fire.length}개(무대·부스·텐트·푸드트럭·발전기 등)에서 20m 안 (직선거리)`,
-        advice: far.length ? `${names}${far.length > 4 ? ' 등' : ''} 가까이에 소화기를 놓으세요 (도면에 겹쳐 보면 빨간 표시)` : '소화기 자리를 안내판·지도에도 적어 두세요',
+        advice: far.length ? `${names}${far.length > 4 ? ' 등' : ''} 가까이에 소화기를 놓으세요. 위 ‘소화기 채우기’ 버튼으로 한 번에 놓을 수 있습니다` : '소화기 자리를 안내판·지도에도 적어 두세요',
         print: far.length ? `소화기에서 20m 넘는 곳 ${far.length}개(${[...new Set(far.map((it) => it.kind))].slice(0, 3).join(', ')}${far.length > 3 ? ' 등' : ''}) · 소화기를 더 놓아야 합니다` : `소화기 ${ext.length}개 · 불을 쓰는 곳 모두 20m 안입니다`,
       });
     } else if (N >= RULE.careAt && !ext.length) {
@@ -260,6 +260,51 @@
           <small>${esc(x.detail)}</small><p>${esc(x.advice)}</p></div>
       </div>`).join('') : '<p class="props-meta">점검할 것이 없습니다. 좌석·관람 구역·물건을 놓으면 점검합니다.</p>';
   }
+  /** 점검 창 아래 도구: 소화기에서 먼 곳이 있으면 ‘소화기 채우기’ */
+  function toolsHtml(r) {
+    const n = r.data.uncovered.length ? fillPlan(r).length : 0;
+    return n ? `<button type="button" class="btn" data-act="sf-fill">소화기 채우기 <small>${n}개를 놓아 먼 곳 ${r.data.uncovered.length}개를 모두 20m 안에</small></button>` : '';
+  }
+
+  /* ── 소화기 채우기: 소화기에서 먼 불 쓰는 물건이 모두 20m 안에 들도록 적은 수로 놓음 (가장 많이 덮는 자리부터) ── */
+  function fillPlan(r = run()) {
+    const reach = RULE.reach - 500; // 0.5m 여유
+    // 놓을 자리: 물건 앞쪽 바깥(통로 쪽) 0.6m
+    const front = (it) => {
+      const a = ((it.rotation || 0) * Math.PI) / 180, dep = (it.depth != null ? it.depth : it.size || 1000) / 2 + 600;
+      return { x: Math.round(it.x - Math.sin(a) * dep), y: Math.round(it.y + Math.cos(a) * dep) };
+    };
+    const covers = (p, o) => Math.hypot(o.x - p.x, o.y - p.y) <= reach;
+    let left = r.data.uncovered.slice();
+    const out = [];
+    for (let guard = 0; left.length && guard < 300; guard++) {
+      let best = null;
+      left.forEach((it) => {
+        let p = front(it);
+        if (!covers(p, it)) p = { x: it.x, y: it.y }; // 아주 큰 물건: 가운데
+        const n = left.filter((o) => covers(p, o)).length;
+        if (!best || n > best.n) best = { p, n };
+      });
+      out.push(best.p);
+      left = left.filter((o) => !covers(best.p, o));
+    }
+    return out;
+  }
+  function fillExtinguishers() {
+    const pts = fillPlan();
+    if (!pts.length) { App.ui.toast('소화기에서 먼 곳이 없습니다.'); return []; }
+    const def = App.catalog.itemDef('소화기');
+    const ids = [];
+    App.doc.transact('소화기 채우기', () => pts.forEach((p) => {
+      const it = App.model.TYPES.item.create(p, def.category, def, 0, null);
+      App.doc.add(it);
+      ids.push(it.id);
+    }));
+    App.selection.set(ids);
+    App.ui.toast(`소화기 ${ids.length}개를 놓았습니다. 자리는 옮겨도 됩니다 (한 번에 되돌리기 Ctrl+Z).`);
+    return ids;
+  }
+
   async function open() {
     if (!App.modes.is('event')) { App.ui.toast('안전 점검은 조감도(행사) 모드에서 씁니다.'); return; }
     const r0 = run();
@@ -275,16 +320,24 @@
             <option value="indoor"${r0.venue === 'indoor' ? ' selected' : ''}>실내 (건물 화장실을 씀)</option>
           </select></div></div>
         <label class="check-row"><input type="checkbox" id="sfView" ${App.current.safetyView ? 'checked' : ''}><span>도면에 겹쳐 보기<small>소화기 닿는 거리(20m)·먼 물건·관람 구역 밀집도·비상구 (화면에서만, 내보낼 때는 빠짐)</small></span></label>
+        <div class="sf-tools">${toolsHtml(r0)}</div>
         <div class="sf-list" aria-live="polite">${listHtml(r0)}</div>
-        <p class="props-meta">현장에서 흔히 쓰는 어림 기준입니다: 화장실 ${RULE.perToilet}명에 1칸, 소화기 20m, 밀집 1㎡에 ${RULE.densityOk}명 여유·${RULE.densityBad}명 넘으면 위험, 출구 폭 1m에 1분 ${RULE.flow}명, 대피 ${RULE.evacMin}분. 법정 기준·인허가는 관할 기관에 확인하세요.</p>`,
+        <p class="props-meta">현장에서 흔히 쓰는 어림 기준입니다: 화장실 ${RULE.perToilet}명에 1칸, 소화기 20m, 밀집 1㎡에 ${RULE.densityOk}명까지 권장·${RULE.densityBad}명 넘으면 위험, 출구 폭 1m에 1분 ${RULE.flow}명, 대피 ${RULE.evacMin}분. 법정 기준·인허가는 관할 기관에 확인하세요.</p>`,
       actions: [{ id: 'close', label: '닫기', primary: true }],
       onOpen(body) {
-        const list = body.querySelector('.sf-list');
+        const list = body.querySelector('.sf-list'), tools = body.querySelector('.sf-tools');
         const refresh = () => {
-          list.innerHTML = listHtml(run());
+          const r = run();
+          list.innerHTML = listHtml(r);
+          tools.innerHTML = toolsHtml(r);
           save();
           if (showing()) App.plan.requestRender(); // 겹쳐 보기의 밀집도 색·숫자도 바로
         };
+        tools.addEventListener('click', (e) => {
+          if (!e.target.closest('[data-act="sf-fill"]')) return;
+          fillExtinguishers();
+          refresh();
+        });
         body.querySelector('#sfExpected').addEventListener('input', (e) => {
           const v = Number(String(e.target.value).replace(/[^\d]/g, ''));
           App.current.expected = v > 0 ? v : null;
@@ -446,5 +499,5 @@
     try { return fn(); } finally { forced = false; }
   }
 
-  App.safety = { RULE, LV, run, block, open, expected, drawUnder, drawOverlay, drawLabels, withOverlay, densityText, get showing() { return showing(); } };
+  App.safety = { RULE, LV, run, block, open, expected, fillPlan, fillExtinguishers, drawUnder, drawOverlay, drawLabels, withOverlay, densityText, get showing() { return showing(); } };
 })();
