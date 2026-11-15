@@ -381,7 +381,7 @@
   function blockHtml(b) {
     return `
       <section class="sum-sec${b.total ? ' is-grand' : ''}">
-        <h3 class="sum-title">${esc(b.title)}${b.sub ? ` <small class="${b.warn ? 'is-warn' : ''}">${esc(b.sub)}</small>` : ''}${b.action ? ` <button type="button" class="btn btn-mini" data-act="${esc(b.action.act)}">${esc(b.action.label)}</button>` : ''}</h3>
+        <h3 class="sum-title">${esc(b.title)}${b.sub ? ` <small class="${b.warn ? 'is-warn' : ''}">${esc(b.sub)}</small>` : ''}${[b.action, b.action2].filter(Boolean).map((x) => ` <button type="button" class="btn btn-mini" data-act="${esc(x.act)}">${esc(x.label)}</button>`).join('')}</h3>
         <table class="sum-table"><tbody>
           ${b.rows.map((r) => (r.cls === 'head'
             ? `<tr class="is-head"><th colspan="2" scope="rowgroup">${esc(r.label)}</th></tr>`
@@ -499,6 +499,7 @@
       if (e.target.closest('[data-act="proposal"]')) App.proposal.open();
       if (e.target.closest('[data-act="safety-open"]')) App.safety.open();
       if (e.target.closest('[data-act="booth-csv"]')) App.booths.exportCsv();
+      if (e.target.closest('#pane-summary [data-act="booth-number"]')) App.booths.numberDialog();
     });
     App.estimate.bind(pane);
     render();

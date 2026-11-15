@@ -807,7 +807,9 @@
     // 늘어놓은 것이 화면 밖으로 나갔으면 다 보이게 맞춤
     const nb = App.doc.bounds(all), vr = App.plan.view.worldRect(App.plan.width, App.plan.height);
     if (nb && (nb.minX < vr.minX || nb.maxX > vr.maxX || nb.minY < vr.minY || nb.maxY > vr.maxY)) App.plan.fitToContent();
-    toast(rows > 1 ? `${rows}줄 × ${n}개 = ${rows * n}개를 놓았습니다 (줄 사이 ${App.units.formatLength(rowStep)}).` : `${n}개를 ${App.units.formatLength(step)} 간격으로 늘어놓았습니다.`);
+    // 여럿을 골라 늘어놓으면 묶음째 복제되므로 실제로 놓인 수를 알림, 줄 사이는 넣은 틈(통로) 그대로
+    const placed = all.length, unit = src.length > 1 ? ` (고른 ${src.length}개씩)` : '';
+    toast(rows > 1 ? `${rows}줄 × ${n}${src.length > 1 ? '묶음' : '개'} = ${placed.toLocaleString('ko-KR')}개를 놓았습니다${unit} (줄 사이 틈 ${App.units.formatLength(rowGap)}).` : `${n}${src.length > 1 ? '묶음' : '개'}(${placed.toLocaleString('ko-KR')}개)를 ${App.units.formatLength(step)} 간격으로 늘어놓았습니다.`);
   }
 
   function closeToolMenu() {

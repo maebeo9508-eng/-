@@ -708,7 +708,7 @@
       ${numbers.length ? `<div class="field-grid">${numbers.map(([key, o]) => intField(key, o)).join('')}</div>` : ''}
       ${kind === '의자 배열' ? '<p class="props-meta">총 의자 수를 넣으면 줄 수가 맞춰지고, 모자라는 자리는 맨 뒷줄에서 빠집니다. 의자는 기호의 아래쪽(앞)을 보고 앉습니다. 놓을 때 가까운 무대 쪽을 보게 돌려 놓습니다.</p>' : ''}
       ${kind === '의자 배열' ? seatNoFields() : ''}
-      ${event && els.every((e) => App.booths && App.booths.isBooth(e)) ? boothFields() : ''}
+      ${event && App.booths && els.some((e) => App.booths.isBooth(e)) ? boothFields() : ''}
       ${'size' in auto ? '' : sizeRows(def)}
       ${event && def && !def.flat && !('h3' in auto) ? `<div class="field-grid">${numberField('h3')}</div>` : ''}
       ${!event && def && def.face ? `<div class="field-grid">${numberField('h3', '그림 높이')}${numberField('height', '걸리는 높이 (가운데)')}</div>` : ''}
@@ -743,12 +743,15 @@
 
   /** 부스 배정: 번호·업체 (여럿이면 번호는 ‘번호 매기기’로), 배정표 CSV */
   function boothFields() {
-    const single = els.length === 1;
+    // 섞어 고른 경우(소화기·가로등 등과 함께)에도 부스만 다룸
+    const booths = els.filter((e) => App.booths.isBooth(e));
+    const single = booths.length === 1;
+    const commonEx = booths.every((e) => (e.exhibitor || '') === (booths[0].exhibitor || '')) ? booths[0].exhibitor || '' : null;
     return `
-      <div class="field-group-label">부스 배정</div>
+      <div class="field-group-label">부스 배정${booths.length < els.length ? ` <small>고른 것 중 부스 ${booths.length}개</small>` : ''}</div>
       <div class="field-grid">
-        <div class="field"><label class="field-label" for="f-boothNo">부스 번호</label><div class="field-box"><input id="f-boothNo" type="text" maxlength="12" autocomplete="off" ${single ? `value="${esc(els[0].boothNo || '')}" placeholder="예: A-1"` : 'disabled placeholder="여러 개: 번호 매기기"'}></div></div>
-        <div class="field"><label class="field-label" for="f-exhibitor">업체·이름</label><div class="field-box"><input id="f-exhibitor" type="text" maxlength="30" autocomplete="off" value="${esc(commonText((e) => e.exhibitor || '') || '')}" placeholder="${commonText((e) => e.exhibitor || '') === null ? '여러 값' : '예: 한빛상회'}"></div></div>
+        <div class="field"><label class="field-label" for="f-boothNo">부스 번호</label><div class="field-box"><input id="f-boothNo" type="text" maxlength="12" autocomplete="off" ${single ? `value="${esc(booths[0].boothNo || '')}" placeholder="예: A-1"` : 'disabled placeholder="여러 개: 번호 매기기"'}></div></div>
+        <div class="field"><label class="field-label" for="f-exhibitor">업체·이름</label><div class="field-box"><input id="f-exhibitor" type="text" maxlength="30" autocomplete="off" value="${esc(commonEx || '')}" placeholder="${commonEx === null ? '여러 값' : '예: 한빛상회'}"></div></div>
       </div>
       <div class="btn-row"><button type="button" class="btn" data-act="booth-number">번호 매기기…</button><button type="button" class="btn" data-act="booth-csv">배정표 CSV</button></div>`;
   }
@@ -1232,6 +1235,8 @@
             kind: def.kind, size: def.size, gang: null, variant: null, circuits: null, h3: null, style: null, ...App.catalog.itemDefaults(def),
             ...(def.depth ? { depth: def.depth } : {}),
             ...(def.wall ? {} : { wallId: null, t: null, side: null }),
+            // 부스가 아닌 종류로 바꾸면 부스 번호·업체도 지움 (배정표에서 빠진 채 이름표만 남지 않게)
+            ...(App.booths && App.booths.KINDS.has(def.kind) ? {} : { boothNo: null, exhibitor: null }),
           }));
         }
         return;
@@ -1286,8 +1291,8 @@
         return;
       }
       if (id === 'f-seatNo') { apply('좌석 번호', () => ({ seatNo: t.checked })); return; }
-      if (id === 'f-boothNo') { apply('부스 번호', () => ({ boothNo: t.value.trim() })); return; }
-      if (id === 'f-exhibitor') { apply('업체·이름', () => ({ exhibitor: t.value.trim() })); return; }
+      if (id === 'f-boothNo') { apply('부스 번호', (e) => (App.booths.isBooth(e) ? { boothNo: t.value.trim() } : {})); return; }
+      if (id === 'f-exhibitor') { apply('업체·이름', (e) => (App.booths.isBooth(e) ? { exhibitor: t.value.trim() } : {})); return; }
       if (id === 'f-seatFrom') { if (t.value) apply('좌석 번호 방향', () => ({ seatFrom: t.value })); return; }
       if (id === 'f-seatRow0') {
         const v = t.value.trim().toUpperCase();

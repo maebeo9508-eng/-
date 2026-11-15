@@ -1638,35 +1638,57 @@
     ctx.font = '600 11px system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
-    items.forEach((it) => {
-      if (it.category !== 'event' || it.depth == null) return;
-      const booth = it.boothNo || it.exhibitor ? [it.boothNo, it.exhibitor].filter(Boolean).join(' ') : ''; // 부스 번호·업체
-      if (Math.max(it.size, it.depth) * scale < (booth ? 22 : 58)) return; // 부스 번호는 작아도 보이게
-      const s = plan.view.toScreen(it.x, it.y);
-      const y = s.y + T.extent(it, { x: 0, y: 1 }) * scale + 4;
-      const seats = App.catalog.seats(it);
-      let lines = [booth || `${it.kind}${seats && it.kind !== '의자' ? ` ${seats.count}석` : ''}`];
-      if (booth && it.boothNo && it.exhibitor) {
-        // 칸보다 글자가 길면 두 줄(번호 / 업체), 업체는 칸 폭에 맞게 줄임 (나란한 부스 이름이 겹치지 않게)
-        const a = ((it.rotation || 0) * Math.PI) / 180;
-        const wpx = (Math.abs(Math.cos(a)) * it.size + Math.abs(Math.sin(a)) * it.depth) * scale;
-        if (ctx.measureText(booth).width > wpx + 6) {
-          const max = Math.max(wpx + 6, 34);
-          let ex = it.exhibitor;
-          if (ctx.measureText(ex).width > max) {
-            while (ex.length > 1 && ctx.measureText(`${ex}…`).width > max) ex = ex.slice(0, -1);
-            ex += '…';
-          }
-          lines = [it.boothNo, ex];
-        }
-      }
+    const LH = 13;
+    // 이미 놓인 글자 자리 (동선 이름표 + 앞서 놓은 부스 이름표): 부스 이름표는 겹치면 다른 자리로, 그래도 겹치면 줄이거나 뺌
+    const placed = (plan.labelBoxes || []).slice();
+    const hits = (b) => placed.some((q) => b.x0 < q.x1 && q.x0 < b.x1 && b.y0 < q.y1 && q.y0 < b.y1);
+    const boxOf = (x, y, lines) => {
+      const w = Math.max(...lines.map((t) => ctx.measureText(t).width)) / 2 + 2;
+      return { x0: x - w, x1: x + w, y0: y - 1, y1: y + lines.length * LH };
+    };
+    const draw = (x, y, lines, it) => {
       ctx.lineWidth = 3;
       ctx.strokeStyle = plan.colors.canvasBg;
       ctx.fillStyle = App.selection.has(it.id) ? plan.colors.accent : plan.colors.label || plan.colors.fg;
-      lines.forEach((t, i) => {
-        ctx.strokeText(t, s.x, y + i * 13);
-        ctx.fillText(t, s.x, y + i * 13);
-      });
+      lines.forEach((t, i) => { ctx.strokeText(t, x, y + i * LH); ctx.fillText(t, x, y + i * LH); });
+    };
+    const fit = (text, max) => {
+      if (ctx.measureText(text).width <= max) return text;
+      let t = text;
+      while (t.length > 1 && ctx.measureText(`${t}…`).width > max) t = t.slice(0, -1);
+      return `${t}…`;
+    };
+    items.forEach((it) => {
+      if (it.category !== 'event' || it.depth == null) return;
+      const isBooth = App.booths && App.booths.isBooth(it);
+      const booth = isBooth && (it.boothNo || it.exhibitor) ? [it.boothNo, it.exhibitor].filter(Boolean).join(' ') : ''; // 부스 번호·업체
+      if (Math.max(it.size, it.depth) * scale < (booth ? 22 : 58)) return; // 부스 번호는 작아도 보이게
+      const s = plan.view.toScreen(it.x, it.y);
+      if (!booth) {
+        const seats = App.catalog.seats(it);
+        draw(s.x, s.y + T.extent(it, { x: 0, y: 1 }) * scale + 4, [`${it.kind}${seats && it.kind !== '의자' ? ` ${seats.count}석` : ''}`], it);
+        return;
+      }
+      // 부스: 칸 폭(화면)에 맞춰 한 줄 또는 두 줄(번호 / 업체), 업체는 칸 폭에 맞게 줄임
+      const a = ((it.rotation || 0) * Math.PI) / 180;
+      const wpx = (Math.abs(Math.cos(a)) * it.size + Math.abs(Math.sin(a)) * it.depth) * scale;
+      const hpx = T.extent(it, { x: 0, y: 1 }) * scale * 2;
+      const max = Math.max(wpx - 2, 26);
+      let lines = [booth];
+      if (ctx.measureText(booth).width > max && it.boothNo && it.exhibitor) lines = wpx >= 40 ? [it.boothNo, fit(it.exhibitor, max)] : [it.boothNo];
+      // 자리 후보: 앞쪽(돌린 방향, 통로 쪽) → 칸 안(들어가면) → 뒤쪽
+      const front = Math.cos(a) >= 0 ? 1 : -1; // 앞이 화면 아래(+y)면 1
+      const below = s.y + (hpx / 2) + 4, above = (n) => s.y - (hpx / 2) - 4 - n * LH;
+      const inside = (n) => s.y - (n * LH) / 2;
+      const spots = (n) => [front > 0 ? below : above(n), ...(hpx >= n * LH + 6 && wpx >= 30 ? [inside(n)] : []), front > 0 ? above(n) : below];
+      let done = false;
+      for (const cand of [lines, lines.length > 1 ? [lines[0]] : null].filter(Boolean)) {
+        for (const y of spots(cand.length)) {
+          const b = boxOf(s.x, y, cand);
+          if (!hits(b)) { placed.push(b); draw(s.x, y, cand, it); done = true; break; }
+        }
+        if (done) break;
+      }
     });
   }
 
@@ -1752,6 +1774,7 @@
   /** 동선 이름·길이·걸리는 시간, 걸리는 곳 표시(!). 화면 좌표 */
   function drawRouteLabels(plan, routes) {
     const ctx = plan.ctx;
+    plan.labelBoxes = [];
     const R = App.routes, U = App.units;
     const placed = []; // 이미 놓은 이름표 자리 (겹치면 아래로 밀어 냄)
     routes.forEach((r) => {
@@ -1770,6 +1793,8 @@
         let y = s.y + n.y * off;
         for (let k = 0; k < 6 && placed.some((q) => Math.abs(q.x - x) < q.w + tw && Math.abs(q.y - y) < 18); k++) y += 19;
         placed.push({ x, y, w: tw });
+        plan.labelBoxes = plan.labelBoxes || [];
+        plan.labelBoxes.push({ x0: x - tw, x1: x + tw, y0: y - 9, y1: y + 9 }); // 부스 이름표가 피해 가게
         ctx.lineWidth = 3.5;
         ctx.strokeStyle = plan.colors.canvasBg;
         ctx.strokeText(text, x, y);

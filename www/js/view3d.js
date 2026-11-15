@@ -148,7 +148,8 @@
         add(e.name, X(c.x), 0.3, Z(c.y), e.color || '#2f9e44', '#ffffff');
       } else if (e.type === 'item' && e.category === 'event') {
         const memo = String(e.memo || '').trim();
-        const text = memo && memo.length <= 14 ? memo : e.boothNo ? `${e.boothNo}${e.exhibitor ? ` ${e.exhibitor}` : ''}` : LANDMARK[e.kind];
+        const booth = App.booths && App.booths.isBooth(e) && e.boothNo; // 부스 종류만 (종류를 바꾼 물건의 옛 번호는 안 띄움)
+        const text = memo && memo.length <= 14 ? memo : booth ? `${e.boothNo}${e.exhibitor ? ` ${e.exhibitor}` : ''}` : LANDMARK[e.kind];
         if (!text) return;
         const def = App.catalog.itemDef(e.kind) || {};
         const h = ((e.h3 || def.h3 || 1500) / 1000) + ((baseY && baseY.get(e.id)) || 0) + 0.5;

@@ -8,23 +8,56 @@
 
   const KINDS = new Set(['부스', '몽골텐트', '돔 텐트', '푸드트럭', '컨테이너']); // 파는 칸이 되는 것 (테이블·파라솔은 앉는 자리라 뺌)
   const isBooth = (e) => !!e && e.type === 'item' && e.category === 'event' && KINDS.has(e.kind);
-  const all = () => [...App.doc.all()].filter((e) => isBooth(e) && App.layers.visible(e));
+  // 숨긴 레이어: 집계와 같은 규칙 (‘숨긴 레이어는 집계에서도 빼기’를 켰을 때만 뺌)
+  const all = () => { const ex = App.layers.excludeHidden(); return [...App.doc.all()].filter((e) => isBooth(e) && (!ex || App.layers.visible(e))); };
   /** 사람이 읽는 순서로: A-2가 A-10보다 앞 */
   const natural = (a, b) => String(a).localeCompare(String(b), 'ko', { numeric: true });
   const label = (e) => [e.boothNo, e.exhibitor].filter(Boolean).join(' ');
 
-  /** 줄로 묶어 순서 매기기: rows=true면 가로줄(위→아래, 줄 안에서 왼→오), 아니면 세로줄 */
-  function order(list, rows = true) {
-    const key = rows ? 'y' : 'x', other = rows ? 'x' : 'y';
-    const sorted = [...list].sort((a, b) => a[key] - b[key]);
+  /** 줄로 묶기: rows=true면 가로줄(위→아래, 줄 안에서 왼→오), 아니면 세로줄. 돌려주는 값: [[부스…], …] (줄 순서)
+      줄은 물건이 그 방향으로 차지하는 폭이 절반 넘게 겹치는 것끼리 (맞붙은 두 줄은 따로, 앞선을 맞춘 큰 텐트는 같은 줄) */
+  function rowsOf(list, rows = true) {
+    const key = rows ? 'y' : 'x', other = rows ? 'x' : 'y', dir = rows ? { x: 0, y: 1 } : { x: 1, y: 0 };
+    const T = App.model.TYPES.item;
+    const span = (e) => { const h = Math.max(1, T.extent(e, dir)); return [e[key] - h, e[key] + h]; };
     const groups = [];
-    sorted.forEach((e) => {
-      const d = Math.max(e.size || 1000, e.depth || e.size || 1000);
-      const g = groups.find((x) => Math.abs(x.at - e[key]) <= d * 0.5);
-      if (g) { g.list.push(e); g.at = (g.at * (g.list.length - 1) + e[key]) / g.list.length; } else groups.push({ at: e[key], list: [e] });
+    [...list].sort((a, b) => a[key] - b[key]).forEach((e) => {
+      const [lo, hi] = span(e), len = hi - lo;
+      let best = null, bestR = 0;
+      groups.forEach((g) => {
+        const ov = Math.min(hi, g.hi) - Math.max(lo, g.lo);
+        const r = ov / Math.min(len, g.minLen);
+        if (r > bestR) { bestR = r; best = g; }
+      });
+      if (best && bestR >= 0.5) {
+        best.list.push(e);
+        best.lo = Math.min(best.lo, lo); best.hi = Math.max(best.hi, hi); best.minLen = Math.min(best.minLen, len);
+      } else groups.push({ lo, hi, minLen: len, list: [e] });
     });
-    groups.sort((a, b) => a.at - b.at);
-    return groups.flatMap((g) => g.list.sort((a, b) => a[other] - b[other]));
+    return groups
+      .map((g) => ({ at: g.list.reduce((t, e) => t + e[key], 0) / g.list.length, list: g.list.sort((a, b) => a[other] - b[other]) }))
+      .sort((a, b) => a.at - b.at)
+      .map((g) => g.list);
+  }
+  const order = (list, rows = true) => rowsOf(list, rows).flat();
+
+  const HANGUL = ['가', '나', '다', '라', '마', '바', '사', '아', '자', '차', '카', '타', '파', '하'];
+  /** 줄마다 바뀌는 앞 글자: A → B … Z → AA → AB, 가 → 나 … 하 → 가2, 그 밖의 앞 글자는 뒤에 줄 번호 (겹치는 번호가 나오지 않게) */
+  function rowPrefix(prefix, i) {
+    const p = (prefix || 'A').trim() || 'A';
+    if (/^[A-Za-z]+$/.test(p)) {
+      // 엑셀 열 이름처럼: 앞 글자를 수로 바꿔 i만큼 더함
+      const up = p.toUpperCase();
+      let n = 0;
+      for (const ch of up) n = n * 26 + (ch.charCodeAt(0) - 64);
+      n += i;
+      let out = '';
+      while (n > 0) { const r = (n - 1) % 26; out = String.fromCharCode(65 + r) + out; n = Math.floor((n - 1) / 26); }
+      return out;
+    }
+    const h = HANGUL.indexOf(p);
+    if (h >= 0) { const k = h + i; return `${HANGUL[k % HANGUL.length]}${k >= HANGUL.length ? Math.floor(k / HANGUL.length) + 1 : ''}`; }
+    return `${p}${i + 1}`;
   }
   /** 번호 매기기. o: { prefix, start, rows, perRowLetter(줄마다 글자 바꿈) }. 돌려주는 값: 매긴 개수 */
   function number(ids, o = {}) {
@@ -32,23 +65,16 @@
     if (!list.length) return 0;
     const prefix = o.prefix == null ? 'A' : String(o.prefix).trim();
     const start = Math.max(0, Math.round(Number(o.start) || 1));
-    const ordered = order(list, o.rows !== false);
+    const groups = rowsOf(list, o.rows !== false);
     App.doc.transact('부스 번호', () => {
       if (o.perRowLetter) {
-        // 줄마다 A, B, C … (줄 안 번호는 1부터)
-        const key = o.rows !== false ? 'y' : 'x';
-        let letter = (prefix || 'A').toUpperCase().charCodeAt(0), n = start, last = null;
-        ordered.forEach((e) => {
-          const d = Math.max(e.size || 1000, e.depth || e.size || 1000);
-          if (last != null && Math.abs(e[key] - last) > d * 0.5) { letter = Math.min(90, letter + 1); n = start; }
-          last = e[key];
-          App.doc.update(e.id, { boothNo: `${String.fromCharCode(letter)}-${n++}` });
-        });
+        // 줄마다 A, B, C … (줄 안 번호는 첫 번호부터)
+        groups.forEach((g, gi) => g.forEach((e, i) => App.doc.update(e.id, { boothNo: `${rowPrefix(prefix, gi)}-${start + i}` })));
       } else {
-        ordered.forEach((e, i) => App.doc.update(e.id, { boothNo: prefix ? `${prefix}-${start + i}` : String(start + i) }));
+        groups.flat().forEach((e, i) => App.doc.update(e.id, { boothNo: prefix ? `${prefix}-${start + i}` : String(start + i) }));
       }
     });
-    return ordered.length;
+    return list.length;
   }
 
   async function numberDialog() {
@@ -105,17 +131,21 @@
   function block() {
     if (!App.modes.is('event')) return null;
     const list = all();
+    if (!list.length) return null;
     const numbered = list.filter((e) => e.boothNo).sort((a, b) => natural(a.boothNo, b.boothNo));
-    if (!numbered.length) return null;
+    if (!numbered.length) {
+      // 아직 번호가 없으면: 아무것도 고르지 않고도 번호를 매길 수 있게
+      return { title: '부스 배정', sub: `부스 ${list.length}개 · 번호 없음`, action: { act: 'booth-number', label: '번호 매기기' }, rows: [{ label: '번호를 매기면', value: { text: '배정표·업체 입력', num: null, unit: '' }, note: '부스·몽골텐트·푸드트럭 등', cls: 'sub', cat: '부스 배정' }] };
+    }
     const filled = numbered.filter((e) => e.exhibitor).length;
     const row = (lbl, text, note = '', cls = '') => ({ label: lbl, value: { text, num: null, unit: '' }, note, cls, cat: '부스 배정' });
     return {
       title: '부스 배정', sub: `번호 ${numbered.length}개 · 업체 ${filled}곳 · 빈 부스 ${numbered.length - filled}개`,
-      action: { act: 'booth-csv', label: '배정표 CSV' },
+      action: { act: 'booth-csv', label: '배정표 CSV' }, action2: { act: 'booth-number', label: '번호 매기기' },
       rows: numbered.slice(0, 80).map((e) => row(e.boothNo, e.exhibitor || '비어 있음', e.kind, e.exhibitor ? 'item' : 'sub'))
         .concat(numbered.length > 80 ? [row('…', `외 ${numbered.length - 80}개`, '배정표 CSV에 모두 있음')] : []),
     };
   }
 
-  App.booths = { KINDS, isBooth, all, label, order, number, numberDialog, csvRows, exportCsv, block };
+  App.booths = { KINDS, isBooth, all, label, order, rowsOf, rowPrefix, number, numberDialog, csvRows, exportCsv, block };
 })();
