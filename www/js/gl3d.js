@@ -68,7 +68,9 @@
   /* ── 재질 번호 (셰이더와 같아야 함) ── */
   const MAT = {
     plain: 0, grass: 1, asphalt: 2, paver: 3, wood: 4, fabric: 5, tile: 6, concrete: 7, water: 8, emissive: 9,
-    soil: 10, stone: 11, brick: 12, foliage: 13, metal: 14, window: 15, gloss: 16, canvas: 17, glass: 18, grain: 19, blob: 20, pool: 21, turf: 22, track: 23, sand: 24,
+    soil: 10, stone: 11, brick: 12, foliage: 13, metal: 14, window: 15, gloss: 16, canvas: 17, glass: 18, grain: 19, blob: 20, pool: 21, turf: 22, track: 23, sand: 24, marble: 25, chevron: 26,
+    // 같은 재질의 다른 크기: 나무 널 wood+0.25 데코타일, wood+0.4 넓은 널 / 타일 tile+0.25 300각, tile+0.4 800각
+    deco: 4.25, wideWood: 4.4, tileSmall: 6.25, tileLarge: 6.4,
   };
 
   const hexCache = new Map();
@@ -438,8 +440,8 @@
         base *= mix(1.0, 0.8 + 0.36 * hash(floor(q)), d);
         base *= 1.0 - 0.42 * joint(fract(q), size, 0.006, foot) * d;
         base *= 0.96 + 0.1 * (noise(p * 120.0) - 0.5) * det(0.008, foot);
-      } else if (m < 4.5) { // 나무 널 (폭 120, 길이 1200)
-        vec2 size = vec2(1.2, 0.12);
+      } else if (m < 4.5) { // 나무 널 (폭 120, 길이 1200) · 데코타일 (150×900) · 넓은 널 (200×1800)
+        vec2 size = m > 4.3 ? vec2(1.8, 0.2) : m > 4.15 ? vec2(0.9, 0.15) : vec2(1.2, 0.12);
         vec2 q = p / size;
         q.x += hash(vec2(floor(q.y), 3.0));
         float d = det(0.12, foot);
@@ -449,8 +451,9 @@
         spec = 0.1; shin = 30.0;
       } else if (m < 5.5) { // 천·카펫
         base *= 0.93 + 0.14 * (noise(p * 380.0) - 0.5) * det(0.0026, foot) + 0.08 * (noise(p * 2.2) - 0.5);
-      } else if (m < 6.5) { // 타일 (600 각)
-        vec2 size = vec2(0.6, 0.6);
+      } else if (m < 6.5) { // 타일 (600 각 · 300 각 · 800 각)
+        float ts = m > 6.3 ? 0.8 : m > 6.15 ? 0.3 : 0.6;
+        vec2 size = vec2(ts, ts);
         vec2 q = p / size;
         float d = det(0.3, foot);
         base *= mix(1.0, 0.95 + 0.1 * hash(floor(q)), d);
@@ -507,8 +510,26 @@
         base *= (0.93 + 0.12 * stripe) * (0.95 + 0.1 * (noise(p * 30.0) - 0.5) * det(0.03, foot) + 0.25 * (noise(p * 160.0) - 0.5) * det(0.006, foot));
       } else if (m < 23.5) { // 우레탄 트랙·코트 바닥
         base *= 0.94 + 0.14 * (noise(p * 220.0) - 0.5) * det(0.0045, foot) + 0.06 * (noise(p * 1.1) - 0.5);
-      } else { // 모래
+      } else if (m < 24.5) { // 모래
         base *= 0.94 + 0.1 * (noise(p * 0.5) - 0.5) + 0.2 * (noise(p * 90.0) - 0.5) * det(0.011, foot) + 0.12 * (noise(vec2(p.x * 3.0 + noise(p * 0.8) * 2.0, p.y * 0.6)) - 0.5) * det(0.3, foot);
+      } else if (m < 25.5) { // 대리석: 흐르는 무늬결 + 600각 줄눈, 광택
+        vec2 q = p / 0.6;
+        float d = det(0.25, foot);
+        float vein = abs(sin((p.x * 0.8 + p.y * 0.5) * 3.2 + noise(p * 1.3 + floor(q) * 7.0) * 5.0));
+        base *= 0.97 + 0.06 * (noise(p * 0.9 + floor(q) * 3.0) - 0.5);
+        base *= 1.0 - 0.28 * pow(1.0 - vein, 14.0) * det(0.015, foot);
+        base = mix(base, base * 0.8, joint(fract(q), vec2(0.6), 0.002, foot) * d);
+        spec = 0.42; shin = 90.0;
+      } else { // 쉐브론(V자) 마루: 기둥마다 비스듬히 엇갈린 널
+        float cw = 0.34, col = floor(p.x / cw), fx = fract(p.x / cw);
+        float dir = mod(col, 2.0) * 2.0 - 1.0;
+        float t = (p.y + dir * fx * cw) / 0.095;
+        float d = det(0.1, foot);
+        base *= mix(1.0, 0.9 + 0.18 * hash(vec2(col, floor(t))), d);
+        base *= 1.0 + 0.08 * (noise(vec2(fx * 6.0, t * 40.0) + col * 13.0) - 0.5) * det(0.012, foot);
+        float jt = min(fract(t), 1.0 - fract(t)) * 0.095, jc = min(fx, 1.0 - fx) * cw;
+        base *= 1.0 - 0.28 * (1.0 - smoothstep(0.0012, 0.0012 + foot + 0.0004, min(jt, jc))) * d;
+        spec = 0.12; shin = 32.0;
       }
       vec3 col;
       if (glow > 0.5) {

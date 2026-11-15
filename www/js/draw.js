@@ -766,6 +766,7 @@
         seg(W - m * 0.28, fold, W, fold + m * 0.28);
         return true;
       }
+      case '안락의자':
       case '소파': {
         outline();
         const br = h * 0.25, aw = Math.min(w * 0.12, h * 0.28);
@@ -791,7 +792,7 @@
         box(); back(); lw(1.3); ctx.stroke();
         return true;
       }
-      case '의자':
+      case '식탁 의자':
         rect(-W, -H + h * 0.12, w, h * 0.88, m * 0.12); back(); lw(1.3); ctx.stroke();
         rect(-W, -H, w, h * 0.22, m * 0.1); back(); ctx.stroke();
         return true;
@@ -876,6 +877,129 @@
         seg(-W, H - h * 0.12, W, H - h * 0.12);
         return true;
       }
+      // ── 2.2 가구
+      case 'L자 소파': {
+        const sd = h * 0.6, cw = w * 0.36, br = h * 0.14, aw = w * 0.07;
+        ctx.beginPath();
+        ctx.moveTo(-W, -H); ctx.lineTo(W, -H); ctx.lineTo(W, H); ctx.lineTo(W - cw, H); ctx.lineTo(W - cw, -H + sd); ctx.lineTo(-W, -H + sd); ctx.closePath();
+        back(); lw(1.3); ctx.stroke(); lw(0.9);
+        rect(-W, -H, w, br); ctx.stroke();
+        rect(-W, -H + br, aw, sd - br); ctx.stroke();
+        const span = w - aw - cw, n = Math.max(1, Math.round(span / (h * 0.45)));
+        for (let i = 1; i < n; i++) { const x = -W + aw + (span * i) / n; seg(x, -H + br, x, -H + sd); }
+        seg(W - cw, -H + br, W - cw, -H + sd);
+        return true;
+      }
+      case '거실 테이블':
+        rect(-W, -H, w, h, m * 0.12); back(); lw(1.3); ctx.stroke();
+        lw(0.9); rect(-W + m * 0.12, -H + m * 0.12, w - m * 0.24, h - m * 0.24, m * 0.06); ctx.stroke();
+        return true;
+      case '책장': {
+        outline();
+        const n = Math.max(2, Math.round(w / (h * 1.5)));
+        for (let i = 1; i < n; i++) { const x = -W + (w * i) / n; seg(x, -H, x, H); }
+        seg(-W, H - h * 0.18, W, H - h * 0.18);
+        return true;
+      }
+      case '피아노': {
+        const body = h * 0.62;
+        rect(-W, -H, w, body); back(); lw(1.3); ctx.stroke(); lw(0.9);
+        rect(-W + w * 0.04, -H + body * 0.58, w * 0.92, body * 0.38); ctx.stroke();
+        const keys = Math.max(6, Math.round(w / (m * 0.09)));
+        for (let i = 1; i < keys; i++) { const x = -W + w * 0.04 + (w * 0.92 * i) / keys; seg(x, -H + body * 0.58, x, -H + body * 0.8); }
+        rect(-w * 0.24, -H + body + (h - body) * 0.25, w * 0.48, (h - body) * 0.5); back(); ctx.stroke();
+        return true;
+      }
+      case '협탁':
+        outline();
+        ellipse(0, -h * 0.05, m * 0.24, m * 0.24); ctx.stroke();
+        ellipse(0, -h * 0.05, m * 0.06, m * 0.06); ctx.fill();
+        return true;
+      case '화장대': {
+        const td = h * 0.56;
+        rect(-W, -H, w, td); back(); lw(1.3); ctx.stroke(); lw(0.9);
+        rect(-w * 0.3, -H, w * 0.6, Math.max(h * 0.05, m * 0.04)); ctx.fill();
+        rect(-W, -H, w * 0.35, td); ctx.stroke();
+        ellipse(0, -H + td + (h - td) * 0.5, Math.min(w, h - td) * 0.22, Math.min(w, h - td) * 0.22); back(); ctx.stroke();
+        return true;
+      }
+      case '아일랜드 식탁': {
+        const top = h * 0.69;
+        rect(-W, -H, w, top); back(); lw(1.3); ctx.stroke(); lw(0.9);
+        ctx.setLineDash([m * 0.04, m * 0.03]); rect(-W + w * 0.01, -H, w * 0.98, top * 0.7); ctx.stroke(); ctx.setLineDash([]);
+        const n = Math.max(2, Math.round(w / (h * 0.42))), r = Math.min((w / n) * 0.3, (h - top) * 0.42);
+        for (let i = 0; i < n; i++) { ellipse(-W + ((i + 0.5) * w) / n, -H + top + (h - top) * 0.5, r, r); back(); ctx.stroke(); }
+        return true;
+      }
+      case '바 테이블': {
+        const r = Math.min(h * 0.5, w * 0.2), sr = Math.min(h * 0.3, w * 0.14);
+        ellipse(0, 0, r, r); back(); lw(1.3); ctx.stroke(); lw(0.9);
+        [-1, 1].forEach((sd) => { ellipse(sd * (W - sr * 1.2), 0, sr, sr); back(); ctx.stroke(); });
+        return true;
+      }
+      case '사무용 의자': {
+        lw(0.9);
+        for (let i = 0; i < 5; i++) { const a = (i / 5) * Math.PI * 2 + 0.3; seg(0, 0, Math.cos(a) * W * 0.95, Math.sin(a) * H * 0.95); }
+        rect(-W * 0.78, -H * 0.62, w * 0.78, h * 0.84, m * 0.12); back(); lw(1.3); ctx.stroke();
+        rect(-W * 0.72, -H, w * 0.72, h * 0.16, m * 0.06); back(); ctx.stroke();
+        return true;
+      }
+      case '회의 테이블': {
+        const n = Math.max(2, Math.round(w / (h * 0.68))), cs = Math.min((w / n) * 0.55, h * 0.42);
+        const chair = (x, y, rot) => {
+          ctx.save(); ctx.translate(x, y); ctx.rotate(rot);
+          rect(-cs / 2, -cs / 2, cs, cs, cs * 0.2); back(); lw(0.9); ctx.stroke();
+          seg(-cs * 0.4, -cs * 0.38, cs * 0.4, -cs * 0.38);
+          ctx.restore();
+        };
+        for (let i = 0; i < n; i++) {
+          const x = -W + ((i + 0.5) * w) / n;
+          chair(x, -H - cs * 0.45, 0);
+          chair(x, H + cs * 0.45, Math.PI);
+        }
+        if (w >= h * 2.1) { chair(-W - cs * 0.45, 0, -Math.PI / 2); chair(W + cs * 0.45, 0, Math.PI / 2); }
+        rect(-W, -H, w, h, m * 0.15); back(); lw(1.3); ctx.stroke();
+        return true;
+      }
+      case '파티션':
+        box(); ctx.fill();
+        return true;
+      case '서류 캐비닛':
+        outline();
+        seg(-W, H - h * 0.14, W, H - h * 0.14);
+        for (const k of [-0.25, 0.25]) seg(k * w - w * 0.08, H - h * 0.07, k * w + w * 0.08, H - h * 0.07);
+        return true;
+      case '카운터':
+        outline();
+        seg(-W, H - h * 0.12, W, H - h * 0.12);
+        rect(-W + w * 0.08, -H + h * 0.3, w * 0.16, h * 0.28); ctx.stroke();
+        return true;
+      case '진열장':
+        outline();
+        ctx.setLineDash([m * 0.08, m * 0.06]); seg(-W, H - h * 0.1, W, H - h * 0.1); ctx.setLineDash([]);
+        seg(0, H - h * 0.1, 0, H);
+        return true;
+      case '러그': {
+        box(); back(); lw(1.1); ctx.stroke(); lw(0.8);
+        const e = m * 0.1;
+        ctx.setLineDash([m * 0.05, m * 0.04]); rect(-W + e, -H + e, w - e * 2, h - e * 2); ctx.stroke(); ctx.setLineDash([]);
+        const step = Math.max(m * 0.06, 1e-3);
+        for (let x = -W; x <= W + 1e-6; x += step) { seg(x, -H, x, -H - m * 0.05); seg(x, H, x, H + m * 0.05); }
+        return true;
+      }
+      case '실내 화분': {
+        ellipse(0, 0, m * 0.3, m * 0.3); back(); lw(1.2); ctx.stroke(); lw(0.9);
+        for (let i = 0; i < 6; i++) {
+          const a = (i / 6) * Math.PI * 2 + 0.4;
+          ctx.beginPath(); ctx.ellipse(Math.cos(a) * m * 0.27, Math.sin(a) * m * 0.27, m * 0.2, m * 0.08, a, 0, Math.PI * 2); ctx.stroke();
+        }
+        return true;
+      }
+      case '스탠드 조명':
+        ctx.setLineDash([m * 0.08, m * 0.06]); ellipse(0, 0, m * 0.48, m * 0.48); ctx.stroke(); ctx.setLineDash([]);
+        lw(1.2); ellipse(0, 0, m * 0.34, m * 0.34); back(); ctx.stroke();
+        ellipse(0, 0, m * 0.1, m * 0.1); ctx.fill();
+        return true;
       default:
         return false;
     }
@@ -1283,9 +1407,9 @@
     }
   }
 
-  /** 조감도 물건은 3D 모형을 위에서 본 그림으로 (아직 못 만들었거나 꺼 두었으면 기호) */
-  const pictureOf = (plan, it) => (it.category === 'event' && it.depth != null && App.sprites && App.settings.planPictures !== false
-    ? App.sprites.top(it, plan.view.scale * plan.dpr) : null);
+  /** 조감도 물건·가구는 3D 모형을 위에서 본 그림으로 (아직 못 만들었거나 꺼 두었으면 기호). 벽에 거는 것은 기호 */
+  const pictureOf = (plan, it) => ((it.category === 'event' || it.category === 'furn') && it.depth != null && App.sprites && App.settings.planPictures !== false
+    && !(App.catalog.itemDef(it.kind) || {}).wall ? App.sprites.top(it, plan.view.scale * plan.dpr) : null);
 
   function itemShape(plan, it, color, alpha = 1) {
     const ctx = plan.ctx;
@@ -1297,6 +1421,14 @@
       ctx.translate(it.x, it.y);
       ctx.rotate((it.rotation * Math.PI) / 180);
       ctx.drawImage(pic.canvas, pic.x0, pic.z0, pic.w, pic.d);
+      if (it.category === 'furn' && !color) {
+        // 인테리어 가구: 도면처럼 보이게 자리 테두리를 옅게
+        ctx.globalAlpha = alpha * 0.35;
+        ctx.lineWidth = px;
+        ctx.strokeStyle = plan.colors.furn || '#6b4f2a';
+        ctx.strokeRect(-it.size / 2, -it.depth / 2, it.size, it.depth);
+        ctx.globalAlpha = alpha;
+      }
       if (color) {
         // 고름·가리킴: 자리 테두리
         ctx.globalAlpha = alpha * 0.1;
@@ -1635,6 +1767,58 @@
   }
 
   /** 방 바닥: 옅은 색. 선택은 주황, 경계를 못 찾은 방은 빨간 점선 */
+  /** 방 바닥 모양: 색을 깔고 무늬(마루 널·타일 줄눈·V자)를 그림. 줄 간격이 화면에서 너무 촘촘하면 무늬는 생략 */
+  const FLOOR_SIZE = { plank: [1200, 190], wide: [1800, 220], deco: [900, 150], tile: [600], 'tile-l': [800], 'tile-s': [300], marble: [600] };
+  function floorPattern(ctx, r, look, px) {
+    const b = App.model.TYPES.room.bounds(r);
+    ctx.save();
+    ctx.beginPath();
+    polygon(ctx, r.points);
+    ctx.clip();
+    ctx.globalAlpha = 0.78;
+    ctx.fillStyle = look.color;
+    ctx.fillRect(b.minX, b.minY, b.maxX - b.minX, b.maxY - b.minY);
+    const dark = parseInt(look.color.slice(1, 3), 16) + parseInt(look.color.slice(3, 5), 16) + parseInt(look.color.slice(5, 7), 16) < 330;
+    ctx.strokeStyle = dark ? 'rgba(255,255,255,0.32)' : 'rgba(60,45,30,0.26)';
+    ctx.globalAlpha = 1;
+    ctx.lineWidth = px;
+    ctx.beginPath();
+    const size = FLOOR_SIZE[look.pattern];
+    const longX = b.maxX - b.minX >= b.maxY - b.minY; // 마루는 방의 긴 쪽으로 깔림
+    // (u, v): 널의 길이 방향 u, 폭 방향 v
+    const line = (u0, v0, u1, v1) => { if (longX) { ctx.moveTo(u0, v0); ctx.lineTo(u1, v1); } else { ctx.moveTo(v0, u0); ctx.lineTo(v1, u1); } };
+    const [uMin, uMax, vMin, vMax] = longX ? [b.minX, b.maxX, b.minY, b.maxY] : [b.minY, b.maxY, b.minX, b.maxX];
+    if (look.pattern === 'plank' || look.pattern === 'wide' || look.pattern === 'deco') {
+      const [L, W] = size;
+      if (W / px >= 4) {
+        for (let v = Math.floor(vMin / W) * W, row = 0; v <= vMax; v += W, row++) {
+          line(uMin, v, uMax, v);
+          if (L / px < 6) continue;
+          const shift = (((Math.round(v / W) * 7919) % 5) / 5) * L;
+          for (let u = Math.floor((uMin - shift) / L) * L + shift; u <= uMax; u += L) line(u, v, u, v + W);
+        }
+      }
+    } else if (look.pattern === 'chevron') {
+      const cw = 340, t = 95;
+      if (cw / px >= 5) {
+        for (let u = Math.floor(uMin / cw) * cw; u <= uMax; u += cw) {
+          line(u, vMin, u, vMax);
+          if (t / px < 4) continue;
+          const dir = Math.round(u / cw) % 2 ? 1 : -1;
+          for (let v = Math.floor(vMin / t) * t - cw; v <= vMax + cw; v += t) line(u, v, u + cw, v + dir * cw);
+        }
+      }
+    } else if (size) {
+      const g = size[0];
+      if (g / px >= 5) {
+        for (let x = Math.floor(b.minX / g) * g; x <= b.maxX; x += g) { ctx.moveTo(x, b.minY); ctx.lineTo(x, b.maxY); }
+        for (let y = Math.floor(b.minY / g) * g; y <= b.maxY; y += g) { ctx.moveTo(b.minX, y); ctx.lineTo(b.maxX, y); }
+      }
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
   function drawRooms(plan, rooms, marks) {
     const ctx = plan.ctx;
     const c = plan.colors;
@@ -1642,11 +1826,13 @@
     rooms.forEach((r) => {
       const selected = App.selection.has(r.id);
       const marked = marks && marks.ids.has(r.id);
+      const look = !r.issue && App.catalog.floorLook(r);
+      if (look) floorPattern(ctx, r, look, px);
       ctx.beginPath();
       polygon(ctx, r.points);
       ctx.fillStyle = r.issue ? c.danger : selected || marked ? c.accent : c.roomFill;
       ctx.globalAlpha = r.issue ? 0.08 : selected ? 0.16 : marked ? 0.1 : 1;
-      ctx.fill();
+      if (!look || selected || marked) ctx.fill();
       ctx.globalAlpha = 1;
       if (selected || r.issue) {
         ctx.setLineDash(r.issue ? [6 * px, 4 * px] : []);

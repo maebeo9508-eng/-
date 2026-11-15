@@ -1,0 +1,39 @@
+# 아이폰 앱이 빌드되는지 GitHub의 맥에서 확인 (서명 없이 시뮬레이터용으로만 빌드, 설치 파일은 만들지 않음)
+# 실제 아이폰에 설치하는 법은 docs/IPHONE.md
+name: iOS 빌드 확인
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'ios/**'
+      - 'www/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'capacitor.config.json'
+      - '.github/workflows/ios-build.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: 패키지 설치
+        run: npm ci
+      - name: 웹 파일을 앱으로 복사
+        run: npx cap sync ios
+      - name: 시뮬레이터용 빌드 (서명 없음)
+        shell: bash
+        run: |
+          xcodebuild -version
+          xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO build | tail -n 60

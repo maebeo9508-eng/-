@@ -4,6 +4,16 @@
   'use strict';
   const App = (window.App = window.App || {});
 
+  /** 어떤 기기·어떤 방식으로 열었는지 (아이폰 사파리·홈 화면 앱·안드로이드/아이폰 앱) */
+  App.platform = {
+    /** 아이폰·아이패드 (새 아이패드는 맥처럼 보이지만 터치가 됨) */
+    get ios() { return /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); },
+    /** 홈 화면에 추가해서 연 웹앱 */
+    get standalone() { return navigator.standalone === true || (window.matchMedia && matchMedia('(display-mode: standalone)').matches); },
+    /** Capacitor로 감싼 앱 (안드로이드 APK, 아이폰 앱) */
+    get native() { const C = window.Capacitor; return !!(C && C.isNativePlatform && C.isNativePlatform()); },
+  };
+
   const PREFIX = 'hjdm.';           // 현장도면
   const KEY_SETTINGS = `${PREFIX}settings`;
 

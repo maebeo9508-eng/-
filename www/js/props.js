@@ -387,8 +387,8 @@
   }
 
   /** 색 고르기: 목록 + 다른 색(색상판). cur: 지금 색('' 기본) 또는 null(여러 값) */
-  function colorField(id, label, cur, base = '기본 색') {
-    const list = [['', base], ...App.catalog.ITEM_COLORS];
+  function colorField(id, label, cur, base = '기본 색', colors = App.catalog.ITEM_COLORS) {
+    const list = [['', base], ...colors];
     if (cur && !list.some(([v]) => v === cur)) list.push([cur, '고른 색']);
     return selectField(id, label, list, cur,
       `<input type="color" class="color-pick" id="${id}Pick" value="${esc(cur || '#ffffff')}" title="다른 색 고르기" aria-label="다른 색 고르기">`);
@@ -399,7 +399,7 @@
     const has = els.some((w) => w.imageId);
     return `
       <div class="field-group-label">벽 색·사진 (3D에서 보임)</div>
-      ${colorField('f-wallColor', '벽 색', commonText((w) => w.color || ''), '기본 (밝은 회색)')}
+      ${colorField('f-wallColor', '벽 색', commonText((w) => w.color || ''), '기본 (밝은 회색)', [...App.catalog.WALL_COLORS, ...App.catalog.ITEM_COLORS.filter(([v]) => !App.catalog.WALL_COLORS.some(([w]) => w === v))])}
       ${img ? `<img class="face-thumb" src="${esc(img)}" alt="벽에 붙인 사진">` : ''}
       <div class="btn-row">
         <button type="button" class="btn" data-act="wall-image">${has ? '사진 바꾸기' : '사진 붙이기 (사진첩)'}</button>
@@ -450,10 +450,21 @@
         ${numberField('wallHeight')}
       </div>
       ${numberField('ceilingArea')}
+      ${roomLook()}
       ${finishRows(qs)}
       ${commonFields(single)}
       ${deleteButton('방')}
       <p class="props-meta">방을 지워도 벽은 남습니다.</p>`;
+  }
+
+  /** 방 꾸미기: 바닥 모양과 벽지 색 (평면 색·무늬와 3D에 보임, 물량에는 영향 없음) */
+  function roomLook() {
+    const looks = [['', '자동 (바닥 마감 따라)'], ...App.catalog.FLOOR_LOOKS.map((l) => [l.id, l.name])];
+    return `
+      <div class="field-group-label">방 꾸미기 (평면·3D에 보임)</div>
+      ${selectField('f-floorLook', '바닥 모양', looks, commonText((r) => r.floorLook || ''))}
+      ${colorField('f-roomWallColor', '벽지 색', commonText((r) => r.wallColor || ''), '기본 (흰색)', App.catalog.WALL_COLORS)}
+      ${els.length === 1 ? '<button type="button" class="btn" data-act="look-all">이 바닥·벽지를 모든 방에 똑같이</button>' : ''}`;
   }
 
   /** 방 마감재: 벽 마감·바닥 마감 고르기와 그 물량 */
@@ -1166,6 +1177,18 @@
         apply('글자 변경', () => ({ text: t.value.replace(/\s+$/, '') }));
         return;
       }
+      if (id === 'f-floorLook') {
+        if (t.value !== '' || commonText((r) => r.floorLook || '') !== null) apply('바닥 모양', () => ({ floorLook: t.value || null }));
+        return;
+      }
+      if (id === 'f-roomWallColor') {
+        if (t.value !== '' || commonText((r) => r.wallColor || '') !== null) apply('벽지 색', () => ({ wallColor: t.value || null }));
+        return;
+      }
+      if (id === 'f-roomWallColorPick') {
+        apply('벽지 색', () => ({ wallColor: t.value }));
+        return;
+      }
       if (id === 'f-wallFinish' || id === 'f-floorFinish') {
         const key = id === 'f-wallFinish' ? 'wallFinishId' : 'floorFinishId';
         if (t.value !== '' || commonText((r) => r[key] || '') !== null) apply(id === 'f-wallFinish' ? '벽 마감 변경' : '바닥 마감 변경', () => ({ [key]: t.value || null }));
@@ -1356,6 +1379,13 @@
           const rooms = [...App.doc.all()].filter((e) => e.type === 'room');
           App.doc.transact('마감 모든 방에', () => rooms.forEach((r) => App.doc.update(r.id, { wallFinishId, floorFinishId })));
           App.ui.toast(`방 ${rooms.length}곳에 같은 마감을 넣었습니다.`);
+          break;
+        }
+        case 'look-all': {
+          const { floorLook = null, wallColor = null } = els[0];
+          const rooms = [...App.doc.all()].filter((e) => e.type === 'room');
+          App.doc.transact('바닥·벽지 모든 방에', () => rooms.forEach((r) => App.doc.update(r.id, { floorLook, wallColor })));
+          App.ui.toast(`방 ${rooms.length}곳에 같은 바닥·벽지를 넣었습니다.`);
           break;
         }
         case 'gap-dims-center': App.dims.clearanceDims(els[0], 'center'); break;

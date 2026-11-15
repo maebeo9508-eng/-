@@ -69,6 +69,8 @@
   /** 조감도 물건·영역을 지금 구조로: 새로 생긴 값(모양·의자 수·통로 등)에 기본값을 채우고, 없어진 종류는 이어받은 종류로 */
   function migrateItem(e) {
     if (e.type === 'zone' && e.surface == null) e.surface = '';
+    // 2.2: 가구의 '의자'는 조감도 '의자'와 이름이 같아 헷갈려서 '식탁 의자'로
+    if (e.type === 'item' && e.category === 'furn' && e.kind === '의자') e.kind = '식탁 의자';
     if (e.type !== 'item' || e.category !== 'event') return;
     if (e.kind === '배너·포토월') e.kind = '포토월';
     const def = App.catalog.itemDef(e.kind);
@@ -208,12 +210,16 @@
     { id: 'room', mode: 'interior', name: '방 1개', desc: '3 × 4 m 방 하나와 문이 그려져 있습니다.' },
     { id: 'studio', mode: 'interior', name: '원룸 예시', desc: '방·욕실, 문·창문, 콘센트·스위치·조명, 전선관까지 들어 있어 집계를 바로 볼 수 있습니다.' },
     { id: 'furnished', mode: 'interior', name: '원룸 + 가구 예시', desc: '원룸 예시에 침대·소파·식탁·액자까지 놓았습니다. 3D로 걸어서 둘러보기 좋습니다.' },
+    { id: 'apartment', mode: 'interior', name: '아파트 예시 (방 2·거실·주방·욕실)', desc: '9.6 × 7.2 m 아파트에 마루·타일 바닥, 방마다 벽지 색, 가구·주방·욕실까지 꾸몄습니다. 컬러 평면과 3D를 바로 볼 수 있습니다.' },
+    { id: 'cafe', mode: 'interior', name: '카페 매장 예시', desc: '홀·주방·화장실이 있는 12 × 8 m 카페입니다. 카운터·진열장·테이블·라운지·펜던트 조명을 놓았습니다.' },
     { id: 'event-blank', mode: 'event', name: '빈 행사장', desc: '아무것도 없는 바닥에서 시작합니다. 물건·영역·동선을 놓아 보세요.' },
     { id: 'ceremony', mode: 'event', name: '야외 기념식 예시', desc: '건물 앞마당에 무대·백월·의자 300석·텐트·스피커·주차장·동선까지 놓았습니다. 3D 조감도와 걸어서 둘러보기를 바로 볼 수 있습니다.' },
     { id: 'seminar', mode: 'event', name: '실내 세미나 예시', desc: '강당에 무대·LED 화면·의자 배열·등록 데스크와 입장·대피 동선을 놓았습니다.' },
     { id: 'soccer', mode: 'event', name: '축구 대회 예시 (운동장)', desc: '축구장·관람석·선수 벤치·점수판·시상대·팀 텐트·주차장까지 놓은 운동장입니다.' },
     { id: 'festival', mode: 'event', name: '야외 축제 예시 (광장)', desc: '부스 거리·무대·푸드트럭·분수·풍선 아치를 놓은 광장 축제입니다. 밤 장면으로 보면 조명이 켜집니다.' },
     { id: 'gym', mode: 'event', name: '실내 체육관 예시', desc: '체육관 안에 농구장·관람석·점수판·시상대를 놓았습니다.' },
+    { id: 'banquet', mode: 'event', name: '웨딩·연회장 예시', desc: '24 × 18 m 연회장에 무대·백월·원형 테이블 18개(144석)·버진로드·포토월·축하 화환을 놓았습니다.' },
+    { id: 'expo', mode: 'event', name: '전시회 예시', desc: '30 × 20 m 전시장에 부스 24칸과 통로, 안내 데스크·포토월·휴게 공간, 관람 동선을 놓았습니다.' },
   ];
 
   /** 템플릿 요소 만들기: 빈 도면에서 시작해 도면 API로 그린 뒤 결과를 돌려줌 */
@@ -254,6 +260,8 @@
       });
     };
     const preset = (kind, name) => C.presets(kind).find((p) => p.name === name) || C.presets(kind)[0];
+    /** 방 꾸미기: 방 이름 → { floorLook, wallColor } */
+    const decorate = (looks) => doc.transact('방 꾸미기', () => [...doc.all()].filter((e) => e.type === 'room' && looks[e.name]).forEach((r) => doc.update(r.id, looks[r.name])));
     // 벽에 붙는 기호: 시계 방향으로 그린 바깥 벽은 왼쪽(+1)이 방 안쪽
     const mounted = (w, t, kind, side = 1) => {
       const def = C.itemDef(kind);
@@ -420,6 +428,80 @@
       });
       return [...doc.all()];
     }
+    /** 실내 행사장: 콘크리트 벽 네 개(높이 h), 아래쪽 벽에 넓은 문, 방 하나 (바닥 모양·벽지 색) */
+    const hall = (W, H, h, doorsAt, name, look) => {
+      const concrete = C.wallTypes().find((t) => t.name.includes('콘크리트'));
+      let ws;
+      doc.transact('템플릿', () => {
+        const pts = [[0, 0], [W, 0], [W, H], [0, H]];
+        ws = pts.map((p, i) => {
+          const q = pts[(i + 1) % pts.length];
+          const w = T.wall.create({ x: p[0], y: p[1] }, { x: q[0], y: q[1] }, { typeId: concrete ? concrete.id : undefined, height: h });
+          w.height = h;
+          return doc.add(w);
+        });
+        // 아래쪽 벽은 오른쪽에서 왼쪽으로 그려짐: x → t = (W − x) / W
+        doorsAt.forEach((x) => doc.add(T.door.create(ws[2].id, (W - x) / W, { width: 1800, height: 2400, style: '자동문' }, 1, 'start')));
+      });
+      doc.transact('방', () => App.rooms.faces().forEach((f) => {
+        const r = T.room.create(f.points, f.wallIds, name);
+        Object.assign(r, { ceilingHeight: h, wallHeight: h }, look);
+        doc.add(r);
+      }));
+      return ws;
+    };
+    if (id === 'banquet') {
+      // 연회장 24 × 18 m. 위쪽이 무대, 가운데 버진로드, 아래쪽 벽에 문 두 개
+      hall(24000, 18000, 5000, [6000, 18000], '연회장', { floorLook: 'carpet', wallColor: '#f6f1e6' });
+      doc.transact('물건', () => {
+        put('무대', 12000, 1800, 0, { size: 7200, depth: 3600, h3: 600, color: '#f4f1ea' });
+        put('백월', 12000, 300, 0, { size: 9000, text: 'WEDDING\n2026. 11. 21', color: '#d4af37' });
+        put('LED 스크린', 5300, 1200, 0, { size: 3000, text: '♥' });
+        put('LED 스크린', 18700, 1200, 0, { size: 3000, text: '♥' });
+        put('사람', 12000, 1900, 0, { count: 2, perRow: 2, style: '정장' });
+        put('스피커', 7700, 2900, 0);
+        put('스피커', 16300, 2900, 0);
+        put('레드카펫', 12000, 9500, 0, { size: 1500, depth: 11000, color: '#f4f1ea' });
+        [6500, 9700, 12900].forEach((y) => [3400, 6500, 9600, 14400, 17500, 20600].forEach((x) =>
+          put('원형 테이블', x, y, 0, { chairs: 8, color: '#ffffff', style: '연회 의자' })));
+        put('포토월', 450, 14400, 270, { size: 3000, text: 'Our Wedding', color: '#d4af37' });
+        put('데스크', 13900, 16650, 0, { text: '방명록', color: '#f4f1ea' });
+        [4300, 7700, 16300, 19700].forEach((x) => put('화분', x, 17450, 0, { style: '축하 화환' }));
+        put('소화기', 23500, 17500, 0);
+        route('VIP', '신랑신부 행진', [[12000, 15600], [12000, 4400]]);
+        route('관람객', '하객 입장 동선', [[6000, 18900], [6000, 15200], [8800, 15200]]);
+        route('비상 대피', '비상 대피 동선 1', [[22800, 4500], [22800, 15400], [18000, 15400], [18000, 18900]]);
+      });
+      return [...doc.all()];
+    }
+    if (id === 'expo') {
+      // 전시장 30 × 20 m. 부스 세 줄(맞붙은 가운데 줄 포함) 24칸, 오른쪽은 안내·휴게 공간
+      hall(30000, 20000, 6000, [26000, 1500], '전시장', { floorLook: 'epoxy' });
+      doc.transact('물건', () => {
+        const SIGN = ['#2563eb', '#16a34a', '#d92d20', '#7c3aed', '#f97316', '#0ea5e9'];
+        const booth = (row, i, y, rot) => put('부스', 4500 + i * 3000, y, rot, { text: `${row}-${i + 1}`, color: SIGN[(i + row.charCodeAt(0)) % SIGN.length] });
+        for (let i = 0; i < 6; i++) {
+          booth('A', i, 1700, 0);
+          booth('B', i, 8000, 180);
+          booth('C', i, 11000, 0);
+          booth('D', i, 18300, 180);
+        }
+        put('포토월', 25500, 1800, 0, { size: 5000, text: '2026 산업 박람회' });
+        put('데스크', 27900, 14000, 90, { text: '안내' });
+        put('X배너', 24300, 18900, 0, { text: '입장' });
+        put('X배너', 28300, 18900, 0, { text: '등록' });
+        put('테이블', 24500, 8200, 0, { chairs: 4, size: 1500 });
+        put('테이블', 27500, 8200, 0, { chairs: 4, size: 1500 });
+        put('테이블', 24500, 10800, 0, { chairs: 4, size: 1500 });
+        put('벤치', 27500, 11200, 180);
+        put('화분', 23600, 6500, 0);
+        put('화분', 29200, 6500, 0);
+        put('소화기', 29500, 19500, 0);
+        route('관람객', '관람 동선', [[26000, 20900], [26000, 14150], [1500, 14150], [1500, 4850], [22500, 4850]]);
+        route('비상 대피', '비상 대피 동선 1', [[1500, 15400], [1500, 20900]]);
+      });
+      return [...doc.all()];
+    }
     if (id === 'seminar') {
       // 강당 18 × 12 m. 위쪽이 무대, 아래쪽 벽에 문 두 개
       const concrete = C.wallTypes().find((t) => t.name.includes('콘크리트'));
@@ -514,7 +596,118 @@
           frame.text = '우리 집';
           doc.add(frame);
         });
+        decorate({ '거실·방': { floorLook: 'oak', wallColor: '#f6f1e6' }, 욕실: { floorLook: 'bath' } });
       }
+    } else if (id === 'apartment') {
+      // 9.6 × 7.2 m. 위쪽이 남쪽 창, 왼쪽에 안방·작은방, 오른쪽에 거실·주방, 오른쪽 아래 욕실
+      let top, right, bottom, left, mid, bathTop, bathLeft;
+      doc.transact('템플릿', () => {
+        [top, right, bottom, left] = ring([[0, 0], [9600, 0], [9600, 7200], [0, 7200]]);
+        mid = wall([3600, 0], [3600, 7200]);
+        wall([0, 3600], [3600, 3600]);
+        bathTop = wall([7500, 4800], [9600, 4800]);
+        bathLeft = wall([7500, 4800], [7500, 7200]);
+        doc.add(T.window.create(top.id, 0.6875, preset('window', '거실 창')));
+        doc.add(T.window.create(top.id, 0.1875, preset('window', '방 창')));
+        doc.add(T.window.create(left.id, 0.25, preset('window', '방 창')));
+        doc.add(T.window.create(right.id, 0.833, preset('window', '욕실 창')));
+        doc.add(T.door.create(bottom.id, 0.552, preset('door', '현관 방화문'), 1, 'end'));
+        doc.add(T.door.create(mid.id, 0.43, preset('door', '방문'), -1, 'start'));
+        doc.add(T.door.create(mid.id, 0.597, preset('door', '방문'), -1, 'end'));
+        doc.add(T.door.create(bathTop.id, 0.286, preset('door', '욕실문'), 1, 'start'));
+      });
+      doc.transact('방', () => addRooms([
+        { at: { x: 1800, y: 1800 }, name: '안방' }, { at: { x: 1800, y: 5400 }, name: '작은방' },
+        { at: { x: 6600, y: 2400 }, name: '거실·주방' }, { at: { x: 8550, y: 6000 }, name: '욕실' },
+      ]));
+      decorate({
+        안방: { floorLook: 'walnut', wallColor: '#ece3d3' }, 작은방: { floorLook: 'oak', wallColor: '#dfe9f0' },
+        '거실·주방': { floorLook: 'oak', wallColor: '#f6f1e6' }, 욕실: { floorLook: 'bath' },
+      });
+      doc.transact('가구', () => {
+        // 안방
+        put('침대', 1110, 1800, 270, { size: 1500, depth: 2000, color: '#c9b79c' });
+        put('협탁', 280, 790, 270);
+        put('협탁', 280, 2810, 270);
+        put('옷장', 1500, 3225, 180, { size: 1800, depth: 600 });
+        put('화장대', 3125, 900, 90);
+        // 작은방
+        put('책상', 375, 5400, 270, { size: 1200, depth: 600 });
+        put('사무용 의자', 1060, 5400, 90);
+        put('침대', 2600, 6110, 180, { size: 1000, depth: 2000, color: '#9fb7d0' });
+        put('책장', 2700, 3830, 0, { size: 800, depth: 300 });
+        // 거실
+        put('TV장', 3880, 1800, 270, { size: 1500, depth: 400 });
+        put('러그', 6900, 1900, 90, { size: 2300, depth: 1600, color: '#b7a58c' });
+        put('L자 소파', 8720, 1900, 90, { size: 2600, depth: 1600, color: '#7d8590' });
+        put('거실 테이블', 6900, 1900, 90);
+        put('실내 화분', 9200, 420);
+        put('스탠드 조명', 9220, 3750);
+        // 주방
+        put('쿡탑', 5300, 6865, 180);
+        put('싱크대', 6500, 6825, 180, { size: 1800, depth: 600 });
+        put('냉장고', 6975, 5300, 90, { size: 900, depth: 900 });
+        put('아일랜드 식탁', 5300, 4900, 180, { size: 1800, depth: 1300 });
+        put('신발장', 3865, 5600, 270);
+        // 욕실
+        put('변기', 9175, 5600, 90);
+        put('세면대', 8300, 6900, 180);
+        put('샤워부스', 9075, 6675, 0);
+      });
+      doc.transact('기호', () => {
+        [[1800, 1800], [1800, 5400], [6600, 2200], [5300, 5000], [8550, 6000]].forEach(([x, y]) => free(x, y, '조명'));
+        mounted(mid, 0.3, '콘센트', -1);
+        mounted(top, 0.08, '콘센트');
+        mounted(left, 0.4, '콘센트');
+        mounted(bottom, 0.5, '스위치');
+        const ac = free(9200, 4300, '에어컨 실내기');
+        doc.update(ac.id, { variant: '스탠드' });
+      });
+    } else if (id === 'cafe') {
+      // 12 × 8 m 카페. 아래쪽이 거리 쪽 유리창·입구, 왼쪽 위 화장실, 오른쪽 위 주방
+      let top, right, bottom, left, kit, wc;
+      doc.transact('템플릿', () => {
+        [top, right, bottom, left] = ring([[0, 0], [12000, 0], [12000, 8000], [0, 8000]]);
+        kit = wall([8400, 0], [8400, 3600]);
+        wall([8400, 3600], [12000, 3600]);
+        wall([2400, 0], [2400, 2400]);
+        wc = wall([0, 2400], [2400, 2400]);
+        [0.15, 0.417, 0.833].forEach((t) => doc.add(T.window.create(bottom.id, t, preset('window', '거실 창'))));
+        doc.add(T.door.create(bottom.id, 0.625, preset('door', '현관 방화문'), 1, 'end'));
+        doc.add(T.door.create(kit.id, 0.72, preset('door', '방문'), -1, 'start'));
+        doc.add(T.door.create(wc.id, 0.5, preset('door', '욕실문'), -1, 'start'));
+      });
+      doc.transact('방', () => addRooms([
+        { at: { x: 6000, y: 6000 }, name: '홀' }, { at: { x: 10200, y: 1800 }, name: '주방' }, { at: { x: 1200, y: 1200 }, name: '화장실' },
+      ]));
+      decorate({ 홀: { floorLook: 'chevron', wallColor: '#d9d2c5' }, 주방: { floorLook: 'tile' }, 화장실: { floorLook: 'bath', wallColor: '#dcebe2' } });
+      doc.transact('가구', () => {
+        put('카운터', 9800, 4400, 0, { size: 2400, depth: 600, color: '#3f4650' });
+        put('진열장', 7900, 4400, 0, { size: 1200, depth: 450 });
+        [2000, 3800, 5600, 7400].forEach((x) => put('식탁', x, 6500, 0, { size: 800, depth: 700, color: '#6b4f3a' }));
+        put('바 테이블', 1100, 4000, 90);
+        put('바 테이블', 1100, 5700, 90);
+        put('L자 소파', 3900, 880, 0, { size: 2600, depth: 1600, color: '#55606e' });
+        put('거실 테이블', 3500, 2300, 0, { size: 1100, depth: 550, color: '#2b2f36' });
+        put('책장', 6400, 225, 0, { size: 1200, depth: 300, color: '#2b2f36' });
+        put('실내 화분', 500, 7450);
+        put('실내 화분', 11450, 7450);
+        put('실내 화분', 5600, 2600);
+        // 주방·화장실
+        put('싱크대', 10200, 375, 0, { size: 1800, depth: 600 });
+        put('쿡탑', 8950, 335, 0);
+        put('냉장고', 11475, 2200, 90, { size: 900, depth: 900 });
+        put('변기', 425, 800, 270);
+        put('세면대', 1700, 300, 0);
+      });
+      doc.transact('기호', () => {
+        [2000, 3800, 5600, 7400].forEach((x) => { const l = free(x, 6500, '조명'); doc.update(l.id, { variant: '펜던트' }); });
+        [[3900, 1600], [9800, 4400], [6000, 4800], [10200, 1800], [1200, 1200]].forEach(([x, y]) => free(x, y, '조명'));
+        mounted(bottom, 0.5, '스위치');
+        mounted(kit, 0.3, '콘센트', -1);
+        mounted(top, 0.55, '콘센트');
+        free(6000, 3000, '시스템 에어컨');
+      });
     }
     return [...doc.all()];
   }

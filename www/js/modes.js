@@ -21,6 +21,46 @@
   ];
   const byId = (id) => LIST.find((m) => m.id === id) || LIST[0];
 
+  /* 처음 쓰는 사람 안내: 모드마다 한 번 (파일 → 사용 안내로 다시 봄). 자동 시험(웹드라이버) 중에는 띄우지 않음 */
+  const GUIDE = {
+    interior: {
+      title: '인테리어 도면 — 이렇게 쓰세요',
+      steps: [
+        ['벽', '<b>벽</b>(W)으로 외곽을 그리고 <b>방</b>(R)으로 벽 안쪽을 누르면 바닥·벽·천장 면적이 바로 나옵니다.'],
+        ['door', '<b>문·창문·전기·설비·가구</b>를 놓으세요. 가구는 분류를 고르고 그림을 누르면 됩니다. 고른 가구는 둥근 손잡이로 돌리고, 아래 막대로 복제·줄 세우기.'],
+        ['room', '방을 고르면 <b>바닥 모양</b>(마루·타일·대리석…)과 <b>벽지 색</b>을 바꿀 수 있습니다. 평면과 3D에 바로 보입니다.'],
+        ['sum', '<b>집계</b> 탭에서 자재·수량을 보고, <b>견적</b>에 단가를 넣으면 금액·부가세가 계산되어 견적서 PDF가 나옵니다.'],
+        ['cube', '<b>3D 보기</b>로 돌려 보고 <b>걷기</b>로 방 안을 둘러보세요. 예시 도면은 파일 → 새 도면에 있습니다.'],
+      ],
+    },
+    event: {
+      title: '조감도 (행사) — 이렇게 쓰세요',
+      steps: [
+        ['event', '<b>물건</b>(H) → 위쪽 분류(구조물·좌석·운동·경기…)를 고르고 그림을 눌러 놓습니다. <b>전체 보기</b>로 90가지를 찾을 수 있습니다.'],
+        ['turn', '고른 물건은 <b>둥근 손잡이</b>로 돌리고 네모 손잡이로 크기를 바꿉니다. 아래 막대: 15° 돌리기·복제·줄 세우기.'],
+        ['route', '<b>동선</b>(P)을 그리면 통로 폭 안에 걸리는 물건을 빨갛게 알려 줍니다.'],
+        ['sum', '<b>집계</b>에서 좌석·물건 수를 보고, <b>견적</b>에 렌탈 단가를 넣어 견적서를 만듭니다.'],
+        ['cube', '<b>3D 보기</b>: 낮·노을·밤, 걷기, 사진 저장. 예시(웨딩·전시회·축구 대회·축제…)는 파일 → 새 도면에 있습니다.'],
+      ],
+    },
+  };
+  function guide(id = modes.get(), force = false) {
+    const g = GUIDE[id];
+    if (!g || !App.ui || !App.ui.dialog) return;
+    const key = `hjdm.guide.${id}`;
+    if (!force) {
+      if (navigator.webdriver) return;
+      try { if (localStorage.getItem(key)) return; } catch (_) { return; }
+      if (!document.getElementById('dialog').hidden) return; // 다른 창이 열려 있으면 다음에
+    }
+    App.ui.dialog({
+      title: g.title,
+      html: `<ol class="guide-steps">${g.steps.map(([, html], i) => `<li><span class="guide-no">${i + 1}</span><p>${html}</p></li>`).join('')}</ol>
+        <p class="props-meta">이 안내는 파일 메뉴의 ‘사용 안내’에서 다시 볼 수 있습니다. PC에서는 ? 키로 단축키를 봅니다.</p>`,
+      actions: [{ id: 'ok', label: '시작하기', primary: true }],
+    }).then(() => { try { localStorage.setItem(key, '1'); } catch (_) { /* 무시 */ } });
+  }
+
   const modes = {
     LIST,
     get() {
@@ -63,7 +103,9 @@
       App.ui.rebuildToolbar();
       App.ui.emit('mode', m.id);
       if (App.plan) App.plan.requestRender();
+      if (changed) setTimeout(() => guide(m.id), 900);
     },
+    guide,
     init() {
       $('#modeSwitch').addEventListener('click', (e) => {
         const b = e.target.closest('[data-mode]');

@@ -77,7 +77,7 @@
   }
 
   // 밤에 불빛이 번지는 물건: [앞쪽으로 떨어진 거리, 반지름, 색]
-  const POOLS = { '가로등': [1.15, 7, '#ffe2a8'], '조명 타워': [3, 10, '#fff1cf'], '난로': [0, 2.6, '#ff9a4d'], 'LED 스크린': [2.5, 5, '#9fb6ff'], '점수판': [2, 4, '#9fb6ff'], '버스 정류장': [0.3, 4, '#fff1cf'], '매표소': [1, 3.5, '#fff1cf'] };
+  const POOLS = { '스탠드 조명': [0, 2.6, '#ffe2a8'], '협탁': [0, 1.3, '#ffe2a8'], '진열장': [0.5, 1.6, '#fff1cf'], '가로등': [1.15, 7, '#ffe2a8'], '조명 타워': [3, 10, '#fff1cf'], '난로': [0, 2.6, '#ff9a4d'], 'LED 스크린': [2.5, 5, '#9fb6ff'], '점수판': [2, 4, '#9fb6ff'], '버스 정류장': [0.3, 4, '#fff1cf'], '매표소': [1, 3.5, '#fff1cf'] };
 
   /** 물건 하나의 모형을 그릇의 지금 자리에 넣음 (바닥 그늘·밤 불빛 포함) */
   function itemModel(C, it, o = {}) {
@@ -92,6 +92,12 @@
       else M3.symbol(C, it, def, Math.min(o.low && it.height != null ? LOW_WALL - 0.1 : 99, App.measure.itemHeight(it) / 1000));
     } catch (err) {
       console.warn('3D 모형을 만들지 못함:', it.kind, err);
+    }
+    // 천장 조명: 밤에 바로 아래 바닥이 밝게 (낮에는 안 보임)
+    if (it.kind === '조명' && o.blobs !== false) {
+      C.at(0, 0);
+      const r = it.variant === '펜던트' ? 1.5 : it.variant === 'LED 평판등' || it.variant === '등기구' ? 2.6 : 2.0;
+      C.B.quad([-r, 0.014, r], [r, 0.014, r], [r, 0.014, -r], [-r, 0.014, -r], hex('#ffe7b8'), MAT.pool);
     }
     if (o.blobs === false || it.depth == null || def.wall || (it.category !== 'event' && it.category !== 'furn')) return;
     C.at(0, 0);
@@ -180,18 +186,27 @@
       }
     });
 
-    /* 방: 바닥(마감재에 따라 타일·마루), 천장은 걷기에서만 */
+    /* 방: 바닥(고른 바닥 모양, 없으면 마감재로 짐작), 천장은 걷기에서만 */
+    const LOOK_MAT = {
+      plank: MAT.wood, wide: MAT.wideWood, deco: MAT.deco, chevron: MAT.chevron, tile: MAT.tile, 'tile-l': MAT.tileLarge, 'tile-s': MAT.tileSmall,
+      marble: MAT.marble, carpet: MAT.fabric, plain: MAT.concrete,
+    };
     els.filter((e) => e.type === 'room').forEach((r) => {
       const pts = r.points.map(P);
-      const fin = r.floorFinishId && doc.get(r.floorFinishId);
-      const name = fin ? fin.name : '';
+      const look = App.catalog.floorLook(r);
       let mat = event ? MAT.tile : MAT.wood, c = event ? hex('#d2d5d9') : hex('#cfb48f');
-      if (/타일|대리석|석재/.test(name) && !/데코/.test(name)) { mat = MAT.tile; c = hex('#dcd9d2'); }
-      else if (/마루|데코|우드|원목|장판|목재/.test(name)) { mat = MAT.wood; c = hex('#c7a57a'); }
-      else if (/카펫/.test(name)) { mat = MAT.fabric; c = hex('#8f95a0'); }
+      if (look) {
+        mat = LOOK_MAT[look.pattern] != null ? LOOK_MAT[look.pattern] : MAT.wood;
+        c = hex(look.color);
+        if (look.id === 'epoxy') mat = MAT.gloss;
+      }
       L.decals[1].poly(pts, 0.008, c, mat);
       L.ceil.poly(pts, (r.ceilingHeight || App.settings.ceilingHeight) / 1000, hex('#fafaf8'), MAT.plain);
     });
+    const rooms = els.filter((e) => e.type === 'room' && !e.issue).map((r) => ({ r, b: App.model.TYPES.room.bounds(r) }));
+    /** 점이 든 방 (네모 범위로 먼저 걸러 빠르게) */
+    const roomAt = (p) => { const hit = rooms.find(({ r, b }) => p.x >= b.minX && p.x <= b.maxX && p.y >= b.minY && p.y <= b.maxY && G.pointInPolygon(p, r.points)); return hit ? hit.r : null; };
+    const BASEBOARD = hex('#e7e3da');
 
     /* 벽: 문·창문 자리를 뚫고, 끝은 이음 모양(외곽선)대로 */
     const wallH = (w) => (o.low ? Math.min(w.height / 1000, LOW_WALL) : w.height / 1000);
@@ -205,12 +220,44 @@
       const cut = (s) => (s <= 0.5 ? [P(ol[0]), P(ol[3])] : s >= len - 0.5 ? [P(ol[1]), P(ol[2])] : [at(s, h), at(s, -h)]);
       const wc = w.color ? hex(w.color) : WALL; // 벽 색
       const photo = w.imageId && App.images.get(w.imageId) ? new Mesh(32) : null; // 벽에 붙인 사진: 벽 한 면 전체에 한 장
+      // 양쪽 면이 벽을 따라 어느 방을 보는지 (긴 바깥 벽은 여러 방에 걸침): 그 방의 벽지 색, 방이면 걸레받이
+      const off = h + 60, photoSide = photo ? w.imageSide || 'both' : null;
+      const sideRuns = (sign) => {
+        const out = [];
+        if (!rooms.length) return out;
+        const step = Math.max(40, Math.min(150, len / 40));
+        let cur = null;
+        for (let t = step / 2; t < len; t += step) {
+          const p = { x: w.start.x + d.x * t + n.x * sign * off, y: w.start.y + d.y * t + n.y * sign * off };
+          const room = roomAt(p);
+          const key = room ? room.id : '';
+          if (cur && cur.key === key) cur.b = Math.min(len, t + step / 2);
+          else out.push((cur = { key, a: Math.max(0, t - step / 2), b: Math.min(len, t + step / 2), color: room && room.wallColor ? hex(room.wallColor) : null, room: !!room }));
+        }
+        return out;
+      };
+      const runsL = sideRuns(1), runsR = sideRuns(-1);
+      const noSkin = { 1: photoSide === 'both' || photoSide === 'left', '-1': photoSide === 'both' || photoSide === 'right' };
+      /** 벽 한쪽 면에 붙이는 판: side 1(왼쪽)·−1(오른쪽), 벽 면에서 gap(mm) 떨어짐 */
+      const skin = (s0, s1, y0, y1, side, gap, col) => {
+        const e = h + gap;
+        const p = side > 0 ? at(s0, e) : at(s1, -e), q = side > 0 ? at(s1, e) : at(s0, -e);
+        S.quad([p[0], y0, p[1]], [q[0], y0, q[1]], [q[0], y1, q[1]], [p[0], y1, p[1]], col, MAT.plain);
+      };
       const piece = (s0, s1, y0, y1) => {
         if (s1 - s0 < 0.5 || y1 - y0 < 0.005) return;
         const [a, a2] = cut(s0), [b, b2] = cut(s1);
         const pts = [a, b, b2, a2];
         S.prism(pts, y0, y1, wc, MAT.plain, WALL_TOP);
         if (y0 > 0.01) S.poly(pts, y0, wc);
+        // 벽지 색·걸레받이 (벽 끝에서는 살짝 안쪽까지만: 모서리에서 옆 벽과 겹쳐 깜빡이지 않게)
+        const t0 = s0 <= 0.5 ? s0 + h : s0, t1 = s1 >= len - 0.5 ? s1 - h : s1;
+        [[1, runsL], [-1, runsR]].forEach(([sign, runs]) => runs.forEach((r) => {
+          const a = Math.max(t0, r.a), b = Math.min(t1, r.b);
+          if (b - a <= 1) return;
+          if (r.color && !noSkin[sign]) skin(a, b, y0, y1, sign, 1.5, r.color);
+          if (r.room && y0 < 0.01 && !event && !o.low) skin(a, b, 0, 0.08, sign, 9, BASEBOARD);
+        }));
         if (!photo) return;
         const e = h + 4, side = w.imageSide || 'both', v = (y) => 1 - y / H; // 사진은 그 면을 마주 보고 섰을 때 바로 읽히게 붙임
         if (side !== 'right') {

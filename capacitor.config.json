@@ -6,5 +6,11 @@
     "allowMixedContent": false,
     "captureInput": true,
     "webContentsDebuggingEnabled": false
+  },
+  "ios": {
+    "contentInset": "never",
+    "scrollEnabled": false,
+    "backgroundColor": "#ffffff",
+    "limitsNavigationsToAppBoundDomains": false
   }
 }

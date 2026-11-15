@@ -138,9 +138,41 @@
   setTopInset();
   App.projects.init(); // 마지막에 열었던 도면과 화면 위치를 불러옴 (처음이면 새 도면, 화면 맞춤)
 
+  /* ── 아이폰·아이패드 ── */
+  if (App.platform.ios) {
+    // 버튼·속성 칸을 두 손가락으로 벌리면 화면 전체가 커지던 것을 막음 (도면은 캔버스가 따로 확대)
+    ['gesturestart', 'gesturechange'].forEach((t) => document.addEventListener(t, (e) => e.preventDefault(), { passive: false }));
+    // 사파리는 모르는 확장자(.dwg·.dxf)를 고를 수 없게 흐리게 보여 줌 → 아무 파일이나 고르고 앱이 확인
+    document.getElementById('importFile').removeAttribute('accept');
+    document.documentElement.classList.add('is-ios');
+  }
+  // 브라우저가 저장 공간이 부족할 때 도면을 지우지 않게 부탁 (지원하는 브라우저만)
+  if (!App.platform.native && navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+  // 아이폰 사파리로 열었으면 한 번만: 홈 화면에 추가하면 앱처럼 쓰고, 도면도 지워지지 않음
+  if (App.platform.ios && !App.platform.standalone && !App.platform.native && /^https?:$/.test(location.protocol)) {
+    let seen = false;
+    try { seen = localStorage.getItem('hjdm.iosHint') === '1'; } catch (_) { /* 저장이 막혀 있으면 매번 안내 */ }
+    if (!seen) {
+      // 처음 안내 창이 열려 있으면 닫힌 뒤에
+      const show = () => {
+        if (!document.getElementById('dialog').hidden) { setTimeout(show, 1000); return; }
+        App.ui.dialog({
+          title: '아이폰에서 앱처럼 쓰기',
+          html: `<ol class="ios-steps">
+              <li>사파리 아래쪽(아이패드는 위쪽)의 <b>공유 버튼</b> <span class="ios-share" aria-hidden="true">⬆︎</span>을 누르세요.</li>
+              <li>목록에서 <b>홈 화면에 추가</b>를 누르세요.</li>
+              <li>홈 화면의 <b>현장도면</b> 아이콘으로 여세요. 인터넷이 없어도 열립니다.</li>
+            </ol>
+            <p class="props-meta">사파리에서만 쓰면 오래 열지 않을 때 기기가 저장한 도면을 지울 수 있습니다. 홈 화면 앱으로 쓰고, 중요한 도면은 파일 → 백업 저장으로 보관하세요.</p>`,
+          actions: [{ id: 'ok', label: '알겠습니다', primary: true }],
+        }).then(() => { try { localStorage.setItem('hjdm.iosHint', '1'); } catch (_) { /* 무시 */ } });
+      };
+      setTimeout(show, 2500);
+    }
+  }
+
   // 오프라인 동작: 앱 파일을 기기에 담아 둠 (웹 주소로 열었을 때. 파일로 직접 열거나 Capacitor 앱 안에서는 필요 없음)
-  const native = window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform();
-  if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol) && !native) {
+  if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol) && !App.platform.native) {
     const hadController = !!navigator.serviceWorker.controller;
     navigator.serviceWorker.register('sw.js').catch(() => { /* 안 되면 온라인에서만 */ });
     navigator.serviceWorker.addEventListener('controllerchange', () => {

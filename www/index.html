@@ -2,12 +2,14 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, user-scalable=no">
 <meta name="theme-color" content="#ffffff">
 <meta name="description" content="현장에서 평면도를 그리고 벽·바닥·천장 면적과 전기·설비 수량을 자동으로 집계합니다.">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="현장도면">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="format-detection" content="telephone=no">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
@@ -38,6 +40,7 @@
 <script src="js/catalog-ui.js" defer></script>
 <script src="js/export.js" defer></script>
 <script src="js/summary.js" defer></script>
+<script src="js/estimate.js" defer></script>
 <script src="js/edit.js" defer></script>
 <script src="js/settings.js" defer></script>
 <script src="js/projects.js" defer></script>
@@ -77,8 +80,10 @@
         <button type="button" class="menu-item" role="menuitem" id="menuCsv">집계표 CSV (엑셀)</button>
         <button type="button" class="menu-item" role="menuitem" id="menuPng">도면 그림 (PNG)</button>
         <button type="button" class="menu-item" role="menuitem" id="menuPdf">도면 + 집계표 (PDF, 인쇄용)</button>
+        <button type="button" class="menu-item" role="menuitem" id="menuEstimate">견적서 (PDF) · 단가 넣기</button>
         <div class="menu-sep" role="separator"></div>
         <button type="button" class="menu-item narrow-only" role="menuitem" id="menuSearch">찾기… (방·물건·글자)</button>
+        <button type="button" class="menu-item" role="menuitem" id="menuGuide">사용 안내</button>
         <button type="button" class="menu-item" role="menuitem" id="menuShortcuts">단축키 보기 <kbd>?</kbd></button>
       </div>
     </div>

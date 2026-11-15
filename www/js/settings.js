@@ -6,7 +6,7 @@
   const $ = (sel) => document.querySelector(sel);
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-  const APP_VERSION = '2.1.0'; // sw.js의 VERSION과 같이 올림
+  const APP_VERSION = '2.2.0'; // sw.js의 VERSION과 같이 올림
   const LENGTHS = {
     gridSize: { label: '격자 간격', min: 1, max: 10000 },
     dimTextSize: { label: '치수 글자 크기', min: 10, max: 5000 },
@@ -96,7 +96,7 @@
         ${toggle('showRulers', '눈금자 보이기', '도면 위쪽과 왼쪽에 자 눈금을 표시합니다 (설정한 길이 단위)')}
         ${toggle('showDistances', '벽까지 거리 보이기', '기호·가구·기둥을 고르거나 옮기거나 놓을 때 위·아래·왼쪽·오른쪽 벽까지 거리를 점선으로 보여 줍니다')}
         ${toggle('showWallLengths', '벽 길이 글자 보이기', '벽마다 중심선 길이를 적습니다. 바깥 치수를 넣었다면 끄면 깔끔합니다 (그림·PDF에도 같이 적용)')}
-        ${toggle('planPictures', '조감도 물건을 색 그림으로 보이기', '조감도 모드의 평면에서 텐트·무대 같은 물건을 위에서 본 색 그림으로 그립니다. 끄면 선으로 된 기호로 보입니다 (느린 기기에서는 끄면 가벼워집니다)')}
+        ${toggle('planPictures', '가구·물건을 색 그림으로 보이기', '평면에서 가구와 조감도 물건(텐트·무대 등)을 위에서 본 색 그림으로 그립니다. 끄면 선으로 된 기호로 보입니다 (느린 기기에서는 끄면 가벼워집니다)')}
         ${toggle('itemNames', '조감도 물건 이름표 보이기', '평면에서 물건 옆에 이름을 적습니다 (위쪽 ‘이름표’ 버튼과 같음)')}
         <div class="field-grid">${length('gridSize')}${length('dimTextSize')}</div>
         <p class="props-meta">격자는 확대할수록 잘게 나뉘어 가장 크게 확대하면 5mm 단위로 맞출 수 있습니다. 정확한 길이는 숫자로 입력하세요. 치수 글자는 화면에서 너무 작거나 커지지 않게 맞춥니다.</p>

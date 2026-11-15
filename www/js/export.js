@@ -1,4 +1,4 @@
-/* 파일로 내보내기: 브라우저 다운로드 (Capacitor 앱에서의 저장은 13단계에서 연결) */
+/* 파일로 내보내기: 브라우저 다운로드, 앱(안드로이드·아이폰)과 아이폰 사파리에서는 공유 창 */
 (function () {
   'use strict';
   const App = (window.App = window.App || {});
@@ -12,7 +12,7 @@
     return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   }
 
-  /* ── 안드로이드 앱(Capacitor) 안에서는 브라우저 다운로드가 안 되므로
+  /* ── 안드로이드·아이폰 앱(Capacitor) 안에서는 브라우저 다운로드가 안 되므로
      Filesystem 플러그인으로 앱 임시 폴더에 쓰고 Share 플러그인으로 공유 창을 띄움 (저장·카톡·드라이브 등) ── */
   function nativePlugins() {
     const C = window.Capacitor;
@@ -43,6 +43,55 @@
     return true;
   }
 
+  /* ── 아이폰·아이패드의 사파리·홈 화면 앱: 내려받기 대신 공유 창 (파일에 저장·카톡·메일·이미지 저장) ── */
+  const escHtml = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  function anchorDownload(filename, blob) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  }
+  function webShare(filename, blob) {
+    if (!App.platform.ios || !navigator.share || !navigator.canShare) return false;
+    let file;
+    try {
+      file = new File([blob], filename, { type: blob.type || 'application/octet-stream' });
+      if (!navigator.canShare({ files: [file] })) return false;
+    } catch (_) {
+      return false;
+    }
+    navigator.share({ files: [file], title: filename }).catch((e) => {
+      if (e && e.name === 'AbortError') return; // 공유 창을 그냥 닫음
+      // 그림을 만드느라 버튼을 누른 지 오래되면 사파리가 막음 → 한 번 더 누르게
+      askShare(file, blob);
+    });
+    return true;
+  }
+  function askShare(file, blob) {
+    const close = () => { const b = document.querySelector('#dialogFoot [data-id="close"]'); if (b) b.click(); };
+    App.ui.dialog({
+      title: '파일이 준비됐습니다',
+      html: `<p class="share-name">${escHtml(file.name)}</p>
+        <button type="button" class="btn btn-primary share-now" id="shareNow">저장·보내기</button>
+        <p class="props-meta">‘파일에 저장’을 고르면 아이폰 ‘파일’ 앱에 저장됩니다. 카톡·메일로 바로 보낼 수도 있습니다.</p>`,
+      actions: [{ id: 'close', label: '닫기' }],
+      onOpen(body) {
+        body.querySelector('#shareNow').addEventListener('click', () => {
+          navigator.share({ files: [file], title: file.name }).then(close).catch((e) => {
+            if (e && e.name === 'AbortError') return;
+            anchorDownload(file.name, blob);
+            close();
+          });
+        });
+      },
+    });
+  }
+
   const exporter = {
     /** 표 → CSV 글자. 엑셀이 한글을 UTF-8로 읽도록 맨 앞에 BOM */
     csvText(rows) {
@@ -57,16 +106,9 @@
 
     download(filename, data, mime) {
       const blob = data instanceof Blob ? data : new Blob([data], { type: mime });
-      if (nativeSave(filename, blob)) return; // 안드로이드 앱(Capacitor): 저장 뒤 공유 창
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      a.rel = 'noopener';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      if (nativeSave(filename, blob)) return; // 안드로이드·아이폰 앱(Capacitor): 저장 뒤 공유 창
+      if (webShare(filename, blob)) return; // 아이폰 사파리·홈 화면 앱: 공유 창
+      anchorDownload(filename, blob);
     },
   };
 
@@ -271,6 +313,10 @@
 
   /** JPEG 한 장짜리 PDF 만들기 */
   function pdfFromJpeg(jpeg, imgW, imgH, pageW, pageH) {
+    return pdfFromPages([{ jpeg, w: imgW, h: imgH }], pageW, pageH);
+  }
+  /** 쪽마다 JPEG 한 장을 꽉 채운 PDF. pages: [{ jpeg(Uint8Array), w, h }], pageW·pageH: 포인트(1/72인치) */
+  function pdfFromPages(pages, pageW, pageH) {
     const enc = new TextEncoder();
     const parts = [];
     const offsets = [];
@@ -284,21 +330,28 @@
       offsets[n] = length;
       push(`${n} 0 obj\n${body}\nendobj\n`);
     };
+    // 1: 목록, 2: 쪽 묶음, 쪽마다 [쪽, 그림, 내용] 세 개씩 (3번부터)
+    const n = pages.length;
+    const pageNo = (i) => 3 + i * 3;
     push('%PDF-1.4\n%\xE2\xE3\xCF\xD3\n');
     obj(1, '<< /Type /Catalog /Pages 2 0 R >>');
-    obj(2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>');
-    obj(3, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageW.toFixed(2)} ${pageH.toFixed(2)}] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>`);
-    offsets[4] = length;
-    push(`4 0 obj\n<< /Type /XObject /Subtype /Image /Width ${imgW} /Height ${imgH} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpeg.length} >>\nstream\n`);
-    push(jpeg);
-    push('\nendstream\nendobj\n');
+    obj(2, `<< /Type /Pages /Kids [${pages.map((_, i) => `${pageNo(i)} 0 R`).join(' ')}] /Count ${n} >>`);
     const content = `q ${pageW.toFixed(2)} 0 0 ${pageH.toFixed(2)} 0 0 cm /Im0 Do Q`;
-    obj(5, `<< /Length ${content.length} >>\nstream\n${content}\nendstream`);
+    pages.forEach((p, i) => {
+      const k = pageNo(i);
+      obj(k, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageW.toFixed(2)} ${pageH.toFixed(2)}] /Resources << /XObject << /Im0 ${k + 1} 0 R >> >> /Contents ${k + 2} 0 R >>`);
+      offsets[k + 1] = length;
+      push(`${k + 1} 0 obj\n<< /Type /XObject /Subtype /Image /Width ${p.w} /Height ${p.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${p.jpeg.length} >>\nstream\n`);
+      push(p.jpeg);
+      push('\nendstream\nendobj\n');
+      obj(k + 2, `<< /Length ${content.length} >>\nstream\n${content}\nendstream`);
+    });
+    const count = 3 + n * 3;
     const xref = length;
-    let table = 'xref\n0 6\n0000000000 65535 f \n';
-    for (let n = 1; n <= 5; n++) table += `${String(offsets[n]).padStart(10, '0')} 00000 n \n`;
+    let table = `xref\n0 ${count}\n0000000000 65535 f \n`;
+    for (let k = 1; k < count; k++) table += `${String(offsets[k]).padStart(10, '0')} 00000 n \n`;
     push(table);
-    push(`trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
+    push(`trailer\n<< /Size ${count} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
     return new Blob(parts, { type: 'application/pdf' });
   }
 
@@ -388,6 +441,6 @@
     }
   }
 
-  Object.assign(exporter, { exportPng, exportPdf, pdfDialog, pdfFromJpeg, planRect });
+  Object.assign(exporter, { exportPng, exportPdf, pdfDialog, pdfFromJpeg, pdfFromPages, planRect });
   App.exporter = exporter;
 })();

@@ -878,15 +878,18 @@
   const { MAT, hex, shade } = App.gl3d;
   const M = App.models3d;
   const { WHITE, BLACK, DARK, STEEL, CHROME, WOOD, WOOD_DARK, WOOD_LIGHT, WINDOW } = M.COLORS;
-  const FABRIC = hex('#8d929b'), CABINET = hex('#ece7dc'), WARM = hex('#fff1cf');
+  const CABINET = hex('#ece7dc'), CAB = CABINET, WOOD0 = WOOD, WARM = hex('#fff1cf');
 
   /** 나무 의자 (식탁·책상용): 앞이 +z */
-  function woodChair(S, lod) {
-    S.box(-0.2, 0.42, -0.2, 0.2, 0.46, 0.2, WOOD_LIGHT, MAT.grain);
-    S.box(-0.2, 0.46, -0.2, 0.2, 0.86, -0.17, WOOD_LIGHT, MAT.grain);
-    if (lod) S.box(-0.17, 0, -0.17, 0.17, 0.42, 0.17, shade(WOOD_LIGHT, 0.75));
-    else M.legs(S, 0.4, 0.4, 0.42, 0.035, WOOD_LIGHT, MAT.grain);
+  function woodChair(S, lod, color = null) {
+    const c = color || WOOD_LIGHT;
+    S.box(-0.2, 0.42, -0.2, 0.2, 0.46, 0.2, c, MAT.grain);
+    S.box(-0.2, 0.46, -0.2, 0.2, 0.86, -0.17, c, MAT.grain);
+    if (lod) S.box(-0.17, 0, -0.17, 0.17, 0.42, 0.17, shade(c, 0.75));
+    else M.legs(S, 0.4, 0.4, 0.42, 0.035, c, MAT.grain);
   }
+  /** 가구 색: 고른 색이 있으면 그것, 없으면 기본 */
+  const tint = (it, def) => (it && it.color ? hex(it.color) : def);
   /** 앞면(+z)의 문짝 n개: 틈과 손잡이 */
   function doors(S, w, y0, y1, z, n, c, handle = true) {
     const dw = w / n;
@@ -906,7 +909,7 @@
       S.box(-w / 2, 0, -d / 2, w / 2, top * 0.56, d / 2, WOOD, MAT.grain);
       S.box(-w / 2, 0, -d / 2, w / 2, top * 2.1, -d / 2 + 0.07, WOOD, MAT.grain);
       S.box(-w / 2 + 0.03, top * 0.56, -d / 2 + 0.08, w / 2 - 0.03, top, d / 2 - 0.03, hex('#f4f1ea'), MAT.fabric);
-      S.box(-w / 2 + 0.01, top * 0.6, -d / 2 + d * 0.36, w / 2 - 0.01, top + 0.04, d / 2 - 0.01, hex('#8fa3b8'), MAT.fabric);
+      S.box(-w / 2 + 0.01, top * 0.6, -d / 2 + d * 0.36, w / 2 - 0.01, top + 0.04, d / 2 - 0.01, tint(it, hex('#8fa3b8')), MAT.fabric);
       S.box(-w / 2 + 0.01, top + 0.04, -d / 2 + d * 0.36, w / 2 - 0.01, top + 0.07, -d / 2 + d * 0.48, hex('#f4f1ea'), MAT.fabric);
       const n = w >= 1.3 ? 2 : 1, pw = (w - 0.16) / n;
       for (let i = 0; i < n; i++) {
@@ -916,6 +919,7 @@
     },
     '소파'(C, it, w, d, h) {
       const S = C.S, arm = Math.min(0.18, w * 0.12), back = Math.min(0.24, d * 0.3), seat = Math.min(0.42, h * 0.55);
+      const FABRIC = tint(it, hex('#8d929b'));
       M.legs(S, w, d, 0.08, 0.05, WOOD_DARK, MAT.grain, 0.04);
       S.box(-w / 2, 0.08, -d / 2, w / 2, seat - 0.12, d / 2, FABRIC, MAT.fabric, { bottom: true });
       S.box(-w / 2, seat - 0.12, -d / 2, w / 2, h, -d / 2 + back, FABRIC, MAT.fabric);
@@ -929,21 +933,21 @@
       }
     },
     '식탁'(C, it, w, d, h) {
-      const S = C.S;
-      S.box(-w / 2, h - 0.04, -d / 2, w / 2, h, d / 2, WOOD_LIGHT, MAT.grain, { bottom: true });
-      M.legs(S, w, d, h - 0.04, 0.055, WOOD_LIGHT, MAT.grain, 0.05);
+      const S = C.S, c = tint(it, WOOD_LIGHT);
+      S.box(-w / 2, h - 0.04, -d / 2, w / 2, h, d / 2, c, MAT.grain, { bottom: true });
+      M.legs(S, w, d, h - 0.04, 0.055, c, MAT.grain, 0.05);
       const n = w >= d * 1.7 ? 3 : w >= d * 1.2 ? 2 : 1;
       for (let i = 0; i < n; i++) {
         const x = -w / 2 + ((i + 0.5) * w) / n;
-        C.at(x, -d / 2 - 0.12, 0); woodChair(C.S, C.lod);
-        C.at(x, d / 2 + 0.12, 180); woodChair(C.S, C.lod);
+        C.at(x, -d / 2 - 0.12, 0); woodChair(C.S, C.lod, c);
+        C.at(x, d / 2 + 0.12, 180); woodChair(C.S, C.lod, c);
       }
       C.at(0, 0);
     },
-    '의자'(C) { woodChair(C.S, C.lod); },
+    '식탁 의자'(C, it) { woodChair(C.S, C.lod, it.color ? hex(it.color) : null); },
     '책상'(C, it, w, d, h) {
       const S = C.S;
-      S.box(-w / 2, h - 0.03, -d / 2, w / 2, h, d / 2, WOOD_LIGHT, MAT.grain, { bottom: true });
+      S.box(-w / 2, h - 0.03, -d / 2, w / 2, h, d / 2, tint(it, WOOD_LIGHT), MAT.grain, { bottom: true });
       S.box(-w / 2, 0, -d / 2, -w / 2 + 0.03, h - 0.03, d / 2, WHITE);
       S.box(w / 2 - 0.03, 0, -d / 2, w / 2, h - 0.03, d / 2, WHITE);
       S.box(-w / 2 + 0.03, h * 0.45, -d / 2 + 0.02, w / 2 - 0.03, h - 0.03, -d / 2 + 0.04, WHITE);
@@ -955,18 +959,18 @@
       S.box(-0.2, h, d * 0.02, 0.2, h + 0.018, d * 0.02 + 0.13, hex('#d9dce1'));
     },
     '옷장'(C, it, w, d, h) {
-      const S = C.S;
+      const S = C.S, CABINET = tint(it, CAB);
       S.box(-w / 2, 0, -d / 2, w / 2, h, d / 2 - 0.014, CABINET);
       doors(S, w, 0.08, h, d / 2 - 0.014, Math.max(2, Math.round(w / 0.5)), shade(CABINET, 1.03));
     },
     '수납장'(C, it, w, d, h) {
-      const S = C.S;
+      const S = C.S, CABINET = tint(it, CAB);
       S.box(-w / 2, 0, -d / 2, w / 2, h - 0.03, d / 2 - 0.014, CABINET);
       S.box(-w / 2 - 0.01, h - 0.03, -d / 2, w / 2 + 0.01, h, d / 2 + 0.005, WOOD_LIGHT, MAT.grain);
       doors(S, w, 0.06, h - 0.03, d / 2 - 0.014, Math.max(2, Math.round(w / 0.45)), shade(CABINET, 1.03));
     },
     'TV장'(C, it, w, d, h) {
-      const S = C.S;
+      const S = C.S, WOOD = tint(it, WOOD0);
       S.box(-w / 2, 0.05, -d / 2, w / 2, h, d / 2 - 0.014, WOOD, MAT.grain, { bottom: true });
       doors(S, w, 0.05, h, d / 2 - 0.014, Math.max(2, Math.round(w / 0.6)), shade(WOOD, 1.08), false);
       const tw = Math.min(w * 0.8, 1.6), th = tw * 0.57;
@@ -976,7 +980,7 @@
       S.quad([-tw / 2 + 0.015, h + 0.095, 0.002], [tw / 2 - 0.015, h + 0.095, 0.002], [tw / 2 - 0.015, h + 0.065 + th, 0.002], [-tw / 2 + 0.015, h + 0.065 + th, 0.002], hex('#1b2a3c'), MAT.window);
     },
     '냉장고'(C, it, w, d, h) {
-      const S = C.S, c = hex('#d9dde3'), z = d / 2 - 0.02;
+      const S = C.S, c = tint(it, hex('#d9dde3')), z = d / 2 - 0.02;
       S.box(-w / 2, 0, -d / 2, w / 2, h, z, c, MAT.gloss);
       if (w >= 0.85) {
         [-1, 1].forEach((s) => {
@@ -1000,7 +1004,7 @@
       S.tube([0, cy, z + 0.03], [0, cy, z + 0.035], r * 0.78, r * 0.78, hex('#22303f'), MAT.window, 18);
     },
     '싱크대'(C, it, w, d, h) {
-      const S = C.S, z = d / 2 - 0.03;
+      const S = C.S, z = d / 2 - 0.03, CABINET = tint(it, CAB);
       S.box(-w / 2, 0, -d / 2, w / 2, 0.1, z - 0.04, DARK);
       S.box(-w / 2, 0.1, -d / 2, w / 2, h - 0.03, z, CABINET, 0, { bottom: true });
       doors(S, w, 0.1, h - 0.03, z, Math.max(2, Math.round(w / 0.6)), shade(CABINET, 1.03));
@@ -1054,7 +1058,7 @@
       S.cyl(-w / 2 + 0.3, h - 0.17, -d / 2 + 0.22, 0.09, h - 0.14, 0.09, CHROME, MAT.metal, 10);
     },
     '신발장'(C, it, w, d, h) {
-      const S = C.S;
+      const S = C.S, CABINET = tint(it, CAB);
       S.box(-w / 2, 0, -d / 2, w / 2, h, d / 2 - 0.014, CABINET);
       doors(S, w, 0.05, h, d / 2 - 0.014, Math.max(2, Math.round(w / 0.5)), shade(CABINET, 1.03));
     },
@@ -1165,6 +1169,8 @@
   M.FURN = FURN;
   M.symbol = symbol;
   M.woodChair = woodChair;
+  M.doors = doors;
+  M.tint = tint;
 })();
 
 /* ── 2.1: 더 많은 조감도 물건 — 경기장, 관람석, 건물 종류, 장식, 차량 등 ── */
@@ -1875,5 +1881,254 @@
       if (it.style === '철제 난간') S.box(-w / 2 + 0.1, 0.2, 0.025, w / 2 - 0.1, h - 0.08, 0.035, WHITE, 0, { bottom: true });
       C.face([[-w / 2 + 0.1, 0.2, z], [w / 2 - 0.1, 0.2, z], [w / 2 - 0.1, h - 0.1, z], [-w / 2 + 0.1, h - 0.1, z]], face(it, (w - 0.2) / (h - 0.3), { bg: col(it, '#f4f1ea'), plain: true }));
     }
+  };
+})();
+
+/* ── 2.2: 더 많은 가구 — 거실·침실·주방·사무·상가·장식 (등 −z가 벽 쪽, 앞 +z) ── */
+(function () {
+  'use strict';
+  const App = window.App;
+  const { MAT, hex, shade } = App.gl3d;
+  const M = App.models3d, F = M.FURN, tint = M.tint;
+  const { WHITE, BLACK, DARK, STEEL, CHROME, WOOD, WOOD_DARK, WOOD_LIGHT } = M.COLORS;
+  const WARM = hex('#fff1cf'), STONE = hex('#f1efea'), GREEN = hex('#3f7f45');
+
+  /** 바 의자(스툴): 가운데 (0, 0) 바닥, 앉는 높이 sh */
+  function barStool(S, sh, c = DARK) {
+    S.disc(0, 0.005, 0, 0.19, STEEL, MAT.metal, 14);
+    S.cyl(0, 0, 0, 0.17, 0.02, 0.17, STEEL, MAT.metal, 14);
+    S.cyl(0, 0.02, 0, 0.022, sh - 0.04, 0.022, CHROME, MAT.metal, 8);
+    S.tube([0, sh * 0.35, 0], [0, sh * 0.35 + 0.012, 0], 0.15, 0.15, CHROME, MAT.metal, 14);
+    S.cyl(0, sh - 0.05, 0, 0.18, sh, 0.17, c, MAT.fabric, 16);
+  }
+  /** 사무용 의자: 앞이 +z */
+  function officeChair(C, c = hex('#2f3540')) {
+    const S = C.S;
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI * 2 + 0.3, x = Math.cos(a) * 0.28, z = Math.sin(a) * 0.28;
+      S.beam([0, 0.07, 0], [x, 0.05, z], 0.035, DARK);
+      if (!C.lod) S.ball(x, 0.03, z, 0.028, 0.028, 0.028, BLACK, 0, 6, 4);
+    }
+    S.cyl(0, 0.07, 0, 0.03, 0.42, 0.025, CHROME, MAT.metal, 8);
+    S.box(-0.25, 0.42, -0.22, 0.25, 0.5, 0.26, c, MAT.fabric, { bottom: true });
+    S.box(-0.23, 0.55, -0.29, 0.23, 1.02, -0.23, c, MAT.fabric, { bottom: true });
+    S.box(-0.05, 0.46, -0.27, 0.05, 0.56, -0.2, DARK);
+    if (!C.lod) [-1, 1].forEach((s) => {
+      S.box(s * 0.25 - 0.02, 0.5, -0.05, s * 0.25 + 0.02, 0.64, 0.0, DARK);
+      S.box(s * 0.25 - 0.035, 0.64, -0.14, s * 0.25 + 0.035, 0.67, 0.12, DARK);
+    });
+  }
+
+  F['L자 소파'] = (C, it, w, d, h) => {
+    const S = C.S, c = tint(it, hex('#8d929b')), light = shade(c, 1.1);
+    const sd = Math.min(0.95, d * 0.62), back = 0.22, arm = 0.18, seat = 0.42, cw = Math.min(0.95, w * 0.38);
+    [[-w / 2 + 0.05, -d / 2 + 0.05], [w / 2 - 0.05, -d / 2 + 0.05], [-w / 2 + 0.05, -d / 2 + sd - 0.05], [w / 2 - 0.05, d / 2 - 0.05], [w / 2 - cw + 0.05, d / 2 - 0.05]]
+      .forEach(([x, z]) => S.box(x - 0.025, 0, z - 0.025, x + 0.025, 0.07, z + 0.025, WOOD_DARK, MAT.grain));
+    S.box(-w / 2, 0.07, -d / 2, w / 2, seat - 0.12, -d / 2 + sd, c, MAT.fabric, { bottom: true });
+    S.box(w / 2 - cw, 0.07, -d / 2 + sd, w / 2, seat - 0.12, d / 2, c, MAT.fabric, { bottom: true });
+    S.box(-w / 2, seat - 0.12, -d / 2, w / 2, h, -d / 2 + back, c, MAT.fabric);
+    S.box(-w / 2, seat - 0.12, -d / 2 + back, -w / 2 + arm, seat + 0.2, -d / 2 + sd, c, MAT.fabric);
+    const span = w - arm - cw, n = Math.max(1, Math.round(span / 0.7)), sw = span / n;
+    for (let i = 0; i < n; i++) {
+      const x0 = -w / 2 + arm + i * sw + 0.012, x1 = x0 + sw - 0.024;
+      S.box(x0, seat - 0.12, -d / 2 + back + 0.01, x1, seat, -d / 2 + sd - 0.01, light, MAT.fabric);
+      S.box(x0, seat, -d / 2 + back - 0.02, x1, h - 0.03, -d / 2 + back + 0.13, light, MAT.fabric);
+    }
+    S.box(w / 2 - cw + 0.012, seat - 0.12, -d / 2 + back + 0.01, w / 2 - 0.012, seat, d / 2 - 0.012, light, MAT.fabric);
+    S.box(w / 2 - cw + 0.012, seat, -d / 2 + back - 0.02, w / 2 - 0.012, h - 0.03, -d / 2 + back + 0.13, light, MAT.fabric);
+    S.ball(-w / 2 + arm + 0.25, seat + 0.16, -d / 2 + back + 0.14, 0.2, 0.17, 0.07, shade(c, 0.8), MAT.fabric, 8, 5);
+  };
+  F['안락의자'] = (C, it, w, d, h) => F['소파'](C, it, w, d, h);
+  F['거실 테이블'] = (C, it, w, d, h) => {
+    const S = C.S, c = tint(it, WOOD_LIGHT);
+    S.box(-w / 2, h - 0.035, -d / 2, w / 2, h, d / 2, c, MAT.grain, { bottom: true });
+    S.box(-w / 2 + 0.05, 0.1, -d / 2 + 0.05, w / 2 - 0.05, 0.125, d / 2 - 0.05, shade(c, 0.9), MAT.grain);
+    M.legs(S, w, d, h - 0.035, 0.04, shade(c, 0.85), MAT.grain, 0.03);
+    S.box(-w * 0.3, h, -d * 0.2, -w * 0.3 + 0.24, h + 0.05, -d * 0.2 + 0.17, hex('#3b5b7a'));
+    S.box(-w * 0.3 + 0.01, h + 0.05, -d * 0.2 + 0.01, -w * 0.3 + 0.22, h + 0.08, -d * 0.2 + 0.16, hex('#c0563a'));
+    S.cyl(w * 0.25, h, d * 0.05, 0.05, h + 0.16, 0.035, WHITE, MAT.gloss, 10);
+  };
+  F['책장'] = (C, it, w, d, h) => {
+    const S = C.S, c = tint(it, WOOD_LIGHT), t = 0.022;
+    S.box(-w / 2, 0, -d / 2, -w / 2 + t, h, d / 2, c, MAT.grain);
+    S.box(w / 2 - t, 0, -d / 2, w / 2, h, d / 2, c, MAT.grain);
+    S.box(-w / 2 + t, 0, -d / 2, w / 2 - t, h, -d / 2 + 0.012, shade(c, 0.92), MAT.grain);
+    S.box(-w / 2 + t, h - t, -d / 2, w / 2 - t, h, d / 2, c, MAT.grain);
+    S.box(-w / 2 + t, 0, -d / 2, w / 2 - t, 0.07, d / 2, c, MAT.grain);
+    const n = Math.max(2, Math.round((h - 0.07) / 0.36)), gap = (h - 0.07 - t) / n;
+    const BOOKS = ['#7c2d12', '#1e3a8a', '#166534', '#a16207', '#6b21a8', '#9f1239', '#334155', '#e5e7eb', '#0f766e'];
+    for (let i = 0; i < n; i++) {
+      const y = 0.07 + i * gap;
+      if (i) S.box(-w / 2 + t, y - t / 2, -d / 2 + 0.012, w / 2 - t, y + t / 2, d / 2, c, MAT.grain);
+      const room = gap - t - 0.03;
+      if (C.lod) { S.box(-w / 2 + t + 0.02, y + t / 2, -d / 2 + 0.03, w / 2 - t - 0.1, y + t / 2 + room * 0.75, d / 2 - 0.04, hex('#6b5a4a')); continue; }
+      let x = -w / 2 + t + 0.01;
+      while (x < w / 2 - t - 0.05) {
+        if (C.rnd() < 0.12) { x += 0.06 + C.rnd() * 0.08; continue; }
+        const bw = 0.022 + C.rnd() * 0.03, bh = room * (0.62 + C.rnd() * 0.36);
+        S.box(x, y + t / 2, -d / 2 + 0.03, Math.min(x + bw, w / 2 - t - 0.005), y + t / 2 + bh, d / 2 - 0.035 - C.rnd() * 0.03, hex(BOOKS[Math.floor(C.rnd() * BOOKS.length)]));
+        x += bw + 0.002;
+      }
+    }
+  };
+  F['피아노'] = (C, it, w, d, h) => {
+    const S = C.S, body = Math.min(0.62, d * 0.62), z0 = -d / 2;
+    S.box(-w / 2, 0.06, z0, w / 2, 0.66, z0 + 0.34, BLACK, MAT.gloss, { bottom: true });
+    S.box(-w / 2, 0.66, z0, w / 2, h, z0 + 0.3, BLACK, MAT.gloss);
+    [-1, 1].forEach((s) => S.box(s > 0 ? w / 2 - 0.06 : -w / 2, 0, z0, s > 0 ? w / 2 : -w / 2 + 0.06, 0.82, z0 + body, BLACK, MAT.gloss));
+    S.box(-w / 2 + 0.06, 0.66, z0 + 0.3, w / 2 - 0.06, 0.72, z0 + body, BLACK, MAT.gloss);
+    S.quad([-w / 2 + 0.07, 0.722, z0 + body - 0.005], [w / 2 - 0.07, 0.722, z0 + body - 0.005], [w / 2 - 0.07, 0.722, z0 + 0.36], [-w / 2 + 0.07, 0.722, z0 + 0.36], WHITE, MAT.gloss);
+    if (!C.lod) {
+      const kw = (w - 0.14) / 52;
+      for (let i = 0; i < 52; i++) if ([1, 2, 4, 5, 6].includes(i % 7)) S.box(-w / 2 + 0.07 + i * kw - kw * 0.3, 0.722, z0 + 0.36, -w / 2 + 0.07 + i * kw + kw * 0.3, 0.74, z0 + 0.46, BLACK, MAT.gloss);
+    }
+    S.box(-w / 2 + 0.06, 0.95, z0 + 0.3, w / 2 - 0.06, 1.0, z0 + 0.34, BLACK, MAT.gloss);
+    const bz = z0 + body + (d - body) * 0.5;
+    S.box(-0.36, 0.44, bz - 0.17, 0.36, 0.5, bz + 0.17, BLACK, MAT.gloss, { bottom: true });
+    M.legs(S, 0.7, 0.32, 0.44, 0.04, BLACK, MAT.gloss);
+  };
+  F['협탁'] = (C, it, w, d, h) => {
+    const S = C.S, c = tint(it, WOOD_LIGHT);
+    S.box(-w / 2, 0.06, -d / 2, w / 2, h, d / 2 - 0.012, c, MAT.grain, { bottom: true });
+    M.legs(S, w, d - 0.012, 0.06, 0.03, shade(c, 0.8), MAT.grain, 0.02);
+    S.box(-w / 2 + 0.02, h * 0.55, d / 2 - 0.012, w / 2 - 0.02, h - 0.03, d / 2 + 0.002, shade(c, 1.05), MAT.grain);
+    S.box(-0.03, h * 0.75 - 0.008, d / 2, 0.03, h * 0.75 + 0.008, d / 2 + 0.018, CHROME, MAT.metal);
+    S.cyl(0, h, -0.04, 0.06, h + 0.03, 0.06, DARK, MAT.metal, 12);
+    S.cyl(0, h + 0.03, -0.04, 0.01, h + 0.22, 0.01, DARK, MAT.metal, 6);
+    S.tube([0, h + 0.2, -0.04], [0, h + 0.36, -0.04], 0.11, 0.08, WARM, MAT.emissive, 14, false, false);
+  };
+  F['화장대'] = (C, it, w, d, h) => {
+    const S = C.S, c = tint(it, WHITE), td = Math.min(0.45, d * 0.56), z0 = -d / 2, top = 0.75;
+    S.box(-w / 2, top - 0.03, z0, w / 2, top, z0 + td, c, MAT.gloss, { bottom: true });
+    S.box(-w / 2, 0, z0, -w / 2 + 0.35, top - 0.03, z0 + td, c);
+    C.at(-w / 2 + 0.175, 0); M.doors(C.S, 0.35, 0.02, top - 0.03, z0 + td, 1, shade(c, 1.03)); C.at(0, 0);
+    S.box(w / 2 - 0.04, 0, z0, w / 2, top - 0.03, z0 + td, c);
+    S.box(-0.32, top, z0, 0.32, h, z0 + 0.03, c, MAT.gloss);
+    S.quad([-0.29, top + 0.06, z0 + 0.032], [0.29, top + 0.06, z0 + 0.032], [0.29, h - 0.04, z0 + 0.032], [-0.29, h - 0.04, z0 + 0.032], hex('#c8d4de'), MAT.window);
+    S.cyl(w * 0.3, top, z0 + 0.15, 0.03, top + 0.12, 0.022, hex('#e9a8b8'), MAT.gloss, 8);
+    S.box(w * 0.18, top, z0 + 0.1, w * 0.18 + 0.12, top + 0.05, z0 + 0.2, hex('#d9c7a7'));
+    const sz = z0 + td + (d - td) * 0.5;
+    S.cyl(0, 0, sz, 0.15, 0.4, 0.15, shade(c, 0.9), 0, 14);
+    S.cyl(0, 0.4, sz, 0.17, 0.46, 0.17, hex('#d8b4c0'), MAT.fabric, 16);
+  };
+  F['아일랜드 식탁'] = (C, it, w, d, h) => {
+    const S = C.S, c = tint(it, hex('#dfe3e8')), z0 = -d / 2, top = Math.min(0.9, d * 0.7);
+    S.box(-w / 2 + 0.02, 0, z0 + 0.02, w / 2 - 0.02, 0.1, z0 + top - 0.3, DARK);
+    S.box(-w / 2 + 0.02, 0.1, z0, w / 2 - 0.02, h - 0.04, z0 + top - 0.28, c, 0, { bottom: true });
+    const n = Math.max(2, Math.round(w / 0.6));
+    for (let i = 1; i < n; i++) { const x = -w / 2 + (w * i) / n; S.box(x - 0.003, 0.12, z0 - 0.003, x + 0.003, h - 0.06, z0 + 0.002, shade(c, 0.7)); }
+    S.box(-w / 2, h - 0.04, z0, w / 2, h, z0 + top, STONE, MAT.gloss, { bottom: true });
+    const k = Math.max(2, Math.round(w / 0.55)), sz = z0 + top + Math.min(0.2, (d - top) * 0.5);
+    for (let i = 0; i < k; i++) { C.at(-w / 2 + ((i + 0.5) * w) / k, sz, 0); barStool(C.S, 0.66); }
+    C.at(0, 0);
+  };
+  F['바 테이블'] = (C, it, w, d, h) => {
+    const S = C.S, c = tint(it, WOOD_DARK), r = Math.min(0.32, d / 2);
+    S.disc(0, 0.005, 0, 0.24, DARK, MAT.metal, 16);
+    S.cyl(0, 0, 0, 0.22, 0.03, 0.22, DARK, MAT.metal, 16);
+    S.cyl(0, 0.03, 0, 0.035, h - 0.04, 0.035, DARK, MAT.metal, 10);
+    S.cyl(0, h - 0.04, 0, r, h, r, c, MAT.grain, 22);
+    [-1, 1].forEach((s) => { C.at(s * (w / 2 - 0.2), 0, 0); barStool(C.S, 0.76); });
+    C.at(0, 0);
+  };
+  F['사무용 의자'] = (C, it) => officeChair(C, tint(it, hex('#2f3540')));
+  F['회의 테이블'] = (C, it, w, d, h) => {
+    const S = C.S, c = tint(it, WOOD_LIGHT);
+    S.box(-w / 2, h - 0.03, -d / 2, w / 2, h, d / 2, c, MAT.grain, { bottom: true });
+    [-1, 1].forEach((s) => {
+      const x = s * (w / 2 - Math.min(0.4, w * 0.15));
+      S.box(x - 0.03, 0.02, -d / 2 + 0.22, x + 0.03, h - 0.03, d / 2 - 0.22, STEEL, MAT.metal);
+      S.box(x - 0.05, 0, -d / 2 + 0.15, x + 0.05, 0.03, d / 2 - 0.15, STEEL, MAT.metal);
+    });
+    S.box(-w * 0.12, h, -0.06, w * 0.12, h + 0.008, 0.06, DARK);
+    const n = Math.max(2, Math.round(w / 0.75));
+    for (let i = 0; i < n; i++) {
+      const x = -w / 2 + ((i + 0.5) * w) / n;
+      C.at(x, -d / 2 - 0.22, 0); officeChair(C);
+      C.at(x, d / 2 + 0.22, 180); officeChair(C);
+    }
+    if (w >= 2.3) [-1, 1].forEach((s) => { C.at(s * (w / 2 + 0.24), 0, s > 0 ? -90 : 90); officeChair(C); });
+    C.at(0, 0);
+  };
+  F['파티션'] = (C, it, w, d, h) => {
+    const S = C.S, c = tint(it, hex('#7d8b99'));
+    S.box(-w / 2 + 0.02, 0.04, -0.022, w / 2 - 0.02, h - 0.02, 0.022, c, MAT.fabric, { bottom: true });
+    S.box(-w / 2, h - 0.03, -0.028, w / 2, h, 0.028, STEEL, MAT.metal);
+    [-1, 1].forEach((s) => {
+      S.box(s * w / 2 - (s > 0 ? 0.025 : 0), 0, -0.028, s * w / 2 + (s > 0 ? 0 : 0.025), h, 0.028, STEEL, MAT.metal);
+      S.box(s * (w / 2 - 0.0125) - 0.02, 0, -0.18, s * (w / 2 - 0.0125) + 0.02, 0.03, 0.18, STEEL, MAT.metal);
+    });
+  };
+  F['서류 캐비닛'] = (C, it, w, d, h) => {
+    const S = C.S, c = hex('#d5d9de'), n = Math.max(2, Math.round(h / 0.33));
+    S.box(-w / 2, 0, -d / 2, w / 2, h, d / 2 - 0.01, c, MAT.metal);
+    for (let i = 0; i < n; i++) {
+      const y0 = 0.04 + (i * (h - 0.06)) / n, y1 = 0.04 + ((i + 1) * (h - 0.06)) / n - 0.012;
+      S.box(-w / 2 + 0.015, y0, d / 2 - 0.01, w / 2 - 0.015, y1, d / 2 + 0.004, shade(c, 1.04), MAT.metal);
+      S.box(-0.12, y1 - 0.07, d / 2 + 0.004, 0.12, y1 - 0.05, d / 2 + 0.024, CHROME, MAT.metal);
+      S.box(-0.05, y1 - 0.13, d / 2 + 0.004, 0.05, y1 - 0.095, d / 2 + 0.008, WHITE);
+    }
+  };
+  F['카운터'] = (C, it, w, d, h) => {
+    const S = C.S, c = tint(it, WOOD), z1 = d / 2;
+    S.box(-w / 2, 0, z1 - 0.05, w / 2, h - 0.04, z1, c, MAT.grain, { bottom: true });
+    S.box(-w / 2, 0, -d / 2 + 0.02, -w / 2 + 0.04, h - 0.04, z1 - 0.05, c, MAT.grain);
+    S.box(w / 2 - 0.04, 0, -d / 2 + 0.02, w / 2, h - 0.04, z1 - 0.05, c, MAT.grain);
+    S.box(-w / 2 - 0.02, h - 0.04, -0.05, w / 2 + 0.02, h, z1 + 0.04, STONE, MAT.gloss, { bottom: true });
+    S.box(-w / 2 + 0.04, 0.76, -d / 2, w / 2 - 0.04, 0.8, z1 - 0.05, WHITE);
+    S.box(-w / 2 + 0.04, 0, -d / 2, w / 2 - 0.04, 0.05, z1 - 0.05, DARK);
+    const px = -w / 2 + 0.35;
+    S.box(px - 0.04, 0.8, -0.1, px + 0.04, 0.95, -0.06, DARK);
+    S.box(px - 0.2, 0.92, -0.08, px + 0.2, 1.2, -0.05, BLACK);
+    S.quad([px - 0.185, 0.935, -0.0495], [px + 0.185, 0.935, -0.0495], [px + 0.185, 1.185, -0.0495], [px - 0.185, 1.185, -0.0495], hex('#3b6fb6'), MAT.emissive);
+    S.box(px + 0.3, h, 0.05, px + 0.38, h + 0.04, 0.17, DARK);
+  };
+  F['진열장'] = (C, it, w, d, h) => {
+    const S = C.S, G = C.G, frame = hex('#2b2f36'), t = 0.03;
+    S.box(-w / 2, 0, -d / 2, w / 2, 0.1, d / 2, frame);
+    S.box(-w / 2, h - 0.05, -d / 2, w / 2, h, d / 2, frame);
+    S.box(-w / 2, 0, -d / 2, w / 2, h, -d / 2 + 0.012, hex('#f3f1ec'));
+    [-1, 1].forEach((s) => S.box(s > 0 ? w / 2 - t : -w / 2, 0, -d / 2, s > 0 ? w / 2 : -w / 2 + t, h, d / 2, frame));
+    S.box(-w / 2 + t, h - 0.07, -d / 2 + 0.03, w / 2 - t, h - 0.05, d / 2 - 0.03, WARM, MAT.emissive);
+    const n = 4, gap = (h - 0.15) / n, ITEMS = ['#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#f9fafb', '#111827'];
+    for (let i = 1; i <= n; i++) {
+      const y = 0.1 + i * gap - (i === n ? 0.07 : 0);
+      if (i < n) G.quad([-w / 2 + t, y, d / 2 - 0.02], [w / 2 - t, y, d / 2 - 0.02], [w / 2 - t, y, -d / 2 + 0.012], [-w / 2 + t, y, -d / 2 + 0.012], hex('#dbe7ee'), MAT.glass);
+      if (C.lod) continue;
+      const base = 0.1 + (i - 1) * gap;
+      for (let x = -w / 2 + 0.12; x < w / 2 - 0.1; x += 0.16 + C.rnd() * 0.1) {
+        const col = hex(ITEMS[Math.floor(C.rnd() * ITEMS.length)]), ih = Math.min(gap * 0.6, 0.12 + C.rnd() * 0.16);
+        if (C.rnd() < 0.5) S.box(x - 0.04, base + 0.005, -0.07, x + 0.04, base + ih, 0.03, col, MAT.gloss);
+        else S.cyl(x, base + 0.005, -0.02, 0.04, base + ih, 0.035, col, MAT.gloss, 10);
+      }
+    }
+    G.quad([-w / 2 + t, 0.1, d / 2 - 0.005], [w / 2 - t, 0.1, d / 2 - 0.005], [w / 2 - t, h - 0.05, d / 2 - 0.005], [-w / 2 + t, h - 0.05, d / 2 - 0.005], hex('#cfe3ec'), MAT.glass);
+    S.box(-0.004, 0.1, d / 2 - 0.01, 0.004, h - 0.05, d / 2, frame);
+  };
+  F['러그'] = (C, it, w, d) => {
+    const S = C.S, c = tint(it, hex('#b9a58a')), e = Math.min(0.14, Math.min(w, d) * 0.08);
+    S.box(-w / 2, 0, -d / 2, w / 2, 0.012, d / 2, c, MAT.fabric, { bottom: true });
+    const ring = (k, col) => S.quad([-w / 2 + k, 0.0125, d / 2 - k], [w / 2 - k, 0.0125, d / 2 - k], [w / 2 - k, 0.0125, -d / 2 + k], [-w / 2 + k, 0.0125, -d / 2 + k], col, MAT.fabric);
+    ring(e, shade(c, 0.78));
+    ring(e * 1.6, c);
+    if (!C.lod) for (let x = -w / 2; x <= w / 2 + 1e-6; x += 0.04) { S.box(x - 0.004, 0, d / 2, x + 0.004, 0.006, d / 2 + 0.05, shade(c, 1.1)); S.box(x - 0.004, 0, -d / 2 - 0.05, x + 0.004, 0.006, -d / 2, shade(c, 1.1)); }
+  };
+  F['실내 화분'] = (C, it, w, d, h) => {
+    const S = C.S, r = Math.min(w, d) * 0.36;
+    S.cyl(0, 0, 0, r * 0.82, h * 0.3, r, hex('#efece6'), MAT.gloss, 16);
+    S.disc(0, h * 0.295, 0, r * 0.95, hex('#4a3a2c'), MAT.soil, 14);
+    S.cyl(0, h * 0.3, 0, 0.018, h * 0.62, 0.014, WOOD_DARK, 0, 6);
+    const leaves = C.lod ? 3 : 8;
+    for (let i = 0; i < leaves; i++) {
+      const a = i * 2.4 + C.rnd(), rr = (0.1 + C.rnd() * 0.16) * (w / 0.5), y = h * (0.5 + C.rnd() * 0.42);
+      S.ball(Math.cos(a) * rr, y, Math.sin(a) * rr, 0.13 + C.rnd() * 0.06, 0.07, 0.11, shade(GREEN, 0.8 + C.rnd() * 0.4), MAT.foliage, 8, 5);
+    }
+  };
+  F['스탠드 조명'] = (C, it, w, d, h) => {
+    const S = C.S;
+    S.cyl(0, 0, 0, 0.16, 0.03, 0.15, DARK, MAT.metal, 16);
+    S.cyl(0, 0.03, 0, 0.012, h - 0.28, 0.012, STEEL, MAT.metal, 6);
+    S.tube([0, h - 0.32, 0], [0, h, 0], 0.2, 0.14, hex('#f3ead8'), MAT.fabric, 18, false, false);
+    S.ball(0, h - 0.2, 0, 0.06, 0.07, 0.06, WARM, MAT.emissive, 8, 5);
   };
 })();

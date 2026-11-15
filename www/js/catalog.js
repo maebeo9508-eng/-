@@ -119,23 +119,42 @@
     /* 가구: 실제 크기(폭 size × 깊이 depth, mm)로 그림. 기호의 위쪽(-y)이 등(벽 쪽).
        back: 벽 가까이 놓으면 등을 벽에 대고 붙음, sizes: 규격 [이름, 폭, 깊이], h3: 3D 보기 높이 */
     furn: [
-      { kind: '침대', size: 1500, depth: 2000, h3: 450, back: true, sizes: [['싱글', 1000, 2000], ['슈퍼싱글', 1100, 2000], ['더블', 1400, 2000], ['퀸', 1500, 2000], ['킹', 1600, 2000]] },
-      { kind: '소파', size: 2000, depth: 850, h3: 800, back: true, sizes: [['1인', 900, 850], ['2인', 1500, 850], ['3인', 2000, 850]] },
-      { kind: '식탁', size: 1200, depth: 800, h3: 750, sizes: [['2인', 800, 700], ['4인', 1200, 800], ['6인', 1600, 900]] },
-      { kind: '의자', size: 450, depth: 450, h3: 850 },
-      { kind: '책상', size: 1200, depth: 600, h3: 730, back: true, sizes: [['1000', 1000, 600], ['1200', 1200, 600], ['1400', 1400, 700]] },
-      { kind: '옷장', size: 1200, depth: 600, h3: 2100, back: true, sizes: [['800', 800, 600], ['1200', 1200, 600], ['1800', 1800, 600], ['2400', 2400, 600]] },
-      { kind: '수납장', size: 800, depth: 400, h3: 900, back: true },
-      { kind: 'TV장', size: 1800, depth: 400, h3: 450, back: true },
-      { kind: '냉장고', size: 900, depth: 900, h3: 1800, back: true, sizes: [['일반', 700, 750], ['양문형', 900, 900]] },
-      { kind: '세탁기', size: 700, depth: 700, h3: 1000, back: true },
-      { kind: '싱크대', size: 2400, depth: 600, h3: 850, back: true, sizes: [['1800', 1800, 600], ['2400', 2400, 600], ['3000', 3000, 600]] },
-      { kind: '쿡탑', size: 600, depth: 520, h3: 850, back: true },
-      { kind: '변기', size: 400, depth: 700, h3: 750, back: true },
-      { kind: '세면대', size: 600, depth: 450, h3: 850, back: true },
-      { kind: '욕조', size: 1500, depth: 750, h3: 550, back: true, sizes: [['1400', 1400, 700], ['1500', 1500, 750], ['1700', 1700, 750]] },
-      { kind: '샤워부스', size: 900, depth: 900, h3: 2000 },
-      { kind: '신발장', size: 1000, depth: 380, h3: 1200, back: true },
+      { kind: '침대', cat: '침실·서재', colors: '이불 색', size: 1500, depth: 2000, h3: 450, back: true, sizes: [['싱글', 1000, 2000], ['슈퍼싱글', 1100, 2000], ['더블', 1400, 2000], ['퀸', 1500, 2000], ['킹', 1600, 2000]] },
+      { kind: '소파', cat: '거실', colors: '천 색', size: 2000, depth: 850, h3: 800, back: true, sizes: [['1인', 900, 850], ['2인', 1500, 850], ['3인', 2000, 850]] },
+      { kind: '식탁', cat: '주방·식당', colors: '색', size: 1200, depth: 800, h3: 750, sizes: [['2인', 800, 700], ['4인', 1200, 800], ['6인', 1600, 900]] },
+      { kind: '식탁 의자', cat: '주방·식당', colors: '색', size: 450, depth: 450, h3: 850 },
+      { kind: '책상', cat: '침실·서재', colors: '상판 색', size: 1200, depth: 600, h3: 730, back: true, sizes: [['1000', 1000, 600], ['1200', 1200, 600], ['1400', 1400, 700]] },
+      { kind: '옷장', cat: '침실·서재', colors: '문 색', size: 1200, depth: 600, h3: 2100, back: true, sizes: [['800', 800, 600], ['1200', 1200, 600], ['1800', 1800, 600], ['2400', 2400, 600]] },
+      { kind: '수납장', cat: '거실', colors: '문 색', size: 800, depth: 400, h3: 900, back: true },
+      { kind: 'TV장', cat: '거실', colors: '색', size: 1800, depth: 400, h3: 450, back: true },
+      { kind: '냉장고', cat: '주방·식당', colors: '색', size: 900, depth: 900, h3: 1800, back: true, sizes: [['일반', 700, 750], ['양문형', 900, 900]] },
+      { kind: '세탁기', cat: '욕실·세탁', size: 700, depth: 700, h3: 1000, back: true },
+      { kind: '싱크대', cat: '주방·식당', colors: '문 색', size: 2400, depth: 600, h3: 850, back: true, sizes: [['1800', 1800, 600], ['2400', 2400, 600], ['3000', 3000, 600]] },
+      { kind: '쿡탑', cat: '주방·식당', size: 600, depth: 520, h3: 850, back: true },
+      { kind: '변기', cat: '욕실·세탁', size: 400, depth: 700, h3: 750, back: true },
+      { kind: '세면대', cat: '욕실·세탁', size: 600, depth: 450, h3: 850, back: true },
+      { kind: '욕조', cat: '욕실·세탁', size: 1500, depth: 750, h3: 550, back: true, sizes: [['1400', 1400, 700], ['1500', 1500, 750], ['1700', 1700, 750]] },
+      { kind: '샤워부스', cat: '욕실·세탁', size: 900, depth: 900, h3: 2000 },
+      { kind: '신발장', cat: '거실', colors: '문 색', size: 1000, depth: 380, h3: 1200, back: true },
+      // ── 2.2: 더 많은 가구 (cat: 고르는 막대의 분류)
+      { kind: 'L자 소파', cat: '거실', colors: '천 색', size: 2600, depth: 1600, h3: 820, back: true, sizes: [['3인', 2400, 1500], ['4인', 2800, 1700]] },
+      { kind: '안락의자', cat: '거실', colors: '천 색', size: 850, depth: 850, h3: 880 },
+      { kind: '거실 테이블', cat: '거실', colors: '색', size: 1100, depth: 550, h3: 400, sizes: [['900', 900, 500], ['1100', 1100, 550], ['1300', 1300, 650]] },
+      { kind: '책장', cat: '거실', colors: '색', size: 800, depth: 300, h3: 1800, back: true, sizes: [['600', 600, 300], ['800', 800, 300], ['1200', 1200, 300]] },
+      { kind: '피아노', cat: '거실', size: 1500, depth: 1000, h3: 1250, back: true },
+      { kind: '협탁', cat: '침실·서재', colors: '색', size: 450, depth: 400, h3: 550, back: true },
+      { kind: '화장대', cat: '침실·서재', colors: '색', size: 1000, depth: 800, h3: 1450, back: true },
+      { kind: '아일랜드 식탁', cat: '주방·식당', colors: '문 색', size: 1800, depth: 1300, h3: 900, sizes: [['1500', 1500, 1300], ['1800', 1800, 1300], ['2400', 2400, 1300]] },
+      { kind: '바 테이블', cat: '주방·식당', colors: '색', size: 1500, depth: 600, h3: 1050 },
+      { kind: '사무용 의자', cat: '사무·상가', colors: '색', size: 620, depth: 620, h3: 1050 },
+      { kind: '회의 테이블', cat: '사무·상가', colors: '상판 색', size: 2400, depth: 1100, h3: 740, sizes: [['6인', 1800, 900], ['8인', 2400, 1100], ['10인', 3000, 1200], ['12인', 3600, 1200]] },
+      { kind: '파티션', cat: '사무·상가', colors: '천 색', size: 1200, depth: 50, h3: 1200, sizes: [['800', 800, 50], ['1200', 1200, 50], ['1600', 1600, 50]] },
+      { kind: '서류 캐비닛', cat: '사무·상가', size: 800, depth: 450, h3: 1300, back: true },
+      { kind: '카운터', cat: '사무·상가', colors: '앞판 색', size: 1800, depth: 600, h3: 1050, sizes: [['1200', 1200, 600], ['1800', 1800, 600], ['2400', 2400, 600]] },
+      { kind: '진열장', cat: '사무·상가', size: 1200, depth: 450, h3: 1800, back: true, sizes: [['900', 900, 450], ['1200', 1200, 450], ['1800', 1800, 450]] },
+      { kind: '러그', cat: '장식·조명', colors: '색', size: 2000, depth: 1400, h3: 12, flat: true, sizes: [['1400×2000', 2000, 1400], ['1600×2300', 2300, 1600], ['2000×3000', 3000, 2000]] },
+      { kind: '실내 화분', cat: '장식·조명', size: 500, depth: 500, h3: 1300 },
+      { kind: '스탠드 조명', cat: '장식·조명', size: 420, depth: 420, h3: 1650 },
     ],
   };
   /* 조감도(행사) 물건: 실제 크기(폭 size × 깊이 depth)로 그리고, h3은 3D 높이(물건마다 고칠 수 있음).
@@ -314,9 +333,15 @@
     Object.assign(ev('사람'), { styles: ['정장', '일반', '스태프', '어린이', '선수'], colors: '옷 색' });
   }
   // 벽에 붙이는 액자·벽보: 인테리어(가구)와 조감도 팔레트 양쪽에서 씀. 폭 size, 그림 높이 h3, 걸리는 높이 height(가운데)
-  ITEM_KINDS.furn.push({ kind: '액자·벽보', size: 900, depth: 40, h3: 600, wall: true, height: 1500, face: '글자', sizes: [['A2 가로', 594, 40], ['900', 900, 40], ['1200', 1200, 40], ['1800', 1800, 40]] });
+  ITEM_KINDS.furn.push({ kind: '액자·벽보', cat: '장식·조명', size: 900, depth: 40, h3: 600, wall: true, height: 1500, face: '글자', sizes: [['A2 가로', 594, 40], ['900', 900, 40], ['1200', 1200, 40], ['1800', 1800, 40]] });
   const EVENT_CATS = ['구조물', '좌석', '장비', '안내·장식', '편의·안전', '운동·경기', '사람·차량', '건물·조경'];
+  const FURN_CATS = ['거실', '침실·서재', '주방·식당', '욕실·세탁', '사무·상가', '장식·조명'];
   // 조감도 물건 색 (첫 칸은 종류의 기본 색)
+  // 벽지·도장 색 (부드러운 색 위주, 포인트 벽용 진한 색 몇 가지)
+  const WALL_COLORS = [
+    ['#ffffff', '화이트'], ['#f6f1e6', '아이보리'], ['#ece3d3', '베이지'], ['#e6e4df', '연회색'], ['#d9d2c5', '그레이지'], ['#dfe9f0', '연하늘'],
+    ['#dcebe2', '민트'], ['#f3e1e1', '연분홍'], ['#cdd6c4', '세이지'], ['#8a8f96', '진회색 (포인트)'], ['#2f3e55', '네이비 (포인트)'], ['#6b4f3a', '월넛 (포인트)'],
+  ];
   const ITEM_COLORS = [
     ['#ffffff', '흰색'], ['#d92d20', '빨강'], ['#f97316', '주황'], ['#facc15', '노랑'], ['#16a34a', '초록'], ['#0ea5e9', '하늘'],
     ['#2563eb', '파랑'], ['#1e3a8a', '남색'], ['#7c3aed', '보라'], ['#ec4899', '분홍'], ['#111827', '검정'], ['#9ca3af', '회색'],
@@ -334,6 +359,24 @@
     d.category = category;
     if (d.depth) d.aspect = d.depth / d.size;
   }));
+  /* 방 바닥 모양 (평면 색·무늬와 3D 재질): [id, 이름, 색, 무늬]
+     무늬: plank 마루 널, wide 넓은 널, deco 데코타일, chevron V자 마루, tile 600각, tile-l 800각, tile-s 300각, marble 대리석, carpet, plain */
+  const FLOOR_LOOKS = [
+    ['oak', '강마루 · 밝은 오크', '#d9bb8f', 'plank'],
+    ['walnut', '강마루 · 월넛', '#8b5e3c', 'plank'],
+    ['greywood', '강마루 · 그레이', '#aaa59c', 'plank'],
+    ['wide', '원목 마루 (넓은 널)', '#c49a6c', 'wide'],
+    ['chevron', '쉐브론 마루 (V자)', '#c99f70', 'chevron'],
+    ['vinyl', '장판', '#d8bd8e', 'plank'],
+    ['deco', '데코타일', '#c8b08e', 'deco'],
+    ['tile', '포세린 타일 600각', '#e2dfd8', 'tile'],
+    ['tile-l', '포세린 타일 800각 · 진회색', '#77797d', 'tile-l'],
+    ['marble', '대리석', '#ecebe7', 'marble'],
+    ['bath', '욕실 타일 300각', '#d3dde2', 'tile-s'],
+    ['carpet', '카펫', '#8f96a1', 'carpet'],
+    ['concrete', '노출 콘크리트', '#b5b7b9', 'plain'],
+    ['epoxy', '에폭시 (주차장·창고)', '#8fa0ad', 'plain'],
+  ].map(([id, name, color, pattern]) => ({ id, name, color, pattern }));
   const LINE_CATEGORIES = ['전선관', '배관', '덕트', '기타'];
   const COLORS = [
     ['#e03131', '빨강'], ['#c2255c', '자홍'], ['#e8590c', '주황'], ['#f08c00', '노랑'], ['#2f9e44', '초록'],
@@ -350,6 +393,7 @@
     SHAPE_NAMES,
     ITEM_KINDS,
     EVENT_CATS,
+    FURN_CATS,
     ITEM_COLORS,
     SURFACES,
     CHAIR_STYLES,
@@ -398,6 +442,28 @@
       return axis === 'x' ? { size: v } : { depth: v };
     },
     /** 조감도 팔레트: 분류마다 놓을 수 있는 종류들 */
+    FLOOR_LOOKS,
+    WALL_COLORS,
+    /** 방의 바닥 모양: 고른 것, 없으면 바닥 마감재 이름으로 짐작, 그래도 없으면 null (기본 바닥) */
+    floorLook(r) {
+      if (!r) return null;
+      const chosen = FLOOR_LOOKS.find((l) => l.id === r.floorLook);
+      if (chosen) return chosen;
+      const fin = r.floorFinishId && App.doc && App.doc.get(r.floorFinishId);
+      const n = fin ? fin.name : '';
+      const id = /대리석/.test(n) ? 'marble' : /욕실/.test(n) ? 'bath' : /데코/.test(n) ? 'deco' : /타일|석재/.test(n) ? 'tile'
+        : /장판/.test(n) ? 'vinyl' : /헤링본|쉐브론/.test(n) ? 'chevron' : /마루|우드|원목|목재/.test(n) ? 'oak' : /카펫/.test(n) ? 'carpet'
+          : /콘크리트/.test(n) ? 'concrete' : /에폭시/.test(n) ? 'epoxy' : '';
+      return FLOOR_LOOKS.find((l) => l.id === id) || null;
+    },
+    /** 가구 고르는 막대: 분류별 */
+    furnPalette() {
+      return FURN_CATS.map((cat) => ({ cat, kinds: ITEM_KINDS.furn.filter((d) => d.cat === cat) }));
+    },
+    /** 고르는 막대의 분류 목록 (조감도 물건 / 가구) */
+    palette(category) {
+      return category === 'furn' ? catalog.furnPalette() : catalog.eventPalette();
+    },
     eventPalette() {
       return EVENT_CATS.map((cat) => ({
         cat,
@@ -589,7 +655,8 @@
       });
       if (!cur.elecKind) cur.elecKind = '콘센트';
       if (!cur.mechKind) cur.mechKind = '에어컨 실내기';
-      if (!cur.furnKind) cur.furnKind = '침대';
+      if (!cur.furnKind || !ITEM_KINDS.furn.some((d) => d.kind === cur.furnKind)) cur.furnKind = '침대';
+      if (!FURN_CATS.includes(cur.furnCat)) cur.furnCat = (ITEM_KINDS.furn.find((d) => d.kind === cur.furnKind) || {}).cat || FURN_CATS[0];
       if (!cur.eventKind || !catalog.itemDef(cur.eventKind)) cur.eventKind = '몽골텐트';
       if (!EVENT_CATS.includes(cur.eventCat)) cur.eventCat = (catalog.itemDef(cur.eventKind) || {}).cat || EVENT_CATS[0];
       if (!App.routes.KINDS.some((k) => k.kind === cur.routeKind)) cur.routeKind = App.routes.KINDS[0].kind;

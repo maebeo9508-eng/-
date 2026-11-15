@@ -94,6 +94,7 @@
     openLength,
     closeTop,
     openPicker,
+    openEstimate,
   });
 
   /* ── 도구 바 ───────────────────────────── */
@@ -188,6 +189,8 @@
     item('#menuCsv', () => App.summary.exportCsv());
     item('#menuPng', () => App.exporter.exportPng());
     item('#menuPdf', () => App.exporter.pdfDialog());
+    // 견적서: 집계 탭의 '견적' 보기를 열고, 단가를 하나라도 넣었으면 바로 PDF로
+    item('#menuEstimate', () => openEstimate());
     $('#btnUndo').addEventListener('click', () => App.actions.undo());
     $('#btnRedo').addEventListener('click', () => App.actions.redo());
     $('#btnSettings').addEventListener('click', () => App.settingsUI.open());
@@ -530,19 +533,20 @@
   function renderPalette() {
     const pal = $('#palette'), cats = $('#paletteCats');
     const cat = ['elec', 'mech', 'furn', 'event'].includes(ui.tool) ? ui.tool : null;
+    const grouped = cat === 'event' || cat === 'furn'; // 분류 탭과 미리보기 그림으로 고름
     pal.hidden = !cat;
-    cats.hidden = cat !== 'event';
+    cats.hidden = !grouped;
     if (!cat) return;
     App.catalog.ensureCurrent();
     const current = App.current[`${cat}Kind`];
     let list = App.catalog.ITEM_KINDS[cat];
-    pal.classList.toggle('is-pictures', cat === 'event');
-    if (cat === 'event') {
-      const groups = App.catalog.eventPalette();
-      cats.innerHTML = '<button type="button" class="cat-btn cat-all" data-picker="1" title="모든 물건을 그림으로 보고 고르기">▦ 전체 보기</button>'
-        + groups.map((g) => `<button type="button" class="cat-btn" data-cat="${escHtml(g.cat)}" aria-pressed="${g.cat === App.current.eventCat}">${escHtml(g.cat)}</button>`).join('');
-      list = (groups.find((g) => g.cat === App.current.eventCat) || groups[0]).kinds;
-      // 조감도 물건은 3D 미리보기 그림으로 (아직 못 그렸으면 기호로 두었다가 바뀜)
+    pal.classList.toggle('is-pictures', grouped);
+    if (grouped) {
+      const groups = App.catalog.palette(cat), curCat = App.current[`${cat}Cat`];
+      cats.innerHTML = `<button type="button" class="cat-btn cat-all" data-picker="1" title="모든 ${cat === 'furn' ? '가구' : '물건'}를 그림으로 보고 고르기">▦ 전체 보기</button>`
+        + groups.map((g) => `<button type="button" class="cat-btn" data-cat="${escHtml(g.cat)}" aria-pressed="${g.cat === curCat}">${escHtml(g.cat)}</button>`).join('');
+      list = (groups.find((g) => g.cat === curCat) || groups[0]).kinds;
+      // 3D 미리보기 그림으로 (아직 못 그렸으면 기호로 두었다가 바뀜)
       App.sprites.prefer(list.map((d) => d.kind));
       pal.innerHTML = list.map((d) => picCard(d, d.kind === current)).join('');
       return;
@@ -589,6 +593,14 @@
     골대: '축구 골', 농구대: '골대', 시상대: '단상 포디움 메달', 점수판: '스코어 전광판', '선수 벤치': '대기석 덕아웃', 트로피: '우승컵 축구컵',
     사람: '관객 인원', 승용차: '차 자동차', 버스: '차', 트럭: '차 화물', 건물: '빌딩 집', 나무: '조경 가로수', 담장: '울타리 벽 난간',
     '주차 구획': '주차장', 가로등: '조명', 생울타리: '조경 나무', 횡단보도: '도로',
+    // 가구
+    침대: '침실 베드', 소파: '쇼파 거실', 'L자 소파': '쇼파 코너 거실', 안락의자: '1인 소파 쇼파', 식탁: '테이블 주방 식당', '식탁 의자': '의자',
+    '거실 테이블': '소파 테이블 커피', 책장: '선반 책꽂이 서재', 피아노: '악기', 협탁: '사이드 테이블 침실', 화장대: '거울 침실', 책상: '서재 공부',
+    '아일랜드 식탁': '주방 바 아일랜드', '바 테이블': '스툴 카페 식당', '사무용 의자': '의자 오피스 사무실', '회의 테이블': '회의실 사무실 테이블',
+    파티션: '칸막이 사무실', '서류 캐비닛': '서랍 사무실', 카운터: '계산대 매장 카페 포스', 진열장: '쇼케이스 매장 유리장', 러그: '카펫 깔개',
+    '실내 화분': '화분 식물 나무', '스탠드 조명': '조명 램프', 냉장고: '주방 가전', 세탁기: '가전 세탁실', 싱크대: '주방 개수대',
+    쿡탑: '가스레인지 인덕션 주방', 변기: '화장실 욕실', 세면대: '화장실 욕실', 욕조: '욕실', 샤워부스: '욕실 샤워', 신발장: '현관',
+    옷장: '붙박이장 침실', 수납장: '서랍장', TV장: '거실 티비', '액자·벽보': '그림 포스터 사진',
   };
   /** 찾기에 쓰는 글: 이름 + 분류 + 모양들 + 비슷한 말 (빈칸 없이) */
   function pickText(kind) {
@@ -597,14 +609,15 @@
   }
 
   async function openPicker() {
-    const groups = App.catalog.eventPalette();
+    const category = ui.tool === 'furn' ? 'furn' : 'event';
+    const groups = App.catalog.palette(category);
     const r = await dialog({
-      title: '물건 고르기',
+      title: category === 'furn' ? '가구 고르기' : '물건 고르기',
       html: `
-        <div class="field-box picker-search"><input id="pickerSearch" type="search" placeholder="찾기 (예: 천막, 축구, 의자, 조명)" autocomplete="off" enterkeyhint="search"></div>
+        <div class="field-box picker-search"><input id="pickerSearch" type="search" placeholder="${category === 'furn' ? '찾기 (예: 소파, 침대, 주방, 사무실)' : '찾기 (예: 천막, 축구, 의자, 조명)'}" autocomplete="off" enterkeyhint="search"></div>
         <div class="picker" id="pickerBody">
           ${groups.map((g) => `<section class="picker-sec" data-sec><h3>${escHtml(g.cat)} <small>${g.kinds.length}</small></h3>
-            <div class="picker-grid">${g.kinds.map((d) => picCard(d, d.kind === App.current.eventKind)).join('')}</div></section>`).join('')}
+            <div class="picker-grid">${g.kinds.map((d) => picCard(d, d.kind === App.current[`${category}Kind`])).join('')}</div></section>`).join('')}
           <p class="props-meta picker-none" hidden>찾는 물건이 없습니다.</p>
         </div>`,
       actions: [{ id: 'close', label: '닫기', primary: true }],
@@ -612,11 +625,12 @@
         body.dataset.keys = 'local';
         const pick = (kind) => {
           const d = App.catalog.itemDef(kind);
-          App.current.eventKind = kind;
-          App.current.eventCat = (d && d.cat) || '안내·장식';
+          App.current[`${category}Kind`] = kind;
+          // 조감도 팔레트에 같이 나오는 가구(액자·벽보)는 조감도의 '안내·장식'으로
+          App.current[`${category}Cat`] = category === 'event' && d && d.category !== 'event' ? '안내·장식' : (d && d.cat) || groups[0].cat;
           ui.emit('current');
           document.querySelector('#dialogFoot [data-id="close"]').click();
-          setTool('event');
+          setTool(category);
           hint(`${kind}: 놓을 곳을 누르세요`, 3500);
         };
         body.addEventListener('click', (e) => {
@@ -647,7 +661,7 @@
   function renderQuick() {
     const bar = $('#quickBar');
     const els = App.selection.list().map((id) => App.doc.get(id)).filter(Boolean);
-    const show = App.modes.is('event') && els.length > 0 && ui.tool === 'select';
+    const show = els.length > 0 && ui.tool === 'select' && (App.modes.is('event') || els.some((e) => e.type === 'item' || e.type === 'column' || e.type === 'text'));
     bar.hidden = !show;
     if (!show) return;
     const items = els.filter((e) => e.type === 'item' && !e.wallId && !e.locked);
@@ -743,9 +757,10 @@
       if (e.target.closest('[data-picker]')) { openPicker(); return; }
       const b = e.target.closest('[data-cat]');
       if (!b) return;
-      App.current.eventCat = b.dataset.cat;
-      const group = App.catalog.eventPalette().find((g) => g.cat === b.dataset.cat);
-      if (group && !group.kinds.some((d) => d.kind === App.current.eventKind)) App.current.eventKind = group.kinds[0].kind;
+      const tool = ui.tool === 'furn' ? 'furn' : 'event';
+      App.current[`${tool}Cat`] = b.dataset.cat;
+      const group = App.catalog.palette(tool).find((g) => g.cat === b.dataset.cat);
+      if (group && !group.kinds.some((d) => d.kind === App.current[`${tool}Kind`])) App.current[`${tool}Kind`] = group.kinds[0].kind;
       ui.emit('current');
       setTool(ui.tool);
       $('#palette').scrollTo({ left: 0 });
@@ -829,6 +844,15 @@
     const setTop = () => $('#stage').style.setProperty('--stage-top-h', `${top.offsetHeight}px`);
     if ('ResizeObserver' in window) new ResizeObserver(setTop).observe(top);
     setTop();
+  }
+
+  /** 집계 탭의 '견적' 보기를 엶 (휴대폰은 서랍을 크게) */
+  function openEstimate() {
+    const tab = $('#tab-summary');
+    if (tab.getAttribute('aria-selected') !== 'true') tab.click();
+    App.summary.setView('cost');
+    if (ui.mobile.matches) sheet.set(sheet.max());
+    hint('단가를 넣고 위쪽 ‘견적서’ 버튼을 누르면 PDF로 저장됩니다', 4000);
   }
 
   /* ── 속성·집계 탭 ─────────────────────── */

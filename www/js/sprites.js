@@ -15,6 +15,31 @@
   const jobs = [];             // 할 일: { type, key, run }
   const queued = new Set();
   let timer = 0;
+  // 그림들이 차지하는 픽셀 상한: 아이폰·휴대폰은 캔버스 메모리가 넉넉지 않음 (넘으면 오래 안 쓴 그림부터 버림)
+  const PIXEL_CAP = (App.platform && App.platform.ios) || (window.matchMedia && matchMedia('(pointer: coarse)').matches) ? 24e6 : 64e6;
+  let pixels = 0;
+  const area = (e) => (e && e.canvas ? e.canvas.width * e.canvas.height : 0);
+  function release(e) {
+    pixels -= area(e);
+    if (e && e.canvas) { e.canvas.width = 0; e.canvas.height = 0; }
+  }
+  /** 새 그림을 넣고 (같은 열쇠의 예전 그림은 버림) 상한을 넘으면 오래 안 쓴 것부터 버림 */
+  function remember(key, entry) {
+    const old = tops.get(key);
+    if (old && old !== entry) release(old);
+    tops.delete(key);
+    entry.used = performance.now();
+    tops.set(key, entry);
+    pixels += area(entry);
+    if (pixels <= PIXEL_CAP) return;
+    const now = performance.now();
+    for (const [k, e] of tops) { // Map은 넣은 순서 → 쓸 때마다 뒤로 옮기므로 앞쪽이 오래 안 쓴 것
+      if (pixels <= PIXEL_CAP) break;
+      if (now - e.used < 1500) continue; // 지금 화면에 그리는 것은 남김
+      release(e);
+      tops.delete(k);
+    }
+  }
 
   function renderer() {
     if (R || failed) return R;
@@ -76,14 +101,14 @@
   /** 위에서 본 그림을 만듦. ppm: 1m에 몇 픽셀 */
   function makeTop(it, key, ppm) {
     const s = App.view3d.buildItem({ ...it, x: 0, y: 0, rotation: 0, wallId: null }, { seed: key, blobs: false, lod: ppm < 24 });
-    if (!s) { tops.set(key, { ppm, canvas: null }); return; }
+    if (!s) { remember(key, { ppm, canvas: null }); return; }
     const b = s.bounds, pad = 0.03;
     const x0 = b.min[0] - pad, x1 = b.max[0] + pad, z0 = b.min[2] - pad, z1 = b.max[2] + pad, wm = x1 - x0, dm = z1 - z0;
     const k = Math.min(ppm, MAX_SIDE / Math.max(wm, dm));
     const W = Math.max(4, Math.round(wm * k)), H = Math.max(4, Math.round(dm * k));
     const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, top = Math.max(1, b.max[1]) + 5;
     const canvas = drawScene(s, W, H, { eye: [cx, top, cz], target: [cx, 0, cz], up: [0, 0, -1], ortho: { hw: wm / 2, hh: dm / 2 }, near: 0.5, far: top + 5 }, { blobs: false });
-    tops.set(key, { ppm, canvas, x0: x0 * 1000, z0: z0 * 1000, w: wm * 1000, d: dm * 1000 });
+    remember(key, { ppm, canvas, x0: x0 * 1000, z0: z0 * 1000, w: wm * 1000, d: dm * 1000 });
   }
 
   /** 고르는 창의 미리보기 한 장 */
@@ -113,6 +138,7 @@
       const key = keyOf(it);
       const want = Math.min(256, Math.max(4, 2 ** Math.ceil(Math.log2(Math.max(1e-6, pxPerMm * 1000))))); // 1m당 픽셀, 2의 거듭제곱으로
       const cur = tops.get(key);
+      if (cur) { cur.used = performance.now(); tops.delete(key); tops.set(key, cur); } // 최근에 쓴 것으로
       const longest = Math.max(it.size, it.depth || it.size) / 1000;
       const enough = cur && (cur.ppm >= want || cur.ppm * longest >= MAX_SIDE * 0.95);
       if (!enough && renderer()) enqueue(`top:${key}:${want}`, () => makeTop(it, key, want), !cur);
@@ -139,7 +165,9 @@
     get available() { return !failed; },
     /** 시험용: 밀린 그림을 지금 다 그림 */
     flush() { while (jobs.length) { const j = jobs.shift(); queued.delete(j.id); try { j.run(); } catch (e) { console.warn(e); } } if (App.plan) App.plan.requestRender(); if (App.ui) App.ui.emit('sprites'); },
-    clear() { tops.clear(); },
+    clear() { tops.forEach(release); tops.clear(); pixels = 0; },
+    /** 시험용: 그림들이 차지하는 픽셀 수와 상한 */
+    get memory() { return { pixels, cap: PIXEL_CAP, count: tops.size }; },
   };
 
   App.sprites = sprites;

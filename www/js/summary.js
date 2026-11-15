@@ -7,7 +7,7 @@
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const num = (v) => String(Number(v));
 
-  const VIEWS = [['room', '방별'], ['all', '전체'], ['kind', '종류별']];
+  const VIEWS = [['room', '방별'], ['all', '전체'], ['kind', '종류별'], ['cost', '견적']];
   const OUTSIDE = '방 밖';
 
   /** 개수·길이로 세는 항목 묶음. 선은 분류(전선관·배관·덕트·기타)마다 따로 */
@@ -351,18 +351,34 @@
       </section>`;
   }
 
+  /** PC에서 견적을 볼 때는 오른쪽 칸을 넓게 (단가 칸이 들어가게) */
+  function widen(on) {
+    if (document.body.classList.contains('est-wide') === on) return;
+    document.body.classList.toggle('est-wide', on);
+    if (App.plan) App.plan.resize();
+  }
+
   function render() {
     const pane = document.getElementById('pane-summary');
     const s = compute();
-    const blocks = BUILD[view](s);
+    const cost = view === 'cost';
+    const blocks = cost ? [] : BUILD[view](s);
     const scroll = pane.scrollTop;
-    pane.innerHTML = `
+    const bar = `
       <div class="sum-bar">
         <div class="sum-views" role="tablist" aria-label="집계 보기">
           ${VIEWS.map(([id, label]) => `<button type="button" class="seg-btn" role="tab" data-view="${id}" aria-selected="${id === view}">${label}</button>`).join('')}
         </div>
-        <button type="button" class="btn" data-act="csv" ${blocks.length ? '' : 'disabled'} title="엑셀에서 열 수 있는 CSV 파일로 저장">CSV</button>
-      </div>
+        ${cost ? '<button type="button" class="btn btn-primary" data-act="est-pdf" title="견적서를 PDF로 (A4)">견적서</button>' : ''}
+        <button type="button" class="btn" data-act="csv" ${blocks.length || cost ? '' : 'disabled'} title="엑셀에서 열 수 있는 CSV 파일로 저장">CSV</button>
+      </div>`;
+    widen(cost && !pane.hidden);
+    if (cost) {
+      pane.innerHTML = bar + App.estimate.html(s);
+      pane.scrollTop = scroll;
+      return;
+    }
+    pane.innerHTML = `${bar}
       ${s.excluded.length ? `<p class="dialog-note is-warn">숨긴 레이어(${esc(s.excluded.join(', '))})는 집계에서 뺐습니다. 위쪽 ‘레이어’에서 바꿀 수 있습니다.</p>` : ''}
       ${blocks.map(blockHtml).join('') || `
         <div class="empty">
@@ -391,6 +407,7 @@
   }
 
   function exportCsv() {
+    if (view === 'cost') return App.estimate.exportCsv();
     const { rows, label } = csvRows();
     if (rows.length <= 1) {
       App.ui.toast('내보낼 집계가 없습니다. 먼저 도면을 그리세요.');
@@ -421,6 +438,7 @@
       again();
     });
     App.ui.on('tab', (id) => {
+      widen(id === 'tab-summary' && view === 'cost');
       if (id === 'tab-summary' && dirty) {
         render();
         dirty = false;
@@ -435,12 +453,14 @@
         return;
       }
       if (e.target.closest('[data-act="csv"]')) exportCsv();
+      if (e.target.closest('[data-act="est-pdf"]')) App.estimate.exportPdf();
     });
+    App.estimate.bind(pane);
     render();
   }
 
   App.summary = {
-    init, compute, render, exportCsv, csvRows,
+    init, compute, render, exportCsv, csvRows, sections,
     /** 보기(room·all·kind)의 표 블록 (PDF에 그릴 때) */
     blocks: (v) => BUILD[v](compute()),
     get view() { return view; },

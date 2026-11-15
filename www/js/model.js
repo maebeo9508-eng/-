@@ -707,7 +707,7 @@
   }
 
   /** 손잡이(회전·크기)를 붙일 물건인지: 실제 크기로 놓는 조감도 물건 (벽에 붙은 것·잠긴 것은 뺌) */
-  const handled = (it) => !!it && it.type === 'item' && it.depth != null && !it.wallId && !it.locked && (it.category === 'event' || (App.modes && App.modes.is('event')));
+  const handled = (it) => !!it && it.type === 'item' && it.depth != null && !it.wallId && !it.locked && (it.category === 'event' || it.category === 'furn' || (App.modes && App.modes.is('event')));
   /** 고른 물건의 손잡이 자리(도면 좌표): 회전 손잡이는 등 쪽 바깥, 크기 손잡이는 네 변 가운데. scale: 화면 배율(px/mm) */
   function itemHandles(it, scale) {
     const a = (it.rotation * Math.PI) / 180, c = Math.cos(a), s = Math.sin(a);

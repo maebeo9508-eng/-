@@ -79,6 +79,11 @@
         App.edit.shortcuts();
       } else if (e.code === 'KeyQ') {
         App.actions.rotateSelection(); // 고른 것 90도 돌리기
+      } else if (e.code === 'BracketLeft' || e.code === 'BracketRight') {
+        // [ ] : 고른 가구·물건을 15°씩 (Shift: 1°씩)
+        const d = (e.code === 'BracketRight' ? 1 : -1) * (e.shiftKey ? 1 : 15);
+        const items = App.selection.list().map((id) => App.doc.get(id)).filter((it) => it && it.type === 'item' && !it.wallId && !it.locked);
+        if (items.length) App.doc.transact('돌리기', () => items.forEach((it) => App.doc.update(it.id, { rotation: ((((it.rotation || 0) + d) % 360) + 360) % 360 })));
       } else if (/^Key[A-Z]$/.test(e.code)) {
         const letter = e.code.slice(3);
         const tool = App.ui.TOOLS.find((t) => t.key === letter);
