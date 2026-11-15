@@ -2108,9 +2108,11 @@
   F['러그'] = (C, it, w, d) => {
     const S = C.S, c = tint(it, hex('#b9a58a')), e = Math.min(0.14, Math.min(w, d) * 0.08);
     S.box(-w / 2, 0, -d / 2, w / 2, 0.012, d / 2, c, MAT.fabric, { bottom: true });
-    const ring = (k, col) => S.quad([-w / 2 + k, 0.0125, d / 2 - k], [w / 2 - k, 0.0125, d / 2 - k], [w / 2 - k, 0.0125, -d / 2 + k], [-w / 2 + k, 0.0125, -d / 2 + k], col, MAT.fabric);
-    ring(e, shade(c, 0.78));
-    ring(e * 1.6, c);
+    // 윗면은 바닥 무늬 위에 그리는 층(레드카펫과 같은 층)에: 방 바닥이 덮지 않게
+    const ring = (k, y, col) => C.D.quad([-w / 2 + k, y, d / 2 - k], [w / 2 - k, y, d / 2 - k], [w / 2 - k, y, -d / 2 + k], [-w / 2 + k, y, -d / 2 + k], col, MAT.fabric);
+    ring(0, 0.014, c);
+    ring(e, 0.0145, shade(c, 0.78));
+    ring(e * 1.6, 0.015, c);
     if (!C.lod) for (let x = -w / 2; x <= w / 2 + 1e-6; x += 0.04) { S.box(x - 0.004, 0, d / 2, x + 0.004, 0.006, d / 2 + 0.05, shade(c, 1.1)); S.box(x - 0.004, 0, -d / 2 - 0.05, x + 0.004, 0.006, -d / 2, shade(c, 1.1)); }
   };
   F['실내 화분'] = (C, it, w, d, h) => {
