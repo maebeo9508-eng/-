@@ -236,6 +236,38 @@
     P.text(`단위 ${App.settings.lengthUnit}, ${App.settings.areaUnit}`, box.x + box.width - 30, box.y + box.height - 44, 24, 500, MUTE, 'right');
   }
 
+  /* ── 안전 점검 (조감도): 점검 목록 + 겹쳐 그린 안전 계획도 ── */
+  const LV_COLOR = { ok: '#2f9e44', warn: '#e8590c', bad: '#e03131', info: '#868e96' };
+  function drawSafetyPage(ctx, W, H, d, r, rect, no, total) {
+    const P = frame(ctx, W, H, d, d.sec.safety, no, total);
+    const cw = W - 2 * M;
+    let y = TOP + 30;
+    P.text(`예상 인원 ${r.expected.toLocaleString('ko-KR')}명 기준${r.auto ? ' (수용 인원 어림)' : ''}`, M, y + 18, 30, 800, INK);
+    y += 70;
+    r.checks.forEach((x) => {
+      const lv = App.safety.LV[x.level];
+      ctx.fillStyle = LV_COLOR[lv.cls];
+      P.round(M, y, 132, 50, 25);
+      ctx.fill();
+      P.text(`${lv.mark} ${lv.word}`, M + 66, y + 26, 24, 800, '#ffffff', 'center');
+      const tw = P.text(x.title, M + 160, y + 25, 32, 800, INK);
+      P.text(x.value, M + 160 + tw + 22, y + 26, 28, 700, LV_COLOR[lv.cls], 'left', cw - 200 - tw);
+      P.text(x.detail, M + 160, y + 72, 23, 400, MUTE, 'left', cw - 170);
+      P.text(x.advice, M + 160, y + 110, 25, 500, '#374151', 'left', cw - 170);
+      y += 150;
+    });
+    // 안전 계획도: 소화기 닿는 거리·먼 물건·관람 구역 밀집도·비상구를 겹쳐 그린 도면
+    const bottom = H - FOOT - 50;
+    if (rect && bottom - y > 420) {
+      const box = { x: M, y: y + 10, width: cw, height: bottom - y - 10 };
+      ctx.strokeStyle = LINE;
+      ctx.lineWidth = 3;
+      ctx.strokeRect(box.x, box.y, box.width, box.height);
+      App.safety.withOverlay(() => App.exporter.drawPlan(ctx, { x: box.x + 16, y: box.y + 16, width: box.width - 32, height: box.height - 32 }, rect, 2.2));
+    }
+    P.text('현장에서 흔히 쓰는 어림 기준입니다. 법정 기준·인허가는 관할 기관에 확인하세요.', M, H - FOOT + 40, 22, 400, FAINT);
+  }
+
   /* ── 물량 집계: 두 단으로 흘려 담기 ── */
   const SUM = { size: 25, row: 46, title: 66, gap: 34, colGap: 70 };
   /** 줄 높이 배율 k로 흘려 담기. 돌려주는 값: { pages: [{ cols: [[항목], [항목]] }], colW, S(쓴 크기), tail(마지막 쪽에 쓴 높이) } */
@@ -490,7 +522,7 @@
   }
 
   /* ── 만들기 ── */
-  const PARTS = ['d3', 'plan', 'summary', 'estimate', 'photos'];
+  const PARTS = ['d3', 'plan', 'safety', 'summary', 'estimate', 'photos'];
   let running = false;
 
   /** o: { title, intro, to, parts: { d3, plan, summary, estimate, photos }, noSave }
@@ -506,7 +538,7 @@
     }
   }
   async function buildNow(o) {
-    const parts = { d3: true, plan: true, summary: true, estimate: true, photos: true, ...(o.parts || {}) };
+    const parts = { d3: true, plan: true, safety: true, summary: true, estimate: true, photos: true, ...(o.parts || {}) };
     const title = (o.title || '').trim() || defaultTitle();
     const to = o.to != null ? String(o.to).trim() : App.current.estimateTo || '';
     const step = async (msg) => { App.ui.busy(msg); await new Promise((r) => setTimeout(r, 20)); };
@@ -564,6 +596,13 @@
         jobs.push({ kind: 'plan', ...S, draw: (ctx, no, total) => drawPlanPage(ctx, S.W, S.H, d, rect, no, total) });
       } else skipped.push('평면도');
     }
+    if (parts.safety && App.modes.is('event') && App.safety) {
+      const sr = App.safety.run();
+      if (sr.checks.length) {
+        nextSec('safety', '안전 점검');
+        jobs.push({ kind: 'safety', ...PORTRAIT, draw: (ctx, no, total) => drawSafetyPage(ctx, PORTRAIT.W, PORTRAIT.H, d, sr, rect, no, total) });
+      } else skipped.push('안전 점검');
+    }
     const scratch = document.createElement('canvas').getContext('2d');
     if (parts.summary) {
       // 현장 사진 목록은 사진 쪽에 따로 나오므로 뺌
@@ -619,7 +658,8 @@
     const t = est ? est.t : null;
     const can3d = !!(App.view3d && App.view3d.stills && webgl());
     // 처음 값: 3D·평면·물량은 넣고, 견적서는 단가를 넣었을 때, 사진은 핀이 있을 때. 사람이 바꾼 것만 이 도면에 기억
-    const def = { d3: can3d, plan: true, summary: true, estimate: !!(t && t.priced), photos: pins.length > 0 };
+    const event = App.modes.is('event');
+    const def = { d3: can3d, plan: true, safety: event, summary: true, estimate: !!(t && t.priced), photos: pins.length > 0 };
     const parts = { ...def, ...(st.parts || {}) };
     if (!pins.length) parts.photos = false;
     if (!est) parts.estimate = false;
@@ -638,6 +678,7 @@
           <div class="field-label">넣을 내용</div>
           ${check('d3', '3D 투시도', can3d ? '조감도·반대쪽·위에서 (표지 큰 그림도 3D)' : '이 기기에서는 3D를 쓸 수 없습니다', !can3d)}
           ${check('plan', '평면도', '도면 전체 · 가로로 긴 도면은 가로 쪽')}
+          ${event ? check('safety', '안전 점검', '화장실·소화기·의료·밀집·대피 + 안전 계획도') : ''}
           ${check('summary', '물량 집계', '집계 ‘전체’ 보기 내용')}
           ${check('estimate', '견적서', est ? (t && t.priced ? `단가를 넣은 ${t.priced}줄 · 합계 ${t.total.toLocaleString('ko-KR')}원` : '단가가 없어 물량 내역서로 들어감') : '넣을 항목이 없습니다', !est)}
           ${check('photos', '현장 사진', pins.length ? `핀 ${pins.length}곳 · 사진 ${nPhotos}장` : '사진 도구로 꽂은 핀이 없습니다', !pins.length)}

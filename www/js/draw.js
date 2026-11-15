@@ -123,6 +123,7 @@
     items.filter(flat).forEach((it) => itemShape(plan, it, markColor(it)));
     items.filter((it) => !flat(it)).forEach((it) => itemShape(plan, it, markColor(it)));
     routes.forEach((r) => routeShape(plan, r, { selected: sel.has(r.id), marked: !!(marks && marks.ids.has(r.id)) }));
+    if (App.safety) App.safety.drawOverlay(plan); // 안전 점검 겹쳐 보기 (켰을 때만)
 
     screenTransform(plan);
     if (App.settings.showWallLengths) drawWallLabels(plan, walls);
@@ -131,6 +132,7 @@
     drawRouteLabels(plan, routes);
     if (App.modes.is('event') && App.settings.itemNames !== false) drawItemNames(plan, items);
     drawSeatNumbers(plan, items);
+    if (App.safety) App.safety.drawLabels(plan); // 안전 점검: 밀집도·비상구·먼 물건 글자
     dims.forEach((d) => dimShape(plan, d, markColor(d)));
     texts.forEach((t) => textShape(plan, t, markColor(t)));
     if (photos.length) drawPhotoPins(plan, photos, markColor);

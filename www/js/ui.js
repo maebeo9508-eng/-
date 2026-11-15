@@ -521,7 +521,7 @@
           label: '동선', key: 'routeKind',
           list: () => App.routes.KINDS.map((k) => ({ id: k.kind, name: k.kind, color: k.color, width: k.width })),
           text: (c) => c.name, sub: (c) => `통로 폭 ${App.units.formatLength(c.width)}`, swatch: (c) => c.color,
-          actions: [{ act: 'route-check', label: '동선 체크 (걸리는 곳 찾기)' }],
+          actions: [{ act: 'route-check', label: '동선 체크 (걸리는 곳 찾기)' }, { act: 'safety-check', label: '안전 점검 (화장실·소화기·대피)' }],
         };
       case 'dim':
         return {
@@ -853,6 +853,7 @@
           'dims-outside': () => App.dims.outside('center'),
           'dims-rooms': () => App.dims.rooms(),
           'route-check': () => App.routes.report(),
+          'safety-check': () => App.safety.open(),
           'wall-lengths': () => {
             App.settings.showWallLengths = !App.settings.showWallLengths;
             App.saveSettings();

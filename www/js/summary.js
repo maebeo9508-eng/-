@@ -231,6 +231,8 @@
     if (event) {
       const eb = eventBlock(s);
       if (eb) blocks.push(eb);
+      const sb = App.safety && App.safety.block(); // 안전 점검 (화장실·소화기·의료·밀집·대피)
+      if (sb) blocks.push(sb);
       const rb = routeBlock(s);
       if (rb) blocks.push(rb);
     }
@@ -377,7 +379,7 @@
   function blockHtml(b) {
     return `
       <section class="sum-sec${b.total ? ' is-grand' : ''}">
-        <h3 class="sum-title">${esc(b.title)}${b.sub ? ` <small class="${b.warn ? 'is-warn' : ''}">${esc(b.sub)}</small>` : ''}</h3>
+        <h3 class="sum-title">${esc(b.title)}${b.sub ? ` <small class="${b.warn ? 'is-warn' : ''}">${esc(b.sub)}</small>` : ''}${b.action ? ` <button type="button" class="btn btn-mini" data-act="${esc(b.action.act)}">${esc(b.action.label)}</button>` : ''}</h3>
         <table class="sum-table"><tbody>
           ${b.rows.map((r) => (r.cls === 'head'
             ? `<tr class="is-head"><th colspan="2" scope="rowgroup">${esc(r.label)}</th></tr>`
@@ -490,6 +492,7 @@
       if (e.target.closest('[data-act="csv"]')) exportCsv();
       if (e.target.closest('[data-act="est-pdf"]')) App.estimate.exportPdf();
       if (e.target.closest('[data-act="proposal"]')) App.proposal.open();
+      if (e.target.closest('[data-act="safety-open"]')) App.safety.open();
     });
     App.estimate.bind(pane);
     render();
