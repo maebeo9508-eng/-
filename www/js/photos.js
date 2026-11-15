@@ -109,7 +109,8 @@
       const mod = e.ctrlKey || e.metaKey;
       if (mod && /^[zy]$/i.test(e.key)) return; // 되돌리기·다시 하기는 그대로 (보기도 바로 바뀜)
       e.stopPropagation();
-      if (mod || e.altKey || /^F\d+$/.test(e.key)) return; // 브라우저 확대·새로 고침 같은 것은 그대로 (도면 단축키로는 안 감)
+      // 브라우저 확대(Ctrl +·−·0)·새로 고침·전체 화면만 그대로, 나머지 조합(Ctrl+A·D·F 등)은 도면에도 브라우저에도 안 감
+      if ((mod && /^[-+=0rR]$/.test(e.key)) || /^F(5|11|12)$/.test(e.key)) return;
       if (e.key === 'Escape') { e.preventDefault(); close(); }
       else if (e.key === 'ArrowLeft') { e.preventDefault(); go(-1); }
       else if (e.key === 'ArrowRight') { e.preventDefault(); go(1); }

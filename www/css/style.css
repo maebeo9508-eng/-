@@ -285,7 +285,7 @@ button { font: inherit; color: inherit; }
 .tool[aria-pressed="true"] .tool-key { color: inherit; opacity: 0.8; }
 .tool-sep { flex: none; height: 1px; margin: 4px 6px; background: var(--line); }
 /* PC에서 화면 높이가 낮으면 (노트북 1366×768 등) 도구를 조금 낮게: 지우개까지 스크롤 없이 보이게 */
-@media (min-width: 769px) and (max-height: 960px) {
+@media (min-width: 769px) and (max-height: 960px) and (hover: hover) and (pointer: fine) { /* 마우스 화면만 (가로 휴대폰·태블릿은 손가락 크기 그대로) */
   .tool { height: clamp(34px, calc((100vh - 122px) / 16), 45px); gap: 2px; }
   .tool-sep { margin: 3px 6px; }
 }
@@ -1096,6 +1096,9 @@ button { font: inherit; color: inherit; }
   pointer-events: none;
 }
 .toast.is-show { opacity: 1; transform: translate(-50%, 0); }
+/* 사진 보기·3D 화면을 연 동안: 그 화면의 버튼(아래 넘기기 막대·녹화 막대·조이스틱)과 겹치지 않는 곳에 (도면 서랍 높이도 빼고) */
+body:has(> .photo-viewer:not([hidden])) .toast { bottom: auto; top: calc(max(10px, env(safe-area-inset-top, 0px)) + 66px); }
+body:has(> .view3d:not([hidden])) .toast { bottom: auto; top: 36%; }
 
 /* ── 화면 폭별 ─────────────────────────── */
 @media (max-width: 1199px) {
