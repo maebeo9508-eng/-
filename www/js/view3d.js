@@ -170,38 +170,52 @@
     const want = r.auto ? Math.floor(total) : Math.max(0, r.expected - r.seats);
     return { zones, total, want, n: Math.min(CROWD_MAX, want) };
   }
+  let lastCrowd = 0; // 마지막으로 세운 사람 수 (알림에 씀)
   function crowdSpots(els, items) {
     const info = crowdInfo(els);
+    lastCrowd = 0;
     if (!info.n) return [];
     const area = (z) => App.model.TYPES.zone.area(z) / 1e6;
-    const obs = items.filter((it) => it.kind !== '사람' && !(App.catalog.itemDef(it.kind) || {}).flat).map((it) => App.model.TYPES.item.bounds(it));
-    const free = (x, y) => !obs.some((b) => x > b.minX - 250 && x < b.maxX + 250 && y > b.minY - 250 && y < b.maxY + 250);
+    const T = App.model.TYPES.item;
+    // 사람이 못 서는 곳: 돌린 실제 모양 그대로 (지나갈 수 있는 텐트·아치·현수막, 바닥에 까는 것은 빼고)
+    const obs = items.filter((it) => { const d = App.catalog.itemDef(it.kind) || {}; return it.kind !== '사람' && !d.flat && !d.pass; });
+    const free = (p) => !obs.some((it) => Math.abs(it.x - p.x) < 40000 && T.distance(it, p) < 250);
     // 구역 가장자리에서 0.45m 안쪽에만 (사람이 구역 밖으로 비어져 나와 장면 범위가 커지지 않게)
     const inside = (p, z) => z.points.every((q, i) => App.geom.closestOnSegment(p, q, z.points[(i + 1) % z.points.length]).dist >= 450);
     const looks = items.filter((it) => it.kind === '무대' || it.kind === 'LED 스크린');
     const rnd = seeded('crowd-spots');
     const STY = ['일반', '일반', '일반', '정장', '어린이'];
-    const out = [];
-    info.zones.forEach((z, zi) => {
-      const want = zi === info.zones.length - 1 ? info.n - out.length : Math.round((info.n * area(z)) / info.total);
-      if (want <= 0) return;
+    // 구역마다 설 수 있는 자리를 넉넉히: 모자라면 칸을 줄여 다시 (최소 0.42m)
+    const spots = info.zones.map((z) => {
+      const want = Math.max(1, Math.round((info.n * area(z)) / info.total));
       const b = App.model.TYPES.zone.bounds(z);
-      const cell = Math.max(420, Math.sqrt((area(z) * 1e6) / want) * 0.85);
-      const pts = [];
-      for (let y = b.minY + cell / 2; y < b.maxY; y += cell) {
-        for (let x = b.minX + cell / 2; x < b.maxX; x += cell) {
-          const p = { x: x + (rnd() - 0.5) * cell * 0.8, y: y + (rnd() - 0.5) * cell * 0.8 };
-          if (App.geom.pointInPolygon(p, z.points) && free(p.x, p.y) && inside(p, z)) pts.push(p);
+      let cell = Math.max(420, Math.sqrt((area(z) * 1e6) / want) * 0.85), pts = [];
+      for (let tries = 0; tries < 5; tries++) {
+        pts = [];
+        for (let y = b.minY + cell / 2; y < b.maxY; y += cell) {
+          for (let x = b.minX + cell / 2; x < b.maxX; x += cell) {
+            const p = { x: x + (rnd() - 0.5) * cell * 0.8, y: y + (rnd() - 0.5) * cell * 0.8 };
+            if (App.geom.pointInPolygon(p, z.points) && inside(p, z) && free(p)) pts.push(p);
+          }
         }
+        if (pts.length >= want * 1.05 || cell <= 420) break;
+        cell = Math.max(420, cell * Math.sqrt(Math.max(0.3, pts.length / (want * 1.1))));
       }
       for (let i = pts.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [pts[i], pts[j]] = [pts[j], pts[i]]; }
-      pts.slice(0, want).forEach((p) => {
-        // 가장 가까운 무대·화면 쪽을 봄 (없으면 아무 쪽)
-        const t = looks.reduce((m, it) => (!m || Math.hypot(it.x - p.x, it.y - p.y) < Math.hypot(m.x - p.x, m.y - p.y) ? it : m), null);
-        const rot = t ? (Math.atan2(-(t.x - p.x), t.y - p.y) * 180) / Math.PI + (rnd() - 0.5) * 50 : rnd() * 360;
-        out.push({ x: p.x, y: p.y, rot, style: STY[Math.floor(rnd() * STY.length)] });
-      });
+      return { want, pts };
     });
+    // 구역마다 몫만큼, 모자란 몫은 자리가 남는 다른 구역으로
+    let left = info.n;
+    const take = spots.map((sp) => { const k = Math.min(sp.want, sp.pts.length, left); left -= k; return k; });
+    spots.forEach((sp, i) => { const more = Math.min(left, sp.pts.length - take[i]); take[i] += more; left -= more; });
+    const out = [];
+    spots.forEach((sp, i) => sp.pts.slice(0, take[i]).forEach((p) => {
+      // 가장 가까운 무대·화면 쪽을 봄 (없으면 아무 쪽)
+      const t = looks.reduce((m, it) => (!m || Math.hypot(it.x - p.x, it.y - p.y) < Math.hypot(m.x - p.x, m.y - p.y) ? it : m), null);
+      const rot = t ? (Math.atan2(-(t.x - p.x), t.y - p.y) * 180) / Math.PI + (rnd() - 0.5) * 50 : rnd() * 360;
+      out.push({ x: p.x, y: p.y, rot, style: STY[Math.floor(rnd() * STY.length)] });
+    }));
+    lastCrowd = out.length;
     return out;
   }
 
@@ -1557,9 +1571,12 @@
         requestDraw();
         if (App.settings.crowd3d) {
           const info = crowdInfo([...App.doc.all()].filter((e) => App.layers.visible(e)));
-          App.ui.toast(!info.zones.length ? '관람·대기 구역이 없습니다. 영역을 고르고 속성에서 ‘관람·대기 구역’을 체크하세요.'
-            : !info.want ? '서 있을 사람이 없습니다 (예상 인원이 좌석 수보다 적음).'
-              : `관람·대기 구역에 ${info.want.toLocaleString('ko-KR')}명을 세웠습니다${info.want > info.n ? ` (그림은 ${info.n}명까지, 밀도는 예상 인원 기준)` : ''}. 예상 인원은 안전 점검에서 바꿉니다.`);
+          const hiddenZones = !info.zones.length && [...App.doc.all()].some((e) => e.type === 'zone' && e.crowd && !App.layers.visible(e));
+          const shown = lastCrowd;
+          App.ui.toast(hiddenZones ? '관람·대기 구역이 숨긴 레이어에 있습니다. 위쪽 ‘레이어’에서 영역을 보이게 하세요.'
+            : !info.zones.length ? '관람·대기 구역이 없습니다. 영역을 고르고 속성에서 ‘관람·대기 구역’을 체크하세요.'
+              : !info.want ? '서 있을 사람이 없습니다 (예상 인원이 좌석 수보다 적음).'
+                : `관람·대기 구역에 ${shown.toLocaleString('ko-KR')}명을 세웠습니다${shown < info.want ? ` (예상 서 있는 사람 ${info.want.toLocaleString('ko-KR')}명 중${info.want > info.n ? `, 그림은 최대 ${info.n}명` : ''}${shown < info.n ? ', 물건 자리를 빼면 자리가 모자람' : ''})` : ''}. 예상 인원은 안전 점검에서 바꿉니다.`);
         }
       } else if (b.dataset.opt === 'labels') {
         App.settings.labels3d = App.settings.labels3d === false;
@@ -1689,7 +1706,7 @@
   const isOpen = () => !!el && !el.hidden;
 
   App.view3d = {
-    open, close, isOpen, build, buildItem, seeded, GROUNDS, crowdInfo, CROWD_MAX,
+    open, close, isOpen, build, buildItem, seeded, GROUNDS, crowdInfo, CROWD_MAX, get lastCrowd() { return lastCrowd; },
     /** 영상: kind 'orbit'|'route'|'free', o: { duration(초), noSave, longSide } → Promise<{ blob, name, type } | null> */
     record: (kind, o) => startRecording(kind, o),
     stopRecording: () => stopRecording(),

@@ -1582,10 +1582,18 @@
       S.quad([x, y - t, -a], [x, y - t, a], [x, y + t, a], [x, y + t, -a], red);
       S.quad([x, y - a, -t], [x, y - a, t], [x, y + a, t], [x, y + a, -t], red);
     });
-    // 지붕 위 깃발판 (멀리서도 보이게)
-    const top = h + Math.min(w, d) * 0.42 + 0.02, b = Math.min(w, d) * 0.14, bt = b * 0.34;
-    S.box(-b, top, -bt, b, top + 0.02, bt, red, 0, { bottom: true });
-    S.box(-bt, top, -b, bt, top + 0.02, b, red, 0, { bottom: true });
+    // 지붕 꼭대기 표지판: 흰 판 두 장을 엇갈려 세우고 양면에 빨간 십자 (어느 쪽에서도 보이게, 지붕에서 뜨지 않게 꼭대기에 꽂음)
+    const top = h + Math.min(w, d) * 0.42, ps = Math.min(0.7, Math.min(w, d) * 0.16), y0 = top + 0.12, ym = y0 + ps / 2, ca = ps * 0.36, ct = ps * 0.12;
+    S.cyl(0, top - 0.05, 0, 0.025, 0.2, 0.025, CHROME, MAT.metal, 8);
+    S.box(-ps / 2, y0, -0.012, ps / 2, y0 + ps, 0.012, WHITE, 0, { bottom: true });
+    S.box(-0.012, y0, -ps / 2, 0.012, y0 + ps, ps / 2, WHITE, 0, { bottom: true });
+    [-1, 1].forEach((sd) => {
+      const z = sd * 0.014, x = sd * 0.014;
+      S.quad([-ca, ym - ct, z], [ca, ym - ct, z], [ca, ym + ct, z], [-ca, ym + ct, z], red);
+      S.quad([-ct, ym - ca, z], [ct, ym - ca, z], [ct, ym + ca, z], [-ct, ym + ca, z], red);
+      S.quad([x, ym - ct, -ca], [x, ym - ct, ca], [x, ym + ct, ca], [x, ym + ct, -ca], red);
+      S.quad([x, ym - ca, -ct], [x, ym - ca, ct], [x, ym + ca, ct], [x, ym + ca, -ct], red);
+    });
   };
   E['트럭'] = (C, it, w, d, h) => { van(C, w, d, h, WHITE, { cab: col(it, '#2563eb') }); };
   E['자전거'] = (C, it, w, d, h) => {

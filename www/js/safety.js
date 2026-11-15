@@ -267,12 +267,23 @@
   }
 
   /* ── 소화기 채우기: 소화기에서 먼 불 쓰는 물건이 모두 20m 안에 들도록 적은 수로 놓음 (가장 많이 덮는 자리부터) ── */
+  let fillCache = null; // 같은 도면이면 다시 셈하지 않음 (예상 인원과 상관없음)
   function fillPlan(r = run()) {
+    const key = `${App.doc.version}|${App.layers.excludeHidden()}|${(App.current.hiddenLayers || []).join(',')}`;
+    if (fillCache && fillCache.key === key) return fillCache.out.map((p) => ({ ...p }));
     const reach = RULE.reach - 500; // 0.5m 여유
-    // 놓을 자리: 물건 앞쪽 바깥(통로 쪽) 0.6m
-    const front = (it) => {
-      const a = ((it.rotation || 0) * Math.PI) / 180, dep = (it.depth != null ? it.depth : it.size || 1000) / 2 + 600;
-      return { x: Math.round(it.x - Math.sin(a) * dep), y: Math.round(it.y + Math.cos(a) * dep) };
+    const T = App.model.TYPES.item;
+    const items = [...App.doc.all()].filter((e) => e.type === 'item' && !(App.catalog.itemDef(e.kind) || {}).flat);
+    const routes = [...App.doc.all()].filter((e) => e.type === 'route' && e.points && e.points.length >= 2);
+    // 놓아도 되는 자리: 다른 물건 위가 아니고, 동선(통로 폭) 위가 아닌 곳
+    const okAt = (p) => !items.some((it) => Math.abs(it.x - p.x) < 40000 && T.distance(it, p) < 300)
+      && !routes.some((rt) => rt.points.some((q, i) => i && App.geom.closestOnSegment(p, rt.points[i - 1], q).dist < (rt.width || 1200) / 2 + 300));
+    // 물건마다 자리 후보: 앞쪽 두 모서리, 양옆, 뒤쪽 두 모서리, 앞 가운데 (모서리를 먼저: 무대·부스 앞 가운데는 통로·버진로드)
+    const spots = (it) => {
+      const a = ((it.rotation || 0) * Math.PI) / 180, c = Math.cos(a), sn = Math.sin(a);
+      const hw = (it.size || 1000) / 2, hd = (it.depth != null ? it.depth : it.size || 1000) / 2, m = 600;
+      const W = (lx, ly) => ({ x: Math.round(it.x + lx * c - ly * sn), y: Math.round(it.y + lx * sn + ly * c) });
+      return [W(-hw - m * 0.3, hd + m), W(hw + m * 0.3, hd + m), W(-hw - m, 0), W(hw + m, 0), W(-hw - m * 0.3, -hd - m), W(hw + m * 0.3, -hd - m), W(0, hd + m)];
     };
     const covers = (p, o) => Math.hypot(o.x - p.x, o.y - p.y) <= reach;
     let left = r.data.uncovered.slice();
@@ -280,15 +291,19 @@
     for (let guard = 0; left.length && guard < 300; guard++) {
       let best = null;
       left.forEach((it) => {
-        let p = front(it);
-        if (!covers(p, it)) p = { x: it.x, y: it.y }; // 아주 큰 물건: 가운데
-        const n = left.filter((o) => covers(p, o)).length;
-        if (!best || n > best.n) best = { p, n };
+        const cands = spots(it).filter((p) => covers(p, it));
+        const good = cands.filter(okAt);
+        (good.length ? good : cands.length ? cands : [{ x: it.x, y: it.y }]).forEach((p, k) => {
+          const n = left.filter((o) => covers(p, o)).length;
+          const score = n * 10 + (good.length ? 5 : 0) - k * 0.01; // 많이 덮는 곳, 걸리지 않는 곳, 모서리 순
+          if (!best || score > best.score) best = { p, score };
+        });
       });
       out.push(best.p);
       left = left.filter((o) => !covers(best.p, o));
     }
-    return out;
+    fillCache = { key, out };
+    return out.map((p) => ({ ...p }));
   }
   function fillExtinguishers() {
     const pts = fillPlan();
@@ -300,8 +315,11 @@
       App.doc.add(it);
       ids.push(it.id);
     }));
-    App.selection.set(ids);
-    App.ui.toast(`소화기 ${ids.length}개를 놓았습니다. 자리는 옮겨도 됩니다 (한 번에 되돌리기 Ctrl+Z).`);
+    // 숨긴 레이어에 놓였으면 고르지 않고 알려 줌 (보이지 않는 것을 지우거나 옮기지 않게)
+    const shown = ids.filter((id) => App.layers.visible(App.doc.get(id)));
+    App.selection.set(shown);
+    App.ui.toast(shown.length === ids.length ? `소화기 ${ids.length}개를 놓았습니다. 자리는 옮겨도 됩니다 (한 번에 되돌리기 Ctrl+Z).`
+      : `소화기 ${ids.length}개를 놓았지만 숨긴 레이어라 보이지 않습니다. 위쪽 ‘레이어’에서 켜세요 (되돌리기 Ctrl+Z).`);
     return ids;
   }
 
