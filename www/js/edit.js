@@ -188,7 +188,8 @@
         const p = f(el);
         return el.shape === 'circle' ? { x: p.x, y: p.y } : { x: p.x, y: p.y, width: el.depth, depth: el.width };
       }
-      case 'text': {
+      case 'text':
+      case 'photo': {
         const p = f(el);
         return { x: p.x, y: p.y };
       }
@@ -337,6 +338,7 @@
       const fields = [];
       if (el.type === 'room' || el.type === 'zone' || el.type === 'route') fields.push(['이름', el.name]);
       if (el.type === 'text') fields.push(['글자', el.content]);
+      if (el.type === 'photo') fields.push(['사진', el.title || `사진 ${App.photos ? App.photos.numberOf(el.id) : ''}`]);
       if (el.type === 'item') fields.push(['종류', App.catalog.itemLabel(el)]);
       if (el.type === 'underlay') fields.push(['파일', el.name]);
       if (el.memo) fields.push(['메모', el.memo]);

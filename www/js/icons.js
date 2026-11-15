@@ -87,6 +87,16 @@
       stroke(c, [12, 5.5, 12, 19.5], 2.4);
       stroke(c, [8.5, 19.5, 15.5, 19.5], 1.8);
     },
+    photo(c) {
+      // 사진기: 몸통 + 렌즈 + 위쪽 뷰파인더
+      c.lineWidth = 1.9;
+      c.beginPath();
+      c.moveTo(4, 8); c.lineTo(8, 8); c.lineTo(9.6, 5.5); c.lineTo(14.4, 5.5); c.lineTo(16, 8); c.lineTo(20, 8);
+      c.quadraticCurveTo(21, 8, 21, 9); c.lineTo(21, 18); c.quadraticCurveTo(21, 19, 20, 19); c.lineTo(4, 19);
+      c.quadraticCurveTo(3, 19, 3, 18); c.lineTo(3, 9); c.quadraticCurveTo(3, 8, 4, 8); c.closePath();
+      c.stroke();
+      c.beginPath(); c.arc(12, 13.2, 3.4, 0, Math.PI * 2); c.stroke();
+    },
     event(c) {
       // 텐트: 지붕, 기둥, 깃발
       c.lineWidth = 1.8;

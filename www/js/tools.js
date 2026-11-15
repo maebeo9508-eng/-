@@ -1481,6 +1481,30 @@
     }
   }
 
+  /* ── 사진 도구: 누른 자리에 현장 사진 핀. 꽂힌 핀을 누르면 그 핀을 고름 ── */
+  class PhotoTool {
+    activate() { this.press = null; }
+    down(ev) { this.press = ev; }
+    up(ev) {
+      const pr = this.press;
+      this.press = null;
+      if (!pr || dragged(ev, pr)) return;
+      const hit = App.doc.hitTest(ev.world, (ev.touch ? HIT_PX.touch : HIT_PX.mouse) / App.plan.view.scale, (el) => el.type === 'photo');
+      if (hit) { App.selection.set([hit]); App.ui.emit('picked', true); render(); return; }
+      const at = { ...ev.world };
+      // 누른 순간에 파일 고르기를 열어야 휴대폰에서 막히지 않음
+      App.images.pickMany().then((photos) => {
+        if (!photos.length) return;
+        const el = App.model.TYPES.photo.create(at, photos);
+        App.doc.transact('사진 핀', () => App.doc.add(el));
+        App.selection.set([el.id]);
+        App.ui.emit('picked', true);
+        App.ui.toast(`사진 ${photos.length}장을 꽂았습니다. 오른쪽(휴대폰은 아래) 속성에서 제목·메모를 적고 사진을 더할 수 있습니다.`);
+      });
+    }
+    cancel() { this.press = null; }
+  }
+
   /** 아직 만들지 않은 도구: 캔버스를 눌러도 아무 일도 하지 않음 */
   class IdleTool {}
 
@@ -1496,6 +1520,7 @@
     route: () => new RouteTool(),
     zone: () => new ZoneTool(),
     text: () => new TextTool(),
+    photo: () => new PhotoTool(),
     room: () => new RoomTool(),
     door: () => new OpeningTool('door'),
     window: () => new OpeningTool('window'),

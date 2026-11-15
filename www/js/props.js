@@ -914,6 +914,32 @@
       ${deleteButton('텍스트')}`;
   }
 
+  /** 현장 사진 핀: 제목·메모, 사진 썸네일(누르면 크게), 사진 더하기 */
+  function photoForm() {
+    const single = els.length === 1, ph = els[0];
+    const P = App.photos;
+    const thumbs = single ? (ph.photos || []).map((p, i) => {
+      const url = App.images.url(p.id);
+      return `<button type="button" class="ph-thumb" data-ph-open="${i}" aria-label="사진 ${i + 1} 크게 보기">${url ? `<img src="${esc(url)}" alt="">` : `<span>${App.images.missing(p.id) ? '없음' : '…'}</span>`}<small>${esc(p.at ? P.dateText(p.at) : '')}</small></button>`;
+    }).join('') : '';
+    const total = els.reduce((n, e) => n + (e.photos || []).length, 0);
+    return `
+      ${head('현장 사진', single ? `${P.numberOf(ph.id)}번 핀 · 사진 ${(ph.photos || []).length}장` : `${els.length}개 · 사진 ${total}장`)}
+      ${single ? `
+        <div class="field">
+          <label class="field-label" for="f-photoTitle">제목</label>
+          <div class="field-box"><input id="f-photoTitle" type="text" value="${esc(ph.title || '')}" placeholder="예: 거실 창 쪽 누수 자리" maxlength="40" autocomplete="off"></div>
+        </div>
+        <div class="ph-grid">${thumbs}</div>
+        <div class="btn-row">
+          <button type="button" class="btn btn-primary" data-act="photo-add" ${ph.locked ? 'disabled' : ''}>+ 사진 더하기</button>
+          ${(ph.photos || []).length ? '<button type="button" class="btn" data-act="photo-view">크게 보기</button>' : ''}
+        </div>
+        <p class="props-meta">사진은 이 기기에 줄여서 저장되고 백업 파일과 제안서 PDF에 함께 들어갑니다.</p>` : ''}
+      ${commonFields(single)}
+      ${deleteButton('사진 핀')}`;
+  }
+
   function dimForm() {
     const single = els.length === 1;
     const D = App.model.TYPES.dim;
@@ -1032,6 +1058,7 @@
     else if (type === 'zone') pane.innerHTML = zoneForm();
     else if (type === 'route') pane.innerHTML = routeForm();
     else if (type === 'text') pane.innerHTML = textForm();
+    else if (type === 'photo') pane.innerHTML = photoForm();
     else if (type === 'dim') pane.innerHTML = dimForm();
     else if (type === 'underlay') pane.innerHTML = underlayForm();
     else pane.innerHTML = mixedForm();
@@ -1136,6 +1163,10 @@
       }
       if (id === 'f-memo') {
         apply('메모 수정', () => ({ memo: t.value }));
+        return;
+      }
+      if (id === 'f-photoTitle') {
+        apply('사진 제목', () => ({ title: t.value.trim().slice(0, 40) }));
         return;
       }
       if (id === 'f-lock') {
@@ -1404,6 +1435,14 @@
     ['pointerup', 'pointercancel', 'blur'].forEach((ev) => window.addEventListener(ev, stopRepeat));
 
     pane.addEventListener('click', (e) => {
+      const po = e.target.closest('[data-ph-open]');
+      if (po && els.length === 1) { App.photos.open(els[0].id, Number(po.dataset.phOpen)); return; }
+      const pa = e.target.closest('[data-act="photo-add"], [data-act="photo-view"]');
+      if (pa && els.length === 1) {
+        if (pa.dataset.act === 'photo-add') App.photos.addTo(els[0].id);
+        else App.photos.open(els[0].id, 0);
+        return;
+      }
       const nb = e.target.closest('[data-nudge]');
       if (nb) {
         if (e.detail === 0) nudgeBy(nb.dataset.nudge); // 키보드(Enter·Space)로 누른 경우
@@ -1498,6 +1537,7 @@
     App.selection.onChange(refresh);
     App.doc.onChange(refresh);
     App.ui.on('tab', (id) => { if (id === 'tab-props' && stale) refresh(); });
+    App.ui.on('images', () => { if (els.length === 1 && els[0].type === 'photo' && !pane.contains(document.activeElement)) build(); });
     App.ui.on('images', refresh); // 넣은 이미지를 다 읽으면 미리 보기가 나오게
     App.ui.on('mode', refresh);
     App.ui.on('tool', () => queueMicrotask(refresh));

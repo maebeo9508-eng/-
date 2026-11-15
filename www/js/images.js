@@ -111,6 +111,30 @@
         input.click();
       });
     },
+    /** 사진 여러 장 고르기 (휴대폰은 카메라로 찍기도 됨): [{ id, at(찍은·파일 시각) }]. 취소하면 [] */
+    pickMany() {
+      return new Promise((resolve) => {
+        const input = document.getElementById('photoFiles');
+        let done = false;
+        const finish = (v) => { if (!done) { done = true; resolve(v); } };
+        input.value = '';
+        input.onchange = async () => {
+          const files = [...(input.files || [])];
+          input.value = '';
+          const out = [];
+          for (const f of files) {
+            try {
+              out.push({ id: await images.add(f), at: new Date(f.lastModified || Date.now()).toISOString() });
+            } catch (e) {
+              App.ui.toast(e && e.message ? e.message : '사진을 읽지 못했습니다.');
+            }
+          }
+          finish(out);
+        };
+        input.oncancel = () => finish([]);
+        input.click();
+      });
+    },
     /** 파일(Blob)을 줄여 저장 */
     async add(file) {
       if (file.type && !/^image\//.test(file.type)) throw new Error('이미지 파일(JPG·PNG 등)을 골라 주세요.');
@@ -154,7 +178,11 @@
     /** 도면에서 쓰는 이미지 id들 */
     used(elements) {
       const ids = new Set();
-      for (const el of elements) if (el && el.imageId) ids.add(el.imageId);
+      for (const el of elements) {
+        if (!el) continue;
+        if (el.imageId) ids.add(el.imageId);
+        if (Array.isArray(el.photos)) el.photos.forEach((p) => p && p.id && ids.add(p.id)); // 현장 사진 핀
+      }
       return ids;
     },
     /** 도면을 열 때: 쓰는 이미지를 미리 읽어 둠 */

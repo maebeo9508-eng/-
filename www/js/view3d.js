@@ -431,6 +431,7 @@
   const sunIndex = () => clamp(App.current.sun3d | 0, 0, SUNS.length - 1);
 
   function resize() {
+    if (rec) return; // 녹화 중: 영상 크기 고정
     const cw = canvas.clientWidth || 1, ch = canvas.clientHeight || 1;
     const dpr = Math.min(window.devicePixelRatio || 1, quality === 'high' ? 2 : 1.25);
     // 화면 전체 픽셀 수를 넘치지 않게 (휴대폰에서 느려지지 않도록)
@@ -463,6 +464,8 @@
   }
 
   function draw() {
+    // 바로 부른 경우(저장·다시 그리기)에도 기다리던 장면을 취소: 안 그러면 그리기 고리가 둘로 늘어 점점 느려짐
+    if (raf) cancelAnimationFrame(raf);
     raf = 0;
     if (!R || !scene || el.hidden) return;
     const t0 = performance.now();
@@ -474,6 +477,7 @@
       fog: mode === 'walk' ? 1 / 700 : 1 / 1500,
       focus: mode === 'walk' ? { center: [walk.x, 0, walk.z], radius: Math.min(32, scene.radius + 4) } : null,
     });
+    if (rec) recFrame(t0);
     if (mode === 'walk' && shotScale === 1) {
       // 걷는 동안 계속 느리면(한 장면에 55ms 넘게) 해상도를 한 단계 낮춤
       const gap = lastFrame ? t0 - lastFrame : 0;
@@ -985,6 +989,128 @@
     joy.addEventListener('pointercancel', joyEnd);
   }
 
+  /* ── 영상 저장: 3D 화면을 그대로 영상 파일로 (MediaRecorder). mp4를 쓸 수 있으면 mp4, 아니면 webm ──
+     orbit: 지금 높이에서 12초 한 바퀴, route: 동선을 따라 끝까지 걷기, free: 멈출 때까지 (최대 3분) */
+  let rec = null;
+  const REC_TYPES = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
+  const recBroken = new Set(); // 지원한다면서 실제로는 아무것도 못 만드는 형식 (다음부터 건너뜀)
+  function recTypes() {
+    if (!window.MediaRecorder || !canvas.captureStream) return [];
+    return REC_TYPES.filter((t) => { try { return !recBroken.has(t) && MediaRecorder.isTypeSupported(t); } catch (_) { return false; } });
+  }
+  const recType = () => recTypes()[0] || null;
+  /** kind: 'orbit' | 'route' | 'free'. o.duration(초)는 시험용 */
+  function startRecording(kind, o = {}) {
+    if (rec) return Promise.resolve(null);
+    const type = recType();
+    if (!type) { App.ui.toast('이 기기·브라우저에서는 영상 저장을 쓸 수 없습니다. ‘사진 저장’을 써 주세요.'); return Promise.resolve(null); }
+    if (kind === 'route') {
+      const routes = App.routes.all().filter((r) => r.points.length >= 2 && App.layers.visible(r));
+      if (!routes.length) { App.ui.toast('동선이 없습니다. 동선 도구로 길을 그린 뒤 다시 해 보세요.'); return Promise.resolve(null); }
+      startWalk((walk.auto && routes.includes(walk.auto.route) ? walk.auto.route : routes[0]).id);
+      walk.auto.s = 0;
+      walk.auto.look = 0;
+      walk.auto.playing = true;
+      walk.last = 0;
+    } else if (kind === 'orbit' && mode === 'walk') { stopWalk(); resetView(false); }
+    if (picked) setPicked(null);
+    // 영상 크기: 지금 화면 비율 그대로, 긴 쪽 1280 (짝수로: 동영상 부호화 조건)
+    const cw = canvas.clientWidth || 1, ch = canvas.clientHeight || 1, k = (o.longSide || 1280) / Math.max(cw, ch); // o.longSide: 시험용
+    canvas.width = Math.max(2, Math.round((cw * k) / 2) * 2);
+    canvas.height = Math.max(2, Math.round((ch * k) / 2) * 2);
+    let stream;
+    try {
+      stream = canvas.captureStream(30);
+    } catch (e) {
+      App.ui.toast(`영상을 시작하지 못했습니다. ${(e && e.message) || ''}`);
+      return Promise.resolve(null);
+    }
+    rec = { kind, type, recorder: null, stream, chunks: [], t0: performance.now(), dur: (o.duration || (kind === 'orbit' ? 12 : kind === 'route' ? 180 : 180)) * 1000, yaw0: cam.yaw };
+    let resolveDone;
+    const done = new Promise((resolve) => { resolveDone = resolve; });
+    /** 형식 하나로 녹화기를 만듦. 1.5초 안에 아무것도 안 나오면(형식을 지원한다면서 못 만드는 기기) 다음 형식으로 처음부터 */
+    const begin = (t) => {
+      let recorder;
+      try {
+        recorder = new MediaRecorder(stream, { mimeType: t, videoBitsPerSecond: 6e6 });
+      } catch (_) {
+        recBroken.add(t);
+        const next = recType();
+        if (next) return begin(next);
+        rec = null;
+        el.querySelector('.v3-rec').hidden = true;
+        App.ui.toast('이 기기에서는 영상을 만들지 못했습니다.');
+        syncUi(); resize(); resolveDone(null);
+        return;
+      }
+      rec.type = t;
+      rec.recorder = recorder;
+      rec.chunks = [];
+      recorder.ondataavailable = (e) => { if (e.data && e.data.size && rec && rec.recorder === recorder) rec.chunks.push(e.data); };
+      recorder.onstop = () => onStop(recorder);
+      recorder.start(500);
+      rec.frames = 0;
+      const t0 = performance.now();
+      // 장면을 10장 넘게 그렸고 2.5초가 지났는데도 아무것도 안 나오면 이 형식은 못 쓰는 것 (느린 기기는 기다림)
+      const check = () => {
+        if (!rec || rec.recorder !== recorder || rec.stopping || rec.chunks.length) return;
+        if (rec.frames < 10 || performance.now() - t0 < 2500) { if (performance.now() - t0 < 15000) setTimeout(check, 500); return; }
+        recBroken.add(t);
+        const next = recType();
+        if (!next) return;
+        recorder.onstop = null;
+        try { recorder.stop(); } catch (_) { /* 무시 */ }
+        rec.t0 = performance.now(); // 처음부터 다시
+        rec.yaw0 = cam.yaw = rec.kind === 'orbit' ? rec.yaw0 : cam.yaw;
+        if (rec.kind === 'route' && walk.auto) { walk.auto.s = 0; walk.auto.playing = true; walk.last = 0; }
+        begin(next);
+      };
+      setTimeout(check, 2500);
+    };
+    const onStop = (recorder) => {
+      if (!rec || rec.recorder !== recorder) return;
+      {
+        const r = rec;
+        rec = null;
+        el.querySelector('.v3-rec').hidden = true;
+        syncUi();
+        resize();
+        requestDraw();
+        const blob = new Blob(r.chunks, { type: r.type.split(';')[0] });
+        if (!blob.size) { App.ui.toast('영상이 비어 있어 저장하지 않았습니다.'); resolveDone(null); return; }
+        const ext = /mp4/.test(r.type) ? 'mp4' : 'webm';
+        const name = `${((App.projects && App.projects.current && App.projects.current.name) || '도면').replace(/[\\/:*?"<>|]+/g, '_').trim() || '도면'}_${r.kind === 'orbit' ? '돌려보기' : r.kind === 'route' ? '걷기' : '3D'}_${App.exporter.stamp()}.${ext}`;
+        if (!o.noSave) App.exporter.saved(App.exporter.download(name, blob), `‘${name}’을 저장했습니다 (${Math.round((r.t1 - r.t0) / 1000)}초).`);
+        resolveDone({ blob, name, type: r.type });
+      }
+    };
+    rec.done = done;
+    begin(type);
+    el.querySelector('.v3-rec').hidden = false;
+    hint(kind === 'free' ? '녹화 중 · 돌리거나 걸어 보세요 · ‘멈추고 저장’' : kind === 'orbit' ? '녹화 중 · 12초 동안 한 바퀴 돕니다' : '녹화 중 · 동선 끝까지 걷습니다', 4000);
+    syncUi();
+    requestDraw();
+    return done;
+  }
+  function recFrame(now) {
+    rec.frames = (rec.frames || 0) + 1;
+    const t = (now - rec.t0) / rec.dur;
+    if (rec.kind === 'orbit') cam.yaw = rec.yaw0 + Math.PI * 2 * Math.min(1, t);
+    const s = Math.floor((now - rec.t0) / 1000);
+    el.querySelector('.v3-rec-time').textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}${rec.kind === 'orbit' ? ' / 0:12' : ''}`;
+    const routeDone = rec.kind === 'route' && (!walk.auto || !walk.auto.playing);
+    if (t >= 1 || routeDone) stopRecording();
+    else requestDraw(); // 녹화 중에는 계속 그림
+  }
+  function stopRecording() {
+    if (!rec || rec.stopping) return;
+    rec.stopping = true;
+    rec.t1 = performance.now();
+    try { rec.recorder.requestData(); } catch (_) { /* 이미 멈춤 */ }
+    try { rec.recorder.stop(); } catch (_) { /* 이미 멈춤 */ }
+    try { rec.stream.getTracks().forEach((tr) => tr.stop()); } catch (_) { /* 무시 */ }
+  }
+
   /** 지금 시점을 그림 파일로. 긴 쪽이 2560px쯤 되게 크게 그려서 저장 (발표 자료·인쇄용) */
   function saveImage() {
     const base = Math.max(canvas.clientWidth, canvas.clientHeight) * pixelRatio;
@@ -1029,6 +1155,7 @@
 
   function syncUi() {
     el.dataset.mode = mode;
+    el.dataset.recording = rec ? '1' : ''; // 녹화 중에는 위 막대의 다른 버튼을 잠시 막음
     el.querySelector('[data-v3="walk"]').setAttribute('aria-pressed', String(mode === 'walk'));
     el.querySelector('[data-v3="reset"]').setAttribute('aria-pressed', String(mode === 'orbit'));
     el.querySelector('.v3-walk').hidden = mode !== 'walk';
@@ -1070,8 +1197,15 @@
         <button type="button" class="btn" data-v3="turn" title="보는 방향을 90도씩 돌리기 (앞 → 오른쪽 → 뒤 → 왼쪽)" aria-label="돌려 보기">↻<span class="pc-only"> 돌려 보기</span></button>
         <button type="button" class="btn" data-v3="walk" aria-pressed="false" title="사람 눈높이로 입구부터 걸어서 둘러보기"><span class="ico ico-sm" data-icon="walk"></span>걷기</button>
         <button type="button" class="btn" data-v3="shot" title="지금 시점을 큰 그림 파일로 (긴 쪽 2560px)">사진<span class="pc-only"> 저장</span></button>
+        <button type="button" class="btn" data-v3="video" aria-expanded="false" title="돌려 보기·걷기를 영상 파일로 (카톡으로 보내기 좋게)">영상</button>
         <button type="button" class="btn" data-v3="settings" aria-expanded="false" aria-label="3D 설정" title="햇빛·바닥·화질"><span class="ico ico-sm" data-icon="gear"></span></button>
       </div>
+      <div class="v3-video-menu" hidden role="menu">
+        <button type="button" class="btn btn-list" data-rec="orbit" role="menuitem"><b>한 바퀴 돌려 보기</b><small>지금 높이에서 12초 동안 한 바퀴</small></button>
+        <button type="button" class="btn btn-list" data-rec="route" role="menuitem"><b>길 따라 걷기</b><small>동선을 따라 사람 눈높이로 끝까지</small></button>
+        <button type="button" class="btn btn-list" data-rec="free" role="menuitem"><b>지금 화면 녹화</b><small>직접 돌리거나 걸으며 녹화, ‘멈춤’을 누르면 저장</small></button>
+      </div>
+      <div class="v3-rec" hidden><span class="v3-rec-dot"></span><span class="v3-rec-time">0:00</span><button type="button" class="btn btn-danger" data-v3="rec-stop">멈추고 저장</button></div>
       <div class="v3-settings" hidden>
         <div class="v3-set-row"><span>햇빛</span><div class="v3-seg">${SUNS.map((s, i) => `<button type="button" class="btn" data-sun="${i}">${s.name}</button>`).join('')}</div></div>
         <div class="v3-set-row"><span>바닥</span><div class="v3-seg">${Object.entries(GROUNDS).map(([id, g]) => `<button type="button" class="btn" data-ground="${id}">${g[0]}</button>`).join('')}</div></div>
@@ -1103,6 +1237,9 @@
     el.addEventListener('click', (e) => {
       const pk = e.target.closest('[data-pk]');
       if (pk) { pickAction(pk.dataset.pk); return; }
+      const rc = e.target.closest('[data-rec]');
+      if (rc) { el.querySelector('.v3-video-menu').hidden = true; el.querySelector('[data-v3="video"]').setAttribute('aria-expanded', 'false'); startRecording(rc.dataset.rec); return; }
+      if (!e.target.closest('.v3-video-menu, [data-v3="video"]')) { el.querySelector('.v3-video-menu').hidden = true; el.querySelector('[data-v3="video"]').setAttribute('aria-expanded', 'false'); }
       const b = e.target.closest('[data-v3], [data-sun], [data-ground], [data-opt]');
       if (!b) {
         if (!e.target.closest('.v3-settings')) toggleSettings(false);
@@ -1135,6 +1272,8 @@
         else if (act === 'turn') { if (mode === 'walk') walk.a += Math.PI / 2; else { cam.yaw -= Math.PI / 2; refit(); } }
         else if (act === 'walk') { if (mode === 'walk') { stopWalk(); resetView(false); } else startWalk(); }
         else if (act === 'shot') saveImage();
+        else if (act === 'video') { const m = el.querySelector('.v3-video-menu'); m.hidden = !m.hidden; b.setAttribute('aria-expanded', String(!m.hidden)); if (!m.hidden) m.querySelector('[data-rec="route"]').hidden = !App.routes.all().some((r) => r.points.length >= 2 && App.layers.visible(r)); return; }
+        else if (act === 'rec-stop') { stopRecording(); return; }
         else if (act === 'settings') toggleSettings(settings.hidden);
         else if (act === 'play' && walk.auto) {
           const A = walk.auto;
@@ -1204,6 +1343,7 @@
   /** 닫기. 걷는 중이면 먼저 조감도로 돌아감 (뒤로 버튼·Esc) */
   function close(force = false) {
     if (!el || el.hidden) return false;
+    if (rec) { stopRecording(); return true; } // 녹화 중 Esc·뒤로·닫기: 먼저 멈추고 저장
     if (picked && !force) { setPicked(null); return true; } // Esc·뒤로: 먼저 고르기를 풂
     if (mode === 'walk' && !force) {
       stopWalk();
@@ -1225,6 +1365,11 @@
 
   App.view3d = {
     open, close, isOpen, build, buildItem, seeded, GROUNDS,
+    /** 영상: kind 'orbit'|'route'|'free', o: { duration(초), noSave, longSide } → Promise<{ blob, name, type } | null> */
+    record: (kind, o) => startRecording(kind, o),
+    stopRecording: () => stopRecording(),
+    get recording() { return !!rec; },
+    canRecord: () => !!(canvas && recType()),
     /** 시험용: 화면 점(캔버스 CSS px)의 물건, 고른 물건, 고르기 */
     pickAt: (x, y) => pickAt(x, y),
     get picked() { return picked; },

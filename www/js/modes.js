@@ -11,12 +11,12 @@
     {
       id: 'interior', label: '인테리어', icon: 'room',
       title: '인테리어 도면', desc: '벽·방·문·창문을 그리고 자재 물량을 집계',
-      tools: ['select', '|', 'wall', 'room', 'door', 'window', 'column', '|', 'elec', 'mech', 'furn', 'line', '|', 'zone', 'text', 'dim', '|', 'erase'],
+      tools: ['select', '|', 'wall', 'room', 'door', 'window', 'column', '|', 'elec', 'mech', 'furn', 'line', '|', 'zone', 'text', 'photo', 'dim', '|', 'erase'],
     },
     {
       id: 'event', label: '조감도', icon: 'event',
       title: '조감도 (행사)', desc: '텐트·무대·좌석 배치, 동선 체크, 3D로 걸어서 둘러보기',
-      tools: ['select', '|', 'event', 'route', 'zone', '|', 'text', 'dim', '|', 'wall', 'door', 'window', 'column', '|', 'erase'],
+      tools: ['select', '|', 'event', 'route', 'zone', '|', 'text', 'photo', 'dim', '|', 'wall', 'door', 'window', 'column', '|', 'erase'],
     },
   ];
   const byId = (id) => LIST.find((m) => m.id === id) || LIST[0];

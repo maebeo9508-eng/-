@@ -485,6 +485,33 @@
       },
     },
 
+    /* 현장 사진 핀: (x, y)에 사진 여러 장과 제목·메모. photos: [{ id: 이미지 id, at: 찍은(파일) 시각 ISO }]
+       화면에서 늘 같은 크기(반지름 14px)로 그리므로 범위도 화면 배율로 셈 */
+    photo: {
+      label: '현장 사진',
+      pick: 0,
+      create(p, photos = []) {
+        return { ...base('photo', 'memo'), x: p.x, y: p.y, photos, title: '' };
+      },
+      bounds(ph) {
+        const r = Math.max(150, minWorld(16));
+        return { minX: ph.x - r, minY: ph.y - r * 2, maxX: ph.x + r, maxY: ph.y + r * 0.4 };
+      },
+      distance(ph, p) {
+        const r = Math.max(150, minWorld(14));
+        return Math.max(0, Math.hypot(p.x - ph.x, p.y - (ph.y - r)) - r); // 핀 머리(동그라미)
+      },
+      inRect(ph, r) {
+        return G.pointInRect({ x: ph.x, y: ph.y }, r);
+      },
+      snapPoints() {
+        return [];
+      },
+      movedBy(ph, dx, dy) {
+        return { x: ph.x + dx, y: ph.y + dy };
+      },
+    },
+
     /* 치수: 두 점 사이 거리. manual이 있으면 그 값을 표시(수동), offset은 치수선을 옆으로 띄우는 거리 */
     dim: {
       label: '치수',

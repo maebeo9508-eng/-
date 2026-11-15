@@ -56,7 +56,7 @@
     const marks = App.tools && !App.exporting ? App.tools.highlight() : null; // { ids, color }. 내보낼 때는 없음
     const scale = plan.view.scale;
 
-    const walls = [], rooms = [], openings = [], columns = [], zones = [], lines = [], items = [], texts = [], dims = [], underlays = [], routes = [];
+    const walls = [], rooms = [], openings = [], columns = [], zones = [], lines = [], items = [], texts = [], dims = [], underlays = [], routes = [], photos = [];
     for (const el of App.doc.all()) {
       const t = App.model.TYPES[el.type];
       if (!t || t.catalog || !App.layers.visible(el)) continue; // 숨긴 레이어
@@ -71,6 +71,7 @@
       else if (el.type === 'line') lines.push(el);
       else if (el.type === 'item') items.push(el);
       else if (el.type === 'text') texts.push(el);
+      else if (el.type === 'photo') photos.push(el);
       else if (el.type === 'dim') dims.push(el);
       else if (el.type === 'underlay') underlays.push(el);
     }
@@ -132,6 +133,7 @@
     drawSeatNumbers(plan, items);
     dims.forEach((d) => dimShape(plan, d, markColor(d)));
     texts.forEach((t) => textShape(plan, t, markColor(t)));
+    if (photos.length) drawPhotoPins(plan, photos, markColor);
     // 선택한 벽의 끝점. 벽 하나만 골랐으면 끌어서 늘일 수 있는 손잡이로 크게
     const handle = sel.size === 1 ? 5.5 : 3.5;
     ctx.fillStyle = c.canvasBg;
@@ -1632,6 +1634,51 @@
       ctx.strokeText(text, s.x, y);
       ctx.fillStyle = App.selection.has(it.id) ? plan.colors.accent : plan.colors.label || plan.colors.fg;
       ctx.fillText(text, s.x, y);
+    });
+  }
+
+  /** 현장 사진 핀: 물방울 모양 핀 머리에 번호, 아래에 제목. 화면 크기 고정 (멀리서도 보이게). 화면 좌표 */
+  function drawPhotoPins(plan, photos, markColor) {
+    const ctx = plan.ctx, c = plan.colors;
+    const font = (w, s) => `${w} ${s}px system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif`;
+    photos.forEach((ph) => {
+      const p = plan.view.toScreen(ph.x, ph.y), r = 14, cy = p.y - r - 6;
+      const sel = markColor(ph);
+      // 핀: 아래 끝이 놓은 자리
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.bezierCurveTo(p.x - 4, p.y - 6, p.x - r, cy + r * 0.55, p.x - r, cy);
+      ctx.arc(p.x, cy, r, Math.PI, 0);
+      ctx.bezierCurveTo(p.x + r, cy + r * 0.55, p.x + 4, p.y - 6, p.x, p.y);
+      ctx.closePath();
+      ctx.fillStyle = sel || '#0b7285';
+      ctx.fill();
+      ctx.lineWidth = sel ? 3 : 2;
+      ctx.strokeStyle = '#ffffff';
+      ctx.stroke();
+      const n = App.photos ? App.photos.numberOf(ph.id) : '';
+      ctx.fillStyle = '#ffffff';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = font(800, n >= 10 ? 11 : 13);
+      ctx.fillText(String(n), p.x, cy + 0.5);
+      // 사진 수 (2장 이상)
+      const count = (ph.photos || []).length;
+      if (count > 1) {
+        const bx = p.x + r * 0.85, by = cy - r * 0.8;
+        ctx.beginPath(); ctx.arc(bx, by, 7.5, 0, Math.PI * 2);
+        ctx.fillStyle = '#f08c00'; ctx.fill();
+        ctx.fillStyle = '#ffffff'; ctx.font = font(800, 9.5);
+        ctx.fillText(String(count), bx, by + 0.5);
+      }
+      if (ph.title) {
+        ctx.font = font(600, 11.5);
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = c.canvasBg;
+        ctx.strokeText(ph.title, p.x, p.y + 10);
+        ctx.fillStyle = sel || c.fg;
+        ctx.fillText(ph.title, p.x, p.y + 10);
+      }
     });
   }
 
