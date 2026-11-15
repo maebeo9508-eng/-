@@ -26,8 +26,8 @@
     if (!androidApp) return App.images.pickMany();
     const r = await App.ui.dialog({
       title: '현장 사진',
-      html: '<p>카메라로 바로 찍거나, 찍어 둔 사진을 여러 장 고르세요.</p>',
-      actions: [{ id: 'cancel', label: '취소' }, { id: 'pick', label: '사진첩에서 고르기' }, { id: 'camera', label: '사진 찍기', primary: true }],
+      html: '<p><b>카메라</b>로 바로 찍거나, <b>사진첩</b>에서 찍어 둔 사진을 여러 장 고르세요.</p>',
+      actions: [{ id: 'cancel', label: '취소' }, { id: 'pick', label: '사진첩' }, { id: 'camera', label: '카메라', primary: true }],
     });
     if (r.id === 'camera') return App.images.pickMany({ camera: true });
     if (r.id === 'pick') return App.images.pickMany();
@@ -89,7 +89,7 @@
         if (!ph) return close();
         if (ph.locked) { App.ui.toast('잠긴 핀입니다. 속성에서 잠금을 풀고 빼세요.'); return; }
         removeAt(viewer.id, viewer.i);
-        App.ui.toast('사진을 뺐습니다. 되돌리려면 위쪽 ↶(Ctrl+Z)를 누르세요.');
+        App.ui.toast('사진을 뺐습니다. 되돌리기: Ctrl+Z (휴대폰은 닫은 뒤 위쪽 ↶)');
         const left = (App.doc.get(viewer.id).photos || []).length;
         if (!left) close();
         else { viewer.i = Math.min(viewer.i, left - 1); show(); }
@@ -106,7 +106,10 @@
     document.addEventListener('keydown', (e) => {
       if (el.hidden) return;
       if (e.key === 'Tab') return; // 버튼 사이 옮기기는 그대로
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && /^[zy]$/i.test(e.key)) return; // 되돌리기·다시 하기는 그대로 (보기도 바로 바뀜)
       e.stopPropagation();
+      if (mod || e.altKey || /^F\d+$/.test(e.key)) return; // 브라우저 확대·새로 고침 같은 것은 그대로 (도면 단축키로는 안 감)
       if (e.key === 'Escape') { e.preventDefault(); close(); }
       else if (e.key === 'ArrowLeft') { e.preventDefault(); go(-1); }
       else if (e.key === 'ArrowRight') { e.preventDefault(); go(1); }

@@ -852,7 +852,7 @@
       if (pts.size) pts.forEach((q) => { q.drag = null; q.moved = true; }); // 두 손가락이면 고르기·옮기기 안 함
       else if (!p.pan) {
         const [lx, ly] = local(e);
-        const hit = pickAt(lx, ly);
+        const hit = rec ? null : pickAt(lx, ly); // 녹화 중에는 물건을 고르지 않음 (막대가 영상 조작을 가리지 않게)
         p.hit = hit ? hit.id : null;
         // 이미 고른 물건을 누르고 끌면 옮김
         if (hit && picked && groupOf(picked).includes(hit.id) && !anyLocked(groupOf(picked))) {
@@ -1252,6 +1252,8 @@
     el.dataset.mode = mode;
     el.dataset.recording = rec ? '1' : ''; // 녹화 중에는 위 막대의 다른 버튼을 잠시 막음
     el.dataset.recKind = rec ? rec.kind : ''; // 한 바퀴: 끌어 돌리기도 막음, 길 따라 걷기: 조이스틱·멈춤도 막음
+    const pill = el.querySelector('.v3-rec');
+    if (rec && mode === 'walk') belowBar(pill); else pill.style.top = ''; // 걷는 중에는 위 막대 바로 아래 (막대가 두 줄이어도)
     el.querySelector('[data-v3="walk"]').setAttribute('aria-pressed', String(mode === 'walk'));
     el.querySelector('[data-v3="reset"]').setAttribute('aria-pressed', String(mode === 'orbit'));
     el.querySelector('.v3-walk').hidden = mode !== 'walk';
@@ -1387,6 +1389,7 @@
           return;
         }
         else if (act === 'rec-stop') { stopRecording(); return; }
+        else if (rec && rec.kind === 'route' && ['play', 'restart', 'route', 'speed'].includes(act)) return; // 길 따라 걷기 녹화 중: 녹화가 끊기지 않게
         else if (act === 'settings') toggleSettings(settings.hidden);
         else if (act === 'play' && walk.auto) {
           const A = walk.auto;

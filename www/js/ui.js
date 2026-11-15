@@ -76,6 +76,9 @@
       (handlers[name] || []).forEach((fn) => fn(...args));
     },
     init() {
+      // 알림·읽는 중 덮개는 앱 칸 밖(body)으로: 3D 화면·사진 보기 위에도 보이게 (앱 칸은 따로 쌓이는 층이라 z-index가 안 먹음)
+      document.body.appendChild($('#toast'));
+      document.body.appendChild($('#busy'));
       buildToolbar();
       bindTopbar();
       bindTabs();
@@ -946,7 +949,7 @@
     },
     set(h) {
       this.h = clamp(h, this.peek(), this.max());
-      $('#app').style.setProperty('--sheet-h', this.h + 'px');
+      document.documentElement.style.setProperty('--sheet-h', this.h + 'px'); // 앱 칸 밖으로 옮긴 알림도 서랍 위에 뜨게
       ui.emit('sheet', this.h);
     },
     isOpen() {
