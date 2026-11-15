@@ -1488,3 +1488,9 @@ body:has(> .view3d:not([hidden])) .toast { bottom: auto; top: 36%; }
 .sf-val { margin-left: 6px; font-weight: 700; }
 .sf-body small { display: block; margin-top: 2px; color: var(--fg-muted); font-size: 12px; }
 .sf-body p { margin: 4px 0 0; font-size: 13px; }
+
+/* 3D 시점 저장 */
+.v3-views { align-items: center; }
+.v3-view { display: inline-flex; }
+.v3-view .btn:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.v3-view .v3-view-del { min-width: 30px; padding: 0 8px; border-left: 0; border-top-left-radius: 0; border-bottom-left-radius: 0; color: var(--fg-muted); }

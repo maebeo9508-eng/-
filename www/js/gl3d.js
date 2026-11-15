@@ -632,6 +632,32 @@
 
   const ATTRS = ['aPos', 'aNormal', 'aColor', 'aMat', 'aUv'];
 
+  /* 이름표: 늘 카메라를 보는 판 (화면에서 같은 크기). 자리의 아래 가운데에 붙음. 깊이는 보지 않음 (늘 보이게) */
+  const LABEL_VS = `
+    attribute vec3 aCenter;
+    attribute vec2 aCorner;
+    attribute vec2 aUv;
+    attribute vec2 aSize;
+    uniform mat4 uVP;
+    uniform vec2 uPx;
+    varying vec2 vUv;
+    void main() {
+      vec4 c = uVP * vec4(aCenter, 1.0);
+      c.xy += vec2(aCorner.x * aSize.x * 0.5, (aCorner.y + 1.0) * 0.5 * aSize.y) * uPx * c.w;
+      gl_Position = c;
+      vUv = aUv;
+    }`;
+  const LABEL_FS = `
+    precision mediump float;
+    uniform sampler2D uTex;
+    varying vec2 vUv;
+    void main() {
+      vec4 t = texture2D(uTex, vUv);
+      if (t.a < 0.03) discard;
+      gl_FragColor = t;
+    }`;
+  const LABEL_FLOATS = 9; // 자리 3 + 모서리 2 + 무늬 자리 2 + 크기 2
+
   class Renderer {
     /** opt.alpha: 바탕을 투명하게 (물건 그림을 따로 뽑을 때) */
     constructor(canvas, opt = {}) {
@@ -744,6 +770,102 @@
       this.textured.forEach((t) => { gl.deleteBuffer(t.buf); gl.deleteTexture(t.tex); });
       this.batches = {};
       this.textured = [];
+    }
+
+    /** 이름표를 올림. labels: [{ p: [x, y, z](m), text, bg, fg }] — 글자는 한 장의 그림에 모아 그림 */
+    setLabels(labels = []) {
+      const gl = this.gl;
+      if (this.labelBuf) { gl.deleteBuffer(this.labelBuf); this.labelBuf = null; }
+      if (this.labelTex) { gl.deleteTexture(this.labelTex); this.labelTex = null; }
+      this.labelCount = 0;
+      const list = labels.filter((l) => l && l.text);
+      if (!list.length) return;
+      if (!this.label) {
+        try { this.label = this._program(LABEL_VS, LABEL_FS, ['aCenter', 'aCorner', 'aUv', 'aSize']); } catch (e) { console.warn('이름표를 그릴 수 없음', e); this.label = null; return; }
+      }
+      // 글자 그림: 가로 1024, 한 줄 높이 52px (알약 모양 바탕 + 글자)
+      const W = 1024, LH = 52, PAD = 16, font = '700 30px system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif';
+      const meas = document.createElement('canvas').getContext('2d');
+      meas.font = font;
+      const boxes = [];
+      let x = 0, y = 0;
+      list.slice(0, 400).forEach((l) => {
+        const text = String(l.text).slice(0, 24);
+        const w = Math.min(W - 4, Math.ceil(meas.measureText(text).width) + PAD * 2);
+        if (x + w > W) { x = 0; y += LH + 4; }
+        boxes.push({ l, text, x, y, w });
+        x += w + 4;
+      });
+      const H = 2 ** Math.ceil(Math.log2(Math.max(64, y + LH)));
+      if (H > 4096) return;
+      const cv = document.createElement('canvas');
+      cv.width = W;
+      cv.height = H;
+      const g = cv.getContext('2d');
+      g.font = font;
+      g.textBaseline = 'middle';
+      g.textAlign = 'center';
+      boxes.forEach((b) => {
+        g.fillStyle = b.l.bg || 'rgba(17,24,39,0.86)';
+        g.beginPath();
+        if (g.roundRect) g.roundRect(b.x + 1, b.y + 3, b.w - 2, LH - 6, (LH - 6) / 2); else g.rect(b.x + 1, b.y + 3, b.w - 2, LH - 6);
+        g.fill();
+        g.lineWidth = 2;
+        g.strokeStyle = 'rgba(255,255,255,0.9)';
+        g.stroke();
+        g.fillStyle = b.l.fg || '#ffffff';
+        g.fillText(b.text, b.x + b.w / 2, b.y + LH / 2 + 1);
+      });
+      const tex = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, cv);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      const a = new Float32Array(boxes.length * 6 * LABEL_FLOATS);
+      let i = 0;
+      boxes.forEach((b) => {
+        const u0 = b.x / W, u1 = (b.x + b.w) / W, v0 = b.y / H, v1 = (b.y + LH) / H;
+        const [px, py, pz] = b.l.p;
+        // 두 삼각형: (-1,-1) (1,-1) (1,1) / (-1,-1) (1,1) (-1,1). 무늬는 위쪽이 v0
+        [[-1, -1, u0, v1], [1, -1, u1, v1], [1, 1, u1, v0], [-1, -1, u0, v1], [1, 1, u1, v0], [-1, 1, u0, v0]].forEach(([cx, cy, u, v]) => {
+          a[i++] = px; a[i++] = py; a[i++] = pz; a[i++] = cx; a[i++] = cy; a[i++] = u; a[i++] = v; a[i++] = b.w; a[i++] = LH;
+        });
+      });
+      this.labelBuf = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.labelBuf);
+      gl.bufferData(gl.ARRAY_BUFFER, a, gl.STATIC_DRAW);
+      gl.bindBuffer(gl.ARRAY_BUFFER, null);
+      this.labelTex = tex;
+      this.labelCount = boxes.length * 6;
+    }
+    _drawLabels(vp, W, H) {
+      const gl = this.gl;
+      if (!this.labelCount || !this.label) return;
+      gl.useProgram(this.label.p);
+      gl.disable(gl.DEPTH_TEST);
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      gl.uniformMatrix4fv(this.label.u.uVP, false, vp);
+      const k = (H / 900) * 0.62; // 900px 높이 화면에서 글자 줄 높이 약 32px (큰 그림·영상에서도 같은 비율)
+      gl.uniform2f(this.label.u.uPx, (2 / W) * k, (2 / H) * k);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, this.labelTex);
+      gl.uniform1i(this.label.u.uTex, 0);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.labelBuf);
+      const B = LABEL_FLOATS * 4;
+      for (let j = 0; j < 4; j++) gl.enableVertexAttribArray(j);
+      gl.disableVertexAttribArray(4);
+      gl.vertexAttribPointer(0, 3, gl.FLOAT, false, B, 0);
+      gl.vertexAttribPointer(1, 2, gl.FLOAT, false, B, 12);
+      gl.vertexAttribPointer(2, 2, gl.FLOAT, false, B, 20);
+      gl.vertexAttribPointer(3, 2, gl.FLOAT, false, B, 28);
+      gl.drawArrays(gl.TRIANGLES, 0, this.labelCount);
+      gl.disable(gl.BLEND);
+      gl.enable(gl.DEPTH_TEST);
+      gl.bindBuffer(gl.ARRAY_BUFFER, null);
     }
 
     /** 끝없이 보이는 바닥: 재질과 색. 가운데(반지름 inner m)는 잘게 나눔 — 아주 큰 삼각형은 가까이에서 무늬가 흔들림 */
@@ -974,6 +1096,7 @@
       gl.disable(gl.BLEND);
       gl.depthMask(true);
       gl.bindBuffer(gl.ARRAY_BUFFER, null);
+      if (o.labels) this._drawLabels(vp, W, H); // 이름표 (맨 위에)
     }
 
     /** 장면 전체를 덮는 그림자 범위 */
@@ -995,7 +1118,9 @@
         gl.deleteRenderbuffer(this.shadowDepth);
       }
       gl.deleteTexture(this.white);
-      [this.main, this.depth, this.sky].forEach((p) => gl.deleteProgram(p.p));
+      if (this.labelBuf) gl.deleteBuffer(this.labelBuf);
+      if (this.labelTex) gl.deleteTexture(this.labelTex);
+      [this.main, this.depth, this.sky, this.label].forEach((p) => p && gl.deleteProgram(p.p));
       const lose = gl.getExtension('WEBGL_lose_context');
       if (lose) lose.loseContext();
     }

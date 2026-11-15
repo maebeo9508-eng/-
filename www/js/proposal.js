@@ -573,9 +573,16 @@
       if (heroShot) {
         d.hero = heroShot[0];
         if (parts.d3) {
-          const big = App.view3d.stills([{ yaw: -0.6, pitch: 0.62 }], PORTRAIT.W - 2 * M, 1000);
-          const small = App.view3d.stills([{ yaw: -0.6 + Math.PI, pitch: 0.55 }, { yaw: 0, pitch: 1.5 }], Math.round((PORTRAIT.W - 2 * M - 30) / 2), 560);
-          if (big && small) shots = [{ canvas: big[0], label: '조감도' }, { canvas: small[0], label: '반대쪽에서' }, { canvas: small[1], label: '위에서' }];
+          // 3D 화면에서 저장한 시점이 있으면 그 시점들로 (이름이 그림 설명), 없으면 조감도·반대쪽·위에서
+          const sv = (App.view3d.views || []).slice(0, 3);
+          const specs = [
+            sv[0] ? { saved: sv[0], label: sv[0].name } : { yaw: -0.6, pitch: 0.62, label: '조감도' },
+            sv[1] ? { saved: sv[1], label: sv[1].name } : { yaw: -0.6 + Math.PI, pitch: 0.55, label: '반대쪽에서' },
+            sv[2] ? { saved: sv[2], label: sv[2].name } : { yaw: 0, pitch: 1.5, label: '위에서' },
+          ];
+          const big = App.view3d.stills([specs[0]], PORTRAIT.W - 2 * M, 1000);
+          const small = App.view3d.stills(specs.slice(1), Math.round((PORTRAIT.W - 2 * M - 30) / 2), 560);
+          if (big && small) shots = [{ canvas: big[0], label: specs[0].label }, { canvas: small[0], label: specs[1].label }, { canvas: small[1], label: specs[2].label }];
         }
       }
       if (parts.d3 && !shots) skipped.push('3D 투시도');

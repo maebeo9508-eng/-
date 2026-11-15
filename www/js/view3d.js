@@ -135,6 +135,29 @@
   /* ── 장면 조립 ──
      o: { low: 벽 낮추기, routes: 동선 표시, lod: 간단히 }
      돌려주는 값: { layers: { solid, ceil, glass, decals[4] }, textured, bounds, center(도면 mm), radius(m), stats } 또는 null(그릴 것이 없음) */
+  /* ── 3D 이름표: 이름 있는 영역, 무대·화장실·입구 같은 큰 것, 메모를 짧게 적은 물건 ──
+     같은 이름이 가까이(8m) 모여 있으면 하나만 (화장실 여러 칸에 이름표가 줄줄이 붙지 않게) */
+  const LANDMARK = { 무대: '무대', 매표소: '매표소', '이동식 화장실': '화장실', 푸드트럭: '푸드트럭', 구급차: '구급차', '안내 키오스크': '안내', 데스크: '안내', 포토월: '포토월', 에어아치: '입구', 관람석: '관람석', 'LED 스크린': 'LED', 주차: '주차' };
+  function sceneLabels(els, X, Z, baseY) {
+    const out = [];
+    const near = (text, x, z) => out.some((l) => l.text === text && Math.hypot(l.p[0] - x, l.p[2] - z) < 8);
+    const add = (text, x, y, z, bg, fg) => { if (text && !near(text, x, z)) out.push({ text, p: [x, y, z], bg, fg }); };
+    els.forEach((e) => {
+      if (e.type === 'zone' && e.name && e.points && e.points.length >= 3) {
+        const c = App.geom.interiorPoint(e.points);
+        add(e.name, X(c.x), 0.3, Z(c.y), e.color || '#2f9e44', '#ffffff');
+      } else if (e.type === 'item' && e.category === 'event') {
+        const memo = String(e.memo || '').trim();
+        const text = memo && memo.length <= 14 ? memo : e.boothNo ? `${e.boothNo}${e.exhibitor ? ` ${e.exhibitor}` : ''}` : LANDMARK[e.kind];
+        if (!text) return;
+        const def = App.catalog.itemDef(e.kind) || {};
+        const h = ((e.h3 || def.h3 || 1500) / 1000) + ((baseY && baseY.get(e.id)) || 0) + 0.5;
+        add(text, X(e.x), h, Z(e.y), memo ? '#c2410c' : 'rgba(17,24,39,0.86)', '#ffffff');
+      }
+    });
+    return out;
+  }
+
   function build(o = {}) {
     const doc = App.doc;
     const els = [...doc.all()].filter((e) => App.model.TYPES[e.type] && !App.model.TYPES[e.type].catalog && e.type !== 'underlay' && App.layers.visible(e));
@@ -412,8 +435,9 @@
     if (o.blobs === false) L.blobs = new Mesh(8);
     min[1] = Math.min(min[1], 0);
     const radius = Math.hypot(max[0] - min[0], max[2] - min[2]) / 2;
+    const labels = sceneLabels(els, X, Z, baseY);
     return {
-      layers: L, textured, bounds: { min, max }, center: { x: cx, y: cy }, radius, height: max[1], fit, baseY,
+      layers: L, textured, labels, bounds: { min, max }, center: { x: cx, y: cy }, radius, height: max[1], fit, baseY,
       stats: { solid: L.solid.n, glass: L.glass.n, ceil: L.ceil.n, decal: L.decals.reduce((n, m) => n + m.n, 0), textured: textured.length, maxY: max[1] },
     };
   }
@@ -429,6 +453,8 @@
   // auto: { route, s, playing }
 
   const sunIndex = () => clamp(App.current.sun3d | 0, 0, SUNS.length - 1);
+  /** 3D 이름표: 조감도 모드에서 켜 둠 (설정의 ‘이름표’로 끔). 걷기에서는 가까운 것만 크게 보여 어지러우므로 끔 */
+  const labelsOn = () => App.modes.is('event') && App.settings.labels3d !== false && mode !== 'walk';
 
   function resize() {
     if (rec) return; // 녹화 중: 영상 크기 고정
@@ -473,7 +499,7 @@
     resize();
     const hq = quality === 'high';
     R.render(camera(), {
-      sun: sunIndex(), ceil: mode === 'walk', clouds: hq, shadows: true, shadowSize: hq ? 2048 : 1024,
+      sun: sunIndex(), ceil: mode === 'walk', clouds: hq, shadows: true, shadowSize: hq ? 2048 : 1024, labels: labelsOn(),
       fog: mode === 'walk' ? 1 / 700 : 1 / 1500,
       focus: mode === 'walk' ? { center: [walk.x, 0, walk.z], radius: Math.min(32, scene.radius + 4) } : null,
     });
@@ -685,6 +711,7 @@
     scene = build({ low: low && mode !== 'walk', routes: showRoutes, lod: quality !== 'high', center });
     if (!scene) return false;
     R.setScene(scene);
+    R.setLabels(scene.labels);
     setGround();
     return true;
   }
@@ -1006,7 +1033,68 @@
     return REC_TYPES.filter((t) => { try { return !recBroken.has(t) && MediaRecorder.isTypeSupported(t); } catch (_) { return false; } });
   }
   const recType = () => recTypes()[0] || null;
-  /** kind: 'orbit' | 'route' | 'free'. o.duration(초)는 시험용 */
+  /* ── 시점 저장: 조감도 시점(돌리기·높이·거리·보는 곳)을 이 도면에 저장하고 다시 감. 시점 투어 영상·제안서 3D 쪽에 씀 ──
+     보는 곳은 도면 좌표(mm)로 저장 (도면이 바뀌어 3D 원점이 달라져도 같은 곳을 봄) */
+  const savedViews = () => (Array.isArray(App.current.views3d) ? App.current.views3d : []);
+  function viewName(yaw, pitch) {
+    if (pitch > 1.3) return '위에서';
+    const a = ((yaw % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+    return ['앞에서', '오른쪽에서', '뒤에서', '왼쪽에서'][Math.round(a / (Math.PI / 2)) % 4];
+  }
+  function saveView() {
+    if (!scene) return null;
+    if (mode === 'walk') { hint('조감도 시점에서 저장할 수 있습니다 (‘조감도’를 누른 뒤)', 3000); return null; }
+    const list = savedViews().slice(0, 11);
+    let name = viewName(cam.yaw, cam.pitch), k = 2;
+    while (list.some((v) => v.name === name)) name = `${viewName(cam.yaw, cam.pitch)} ${k++}`;
+    const v = { name, yaw: cam.yaw, pitch: cam.pitch, dist: cam.dist, x: scene.center.x + cam.target[0] * 1000, y: scene.center.y + cam.target[2] * 1000, h: cam.target[1] };
+    App.current.views3d = [...list, v];
+    if (App.projects && App.projects.saveNow) App.projects.saveNow();
+    renderViews();
+    hint(`‘${name}’ 시점을 저장했습니다. 영상 → ‘시점 투어’로 차례로 돌아볼 수 있습니다.`, 3500);
+    return v;
+  }
+  /** 저장한 시점을 카메라 값으로 (지금 장면의 원점 기준) */
+  const viewCam = (v) => ({ yaw: v.yaw, pitch: v.pitch, dist: v.dist, target: [(v.x - scene.center.x) / 1000, v.h || 0, (v.y - scene.center.y) / 1000] });
+  function goView(i) {
+    const v = savedViews()[i];
+    if (!v || !scene) return;
+    if (mode === 'walk') stopWalk();
+    Object.assign(cam, viewCam(v));
+    syncUi();
+    requestDraw();
+  }
+  function deleteView(i) {
+    App.current.views3d = savedViews().filter((_, k) => k !== i);
+    if (App.projects && App.projects.saveNow) App.projects.saveNow();
+    renderViews();
+  }
+  function renderViews() {
+    if (!el) return;
+    const box = el.querySelector('.v3-views');
+    if (!box) return;
+    const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    box.innerHTML = savedViews().map((v, i) => `<span class="v3-view"><button type="button" class="btn" data-view-go="${i}">${esc(v.name)}</button><button type="button" class="btn v3-view-del" data-view-del="${i}" aria-label="${esc(v.name)} 지우기" title="지우기">×</button></span>`).join('')
+      + '<button type="button" class="btn" data-view-add title="지금 보는 시점을 저장">+ 지금 시점</button>';
+  }
+  /** 시점 투어: 시점마다 1.2초 머물고 3초 동안 다음 시점으로 부드럽게 */
+  const TOUR_HOLD = 1200, TOUR_MOVE = 3000;
+  const lerpAngle = (a, b, t) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * t;
+  function tourCam(ms) {
+    const list = savedViews().map(viewCam);
+    const seg = TOUR_HOLD + TOUR_MOVE;
+    const i = Math.min(list.length - 1, Math.floor(ms / seg));
+    const local = ms - i * seg;
+    const a = list[i], b = list[Math.min(list.length - 1, i + 1)];
+    const t = i >= list.length - 1 || local <= TOUR_HOLD ? 0 : Math.min(1, (local - TOUR_HOLD) / TOUR_MOVE);
+    const e = t * t * (3 - 2 * t);
+    cam.yaw = lerpAngle(a.yaw, b.yaw, e);
+    cam.pitch = a.pitch + (b.pitch - a.pitch) * e;
+    cam.dist = Math.exp(Math.log(a.dist) + (Math.log(b.dist) - Math.log(a.dist)) * e);
+    cam.target = a.target.map((x, k) => x + (b.target[k] - x) * e);
+  }
+
+  /** kind: 'orbit' | 'route' | 'free' | 'tour'. o.duration(초)는 시험용 */
   function startRecording(kind, o = {}) {
     if (rec) return Promise.resolve(null);
     if (!recType()) { App.ui.toast('이 기기·브라우저에서는 영상 저장을 쓸 수 없습니다. ‘사진 저장’을 써 주세요.'); return Promise.resolve(null); }
@@ -1021,6 +1109,10 @@
       walk.keys.clear();
       walk.joy = { x: 0, y: 0 };
     } else if (kind === 'orbit' && mode === 'walk') { stopWalk(); resetView(false); }
+    else if (kind === 'tour') {
+      if (savedViews().length < 2) { App.ui.toast('시점을 두 개 이상 저장하세요 (3D 설정 → 시점 → ‘+ 지금 시점’).'); return Promise.resolve(null); }
+      if (mode === 'walk') stopWalk();
+    }
     if (picked) setPicked(null);
     // 영상 크기: 지금 화면 비율 그대로, 긴 쪽 1280 (짝수로: 동영상 부호화 조건)
     const cw = canvas.clientWidth || 1, ch = canvas.clientHeight || 1, k = (o.longSide || 1280) / Math.max(cw, ch); // o.longSide: 시험용
@@ -1035,7 +1127,7 @@
       App.ui.toast(`영상을 시작하지 못했습니다. ${(e && e.message) || ''}`);
       return Promise.resolve(null);
     }
-    rec = { kind, type: null, recorder: null, stream, chunks: [], frames: 0, t0: performance.now(), dur: (o.duration || (kind === 'orbit' ? 12 : 180)) * 1000, yaw0: cam.yaw, aspect: cw / ch, reason: '' };
+    rec = { kind, type: null, recorder: null, stream, chunks: [], frames: 0, t0: performance.now(), dur: o.duration ? o.duration * 1000 : kind === 'orbit' ? 12000 : kind === 'tour' ? savedViews().length * (TOUR_HOLD + TOUR_MOVE) - TOUR_MOVE + 600 : 180000, yaw0: cam.yaw, aspect: cw / ch, reason: '' };
     let resolveDone;
     const done = new Promise((resolve) => { resolveDone = resolve; });
     const onStop = (recorder) => {
@@ -1062,7 +1154,7 @@
         return;
       }
       const ext = /mp4/.test(r.type) ? 'mp4' : 'webm';
-      const name = `${((App.projects && App.projects.current && App.projects.current.name) || '도면').replace(/[\\/:*?"<>|]+/g, '_').trim() || '도면'}_${r.kind === 'orbit' ? '돌려보기' : r.kind === 'route' ? '걷기' : '3D'}_${App.exporter.stamp()}.${ext}`;
+      const name = `${((App.projects && App.projects.current && App.projects.current.name) || '도면').replace(/[\\/:*?"<>|]+/g, '_').trim() || '도면'}_${r.kind === 'orbit' ? '돌려보기' : r.kind === 'route' ? '걷기' : r.kind === 'tour' ? '시점투어' : '3D'}_${App.exporter.stamp()}.${ext}`;
       const why = { cap: ' · 최대 3분이라 여기서 멈췄습니다', resize: ' · 화면 방향·크기가 바뀌어 멈췄습니다' }[r.reason] || '';
       if (!o.noSave) App.exporter.saved(App.exporter.download(name, blob), `‘${name}’을 저장했습니다 (${secs}초${why}).`);
       resolveDone({ blob, name, type: r.type, reason: r.reason });
@@ -1110,10 +1202,11 @@
     rec.frames++;
     const t = (now - rec.t0) / rec.dur;
     if (rec.kind === 'orbit') cam.yaw = rec.yaw0 + Math.PI * 2 * Math.min(1, t);
+    else if (rec.kind === 'tour') tourCam(Math.min(rec.dur, Math.max(0, now - rec.t0)) * (rec.speed || 1));
     // 지난 시간 / 끝(한 바퀴는 12초, 나머지는 최대 3분)
     el.querySelector('.v3-rec-time').textContent = `${clock(Math.floor(Math.max(0, now - rec.t0) / 1000))} / ${clock(Math.round(rec.dur / 1000))}`;
     const routeDone = rec.kind === 'route' && (!walk.auto || !walk.auto.playing);
-    if (t >= 1) stopRecording(rec.kind === 'orbit' ? '' : 'cap');
+    if (t >= 1) stopRecording(rec.kind === 'orbit' || rec.kind === 'tour' ? '' : 'cap');
     else if (routeDone) stopRecording();
     else requestDraw(); // 녹화 중에는 계속 그림
   }
@@ -1149,7 +1242,7 @@
   });
 
   /** 제안서용 정지 그림: 3D 화면을 열지 않고(열려 있으면 지금 장면으로) 정한 방향들에서 그려 캔버스로 돌려줌.
-      views: [{ yaw, pitch, box? }] (box: fitCam의 화면 범위), w·h: 픽셀. 3D를 쓸 수 없거나 그릴 것이 없으면 null */
+      views: [{ yaw, pitch, box? } 또는 { saved: 저장한 시점 }] (box: fitCam의 화면 범위), w·h: 픽셀. 3D를 쓸 수 없거나 그릴 것이 없으면 null */
   function stills(views, w, h) {
     ensureElement();
     if (rec) return null;
@@ -1171,6 +1264,7 @@
       scene = build({ low: lowChosen ? low : App.modes.is('interior'), routes: showRoutes, lod: false });
       if (!scene) return null;
       R.setScene(scene);
+      R.setLabels(scene.labels);
       setGround();
     }
     const k = Math.min(1, maxSize / Math.max(w, h));
@@ -1181,8 +1275,9 @@
       canvas.width = W;
       canvas.height = H;
       for (const v of views) {
-        fitCam(v.yaw, v.pitch, W / H, v.box || [0.9, 0.86, -0.9]);
-        R.render(camera(), { sun: sunIndex(), ceil: false, clouds: true, shadows: true, shadowSize: 2048, fog: 1 / 1500, focus: null });
+        if (v.saved) Object.assign(cam, viewCam(v.saved)); // 저장한 시점 그대로
+        else fitCam(v.yaw, v.pitch, W / H, v.box || [0.9, 0.86, -0.9]);
+        R.render(camera(), { sun: sunIndex(), ceil: false, clouds: true, shadows: true, shadowSize: 2048, fog: 1 / 1500, focus: null, labels: labelsOn() });
         const c = document.createElement('canvas'); // 같은 순간에 옮겨 담아야 그림이 남아 있음
         c.width = W;
         c.height = H;
@@ -1263,6 +1358,9 @@
     set.querySelectorAll('[data-ground]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.ground === groundKey())));
     set.querySelector('[data-opt="low"]').setAttribute('aria-pressed', String(low));
     set.querySelector('[data-opt="routes"]').setAttribute('aria-pressed', String(showRoutes));
+    const lb = set.querySelector('[data-opt="labels"]');
+    lb.hidden = !App.modes.is('event');
+    lb.setAttribute('aria-pressed', String(App.settings.labels3d !== false));
     set.querySelector('[data-opt="quality"]').setAttribute('aria-pressed', String(quality === 'high'));
     if (mode === 'walk') syncWalkUi();
   }
@@ -1303,6 +1401,7 @@
         <button type="button" class="btn btn-list" data-rec="shot" role="menuitem"><b>사진 저장</b><small>지금 장면을 큰 그림 파일로</small></button>
         <button type="button" class="btn btn-list" data-rec="orbit" role="menuitem"><b>한 바퀴 돌려 보기</b><small>지금 높이에서 12초 동안 한 바퀴</small></button>
         <button type="button" class="btn btn-list" data-rec="route" role="menuitem"><b>길 따라 걷기</b><small>동선을 따라 사람 눈높이로 끝까지</small></button>
+        <button type="button" class="btn btn-list" data-rec="tour" role="menuitem"><b>시점 투어</b><small>저장한 시점을 차례로 부드럽게 (3D 설정 → 시점)</small></button>
         <button type="button" class="btn btn-list" data-rec="free" role="menuitem"><b>지금 화면 녹화</b><small>직접 돌리거나 걸으며 · ‘멈추고 저장’까지 (최대 3분)</small></button>
       </div>
       <div class="v3-rec" hidden><span class="v3-rec-dot"></span><span class="v3-rec-time">0:00</span><button type="button" class="btn btn-danger" data-v3="rec-stop">멈추고 저장</button></div>
@@ -1312,8 +1411,10 @@
         <div class="v3-set-row"><span>보기</span><div class="v3-seg">
           <button type="button" class="btn" data-opt="low" title="벽을 낮춰 방 안이 보이게 (조감도에서)">벽 낮추기</button>
           <button type="button" class="btn" data-opt="routes" title="동선을 바닥에 표시">동선 표시</button>
+          <button type="button" class="btn" data-opt="labels" title="영역 이름·무대·화장실·입구·메모를 3D에 표시 (사진·영상에도)">이름표</button>
           <button type="button" class="btn" data-opt="quality" title="끄면 빠르게 (그림자·해상도를 낮춤)">고화질</button>
         </div></div>
+        <div class="v3-set-row"><span>시점</span><div class="v3-seg v3-views"></div></div>
       </div>
       <div class="v3-walk" hidden>
         <div class="v3-joy" aria-label="걷기 조이스틱"><div class="v3-knob"></div></div>
@@ -1333,7 +1434,7 @@
     const toggleSettings = (open) => {
       settings.hidden = !open;
       el.querySelector('[data-v3="settings"]').setAttribute('aria-expanded', String(open));
-      if (open) belowBar(settings);
+      if (open) { renderViews(); belowBar(settings); }
     };
     el.addEventListener('click', (e) => {
       const pk = e.target.closest('[data-pk]');
@@ -1347,6 +1448,14 @@
         return;
       }
       if (!e.target.closest('.v3-video-menu, [data-v3="video"]')) { el.querySelector('.v3-video-menu').hidden = true; el.querySelector('[data-v3="video"]').setAttribute('aria-expanded', 'false'); }
+      // 시점: 저장·가기·지우기 (설정 창 안)
+      const vb = e.target.closest('[data-view-add], [data-view-go], [data-view-del]');
+      if (vb) {
+        if (vb.dataset.viewAdd != null) saveView();
+        else if (vb.dataset.viewGo != null) goView(Number(vb.dataset.viewGo));
+        else deleteView(Number(vb.dataset.viewDel));
+        return;
+      }
       const b = e.target.closest('[data-v3], [data-sun], [data-ground], [data-opt]');
       if (!b) {
         if (!e.target.closest('.v3-settings')) toggleSettings(false);
@@ -1366,6 +1475,11 @@
       } else if (b.dataset.opt === 'routes') {
         showRoutes = !showRoutes;
         rebuild();
+      } else if (b.dataset.opt === 'labels') {
+        App.settings.labels3d = App.settings.labels3d === false;
+        App.saveSettings();
+        syncUi();
+        requestDraw();
       } else if (b.dataset.opt === 'quality') {
         quality = quality === 'high' ? 'low' : 'high';
         slow = 0;
@@ -1385,6 +1499,7 @@
           b.setAttribute('aria-expanded', String(!m.hidden));
           if (!m.hidden) {
             m.querySelector('[data-rec="route"]').hidden = !App.routes.all().some((r) => r.points.length >= 2 && App.layers.visible(r));
+            m.querySelector('[data-rec="tour"]').hidden = savedViews().length < 2;
             belowBar(m);
           }
           return;
@@ -1494,6 +1609,10 @@
     stopRecording: () => stopRecording(),
     get recording() { return !!rec; },
     canRecord: () => !!(canvas && recType()),
+    /** 시점 저장·가기·목록 (시험·제안서용) */
+    saveView: () => saveView(),
+    goView: (i) => goView(i),
+    get views() { return savedViews(); },
     /** 제안서용: [{ yaw, pitch }] 방향들의 정지 그림 (캔버스 배열) 또는 null */
     stills: (views, w, h) => stills(views, w, h),
     /** 시험용: 화면 점(캔버스 CSS px)의 물건, 고른 물건, 고르기 */
