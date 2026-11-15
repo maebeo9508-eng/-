@@ -1645,12 +1645,28 @@
       const s = plan.view.toScreen(it.x, it.y);
       const y = s.y + T.extent(it, { x: 0, y: 1 }) * scale + 4;
       const seats = App.catalog.seats(it);
-      const text = booth || `${it.kind}${seats && it.kind !== '의자' ? ` ${seats.count}석` : ''}`;
+      let lines = [booth || `${it.kind}${seats && it.kind !== '의자' ? ` ${seats.count}석` : ''}`];
+      if (booth && it.boothNo && it.exhibitor) {
+        // 칸보다 글자가 길면 두 줄(번호 / 업체), 업체는 칸 폭에 맞게 줄임 (나란한 부스 이름이 겹치지 않게)
+        const a = ((it.rotation || 0) * Math.PI) / 180;
+        const wpx = (Math.abs(Math.cos(a)) * it.size + Math.abs(Math.sin(a)) * it.depth) * scale;
+        if (ctx.measureText(booth).width > wpx + 6) {
+          const max = Math.max(wpx + 6, 34);
+          let ex = it.exhibitor;
+          if (ctx.measureText(ex).width > max) {
+            while (ex.length > 1 && ctx.measureText(`${ex}…`).width > max) ex = ex.slice(0, -1);
+            ex += '…';
+          }
+          lines = [it.boothNo, ex];
+        }
+      }
       ctx.lineWidth = 3;
       ctx.strokeStyle = plan.colors.canvasBg;
-      ctx.strokeText(text, s.x, y);
       ctx.fillStyle = App.selection.has(it.id) ? plan.colors.accent : plan.colors.label || plan.colors.fg;
-      ctx.fillText(text, s.x, y);
+      lines.forEach((t, i) => {
+        ctx.strokeText(t, s.x, y + i * 13);
+        ctx.fillText(t, s.x, y + i * 13);
+      });
     });
   }
 
