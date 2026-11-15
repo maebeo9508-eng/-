@@ -225,6 +225,8 @@
     // 가장 긴 변의 방향을 줄 방향(u)으로
     let best = null;
     pts.forEach((p, i) => { const q = pts[(i + 1) % pts.length], L = Math.hypot(q.x - p.x, q.y - p.y); if (!best || L > best.L) best = { L, a: Math.atan2(q.y - p.y, q.x - p.x) }; });
+    // 점 순서와 상관없이 가장 긴 변이 아래(v 최소)에 오게: 영역 안쪽이 그 변의 +v 쪽이 되도록 방향을 정함
+    if (App.geom.signedArea(pts) < 0) best.a += Math.PI;
     const c = Math.cos(best.a), sn = Math.sin(best.a);
     const toL = (p) => ({ u: p.x * c + p.y * sn, v: -p.x * sn + p.y * c });
     const toW = (u, v) => ({ x: u * c - v * sn, y: u * sn + v * c });
@@ -239,21 +241,17 @@
       for (let i = 0; i + 1 < xs.length; i += 2) out.push([xs[i], xs[i + 1]]);
       return out;
     };
-    // 띠 [va, vb]가 통째로 들어가는 가장 긴 u 구간
+    // 띠 [va, vb]가 통째로 들어가는 u 구간들 (ㄷ자처럼 떨어진 곳은 따로), 띠 안의 꼭짓점 높이에서도 확인 (뾰족한 홈)
     const usable = (va, vb) => {
-      const lines = [va + 60, (va + vb) / 2, vb - 60].map(spans);
-      let bestI = null;
-      lines[0].forEach(([a, b]) => {
-        let lo = a, hi = b;
-        for (const ls of lines.slice(1)) {
-          const m = ls.filter(([x, y]) => y > lo && x < hi);
-          if (!m.length) { hi = lo; break; }
-          const k = m.reduce((t, s) => (s[1] - s[0] > t[1] - t[0] ? s : t));
-          lo = Math.max(lo, k[0]); hi = Math.min(hi, k[1]);
-        }
-        if (hi - lo > (bestI ? bestI[1] - bestI[0] : 0)) bestI = [lo, hi];
-      });
-      return bestI;
+      const vs = [va + 60, (va + vb) / 2, vb - 60, ...L.filter((p) => p.v > va && p.v < vb).flatMap((p) => [p.v - 1, p.v + 1])];
+      let cur = spans(vs[0]);
+      for (const v of vs.slice(1)) {
+        const ls = spans(v), next = [];
+        cur.forEach(([a, b]) => ls.forEach(([x, y]) => { const lo = Math.max(a, x), hi = Math.min(b, y); if (hi > lo) next.push([lo, hi]); }));
+        cur = next;
+        if (!cur.length) break;
+      }
+      return cur;
     };
     // 줄 놓기: 아래에서부터 [줄(앞이 위) · 통로 · 줄(앞이 아래)] 묶음을 맞붙여 반복, 남으면 한쪽만 있는 줄 + 통로
     const rows = [];
@@ -263,17 +261,17 @@
       if (v + D + A + D <= v1 - 300 + 1) { rows.push({ va: v + D + A, vb: v + D + A + D, face: -1 }); v += D + A + D; } else { v += D + A; break; }
     }
     const out = [];
-    rows.forEach((r) => {
-      const I = usable(r.va, r.vb);
-      if (!I) return;
-      let n = Math.floor((I[1] - I[0] - 200) / W);
-      let u = I[0] + (I[1] - I[0] - n * W) / 2;
-      while (n > 0) {
-        const k = Math.min(n, 100); // 한 물건은 100칸까지
-        const m = toW(u + (k * W) / 2, (r.va + r.vb) / 2);
-        out.push({ x: Math.round(m.x), y: Math.round(m.y), rotation: Math.round(((((best.a * 180) / Math.PI) + (r.face > 0 ? 0 : 180)) % 360 + 360) % 360 * 10) / 10, count: k, w: W, d: D });
-        u += k * W; n -= k;
-      }
+    rows.forEach((r, ri) => {
+      usable(r.va, r.vb).forEach((I) => {
+        let n = Math.floor((I[1] - I[0] - 200) / W);
+        let u = I[0] + (I[1] - I[0] - n * W) / 2;
+        while (n > 0) {
+          const k = Math.min(n, 100); // 한 물건은 100칸까지
+          const m = toW(u + (k * W) / 2, (r.va + r.vb) / 2);
+          out.push({ x: Math.round(m.x), y: Math.round(m.y), rotation: Math.round(((((best.a * 180) / Math.PI) + (r.face > 0 ? 0 : 180)) % 360 + 360) % 360 * 10) / 10, count: k, w: W, d: D, row: ri });
+          u += k * W; n -= k;
+        }
+      });
     });
     return out;
   }
@@ -290,7 +288,7 @@
       parkingOf(zoneId).forEach((e) => App.doc.remove(e.id));
       list.forEach((p) => {
         const it = T.item.create({ x: p.x, y: p.y }, def.category, def, p.rotation, null);
-        it.count = p.count; it.size = p.count * p.w; it.depth = p.d;
+        it.count = p.count; it.size = p.count * p.w; it.depth = p.d; it.stallW = p.w; // 칸 폭을 기억 (칸 수·폭을 고쳐도 그대로)
         it.parkingOf = zoneId;
         App.doc.add(it);
         ids.push(it.id);
@@ -317,8 +315,8 @@
       onOpen(body) {
         const show = () => {
           const o = { w: U.parseLength(body.querySelector('#pkW').value), d: U.parseLength(body.querySelector('#pkD').value), aisle: U.parseLength(body.querySelector('#pkA').value) };
-          const list = parkingPlan(z, o), n = list.reduce((t, p) => t + p.count, 0);
-          body.querySelector('.pk-count').textContent = n ? `주차 ${n}칸 (${list.length}줄)을 놓습니다${old ? ` · 전에 채운 ${old}칸은 바꿈` : ''}. 집계의 ‘주차’에 칸 수가 나옵니다.` : '영역이 좁아 칸이 들어가지 않습니다 (칸 길이 + 통로 폭보다 넓어야 함).';
+          const list = parkingPlan(z, o), n = list.reduce((t, p) => t + p.count, 0), rowsN = new Set(list.map((p) => p.row)).size;
+          body.querySelector('.pk-count').textContent = n ? `주차 ${n}칸 (${rowsN}줄)을 놓습니다${old ? ` · 전에 채운 ${old}칸은 바꿈` : ''}. 집계의 ‘주차’에 칸 수가 나옵니다.` : '영역이 좁아 칸이 들어가지 않습니다 (폭이 칸 길이 + 통로 폭 + 0.6m보다 넓어야 함).';
         };
         body.addEventListener('input', show);
         show();

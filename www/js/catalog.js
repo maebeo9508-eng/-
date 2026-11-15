@@ -257,7 +257,7 @@
     {
       kind: '주차 구획', cat: '건물·조경', size: 12500, depth: 5000, h3: 10, pass: true, flat: true,
       numbers: { count: N('칸 수', '칸', 5, 1, 100) },
-      resize: (it) => ({ size: it.count * 2500 }),
+      resize: (it) => ({ size: it.count * (it.stallW || 2500) }), // 주차 칸 채우기로 칸 폭을 바꿨으면 그 폭
     },
     { kind: '가로등', cat: '건물·조경', size: 300, depth: 300, h3: 5000 },
   ];
@@ -449,7 +449,7 @@
         const rows = Math.max(1, Math.round(mm / (it.gap || 900)));
         return catalog.resized(it, { rows, count: it.cols * rows });
       }
-      if (it.kind === '주차 구획' && axis === 'x') return catalog.resized(it, { count: Math.max(1, Math.round(mm / 2500)) });
+      if (it.kind === '주차 구획' && axis === 'x') return catalog.resized(it, { count: Math.max(1, Math.round(mm / (it.stallW || 2500))) });
       if (catalog.square(it)) return { size: v, depth: v };
       return axis === 'x' ? { size: v } : { depth: v };
     },
