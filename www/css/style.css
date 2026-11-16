@@ -234,6 +234,11 @@ button { font: inherit; color: inherit; }
   color: var(--fg-muted);
 }
 .menu-sep { height: 1px; margin: 6px 4px; background: var(--line); }
+/* 키가 작은 화면: 파일 메뉴가 한 화면에 다 들어가게 구분선·소제목 여백을 줄임 */
+@media (max-height: 900px) {
+  #fileMenu .menu-sep { margin: 3px 4px; }
+  #fileMenu .menu-label { padding-top: 5px; padding-bottom: 2px; }
+}
 
 /* ── 작업 영역 ──────────────────────────── */
 .workspace {
