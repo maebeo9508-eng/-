@@ -424,7 +424,7 @@
         cur.forEach(([a, b]) => { if (bu1 <= a || bu0 >= b) next.push([a, b]); else { if (bu0 > a) next.push([a, bu0]); if (bu1 < b) next.push([bu1, b]); } });
         cur = next;
       });
-      return cur.filter(([a, b]) => b - a >= seatW * 2);
+      return cur.filter(([a, b]) => b - a >= seatW * 4); // 한 블록은 4석 이상 (자투리 2석 블록이 생기지 않게)
     };
     // 띠마다 구간 → 앞 띠의 구간과 거의 같으면 같은 블록 (나란한 블록도 따로), perBlock 줄마다 가로 통로
     const blocks = [];
@@ -434,8 +434,12 @@
       const iv = free(v, v + gap);
       const next = [];
       iv.forEach((I) => {
-        const m = active.find((b) => { const lo = Math.max(b.I[0], I[0]), hi = Math.min(b.I[1], I[1]); return hi - lo >= (b.I[1] - b.I[0]) * 0.92; });
-        if (m && !next.includes(m)) { m.I = [Math.max(m.I[0], I[0]), Math.min(m.I[1], I[1])]; m.rows++; next.push(m); } else next.push({ I, va: v, rows: 1, row0: row });
+        // 이어지는 블록: 겹치는 블록이 하나뿐이고 폭이 거의 같을 때만 (파인 곳 뒤에서 다시 넓어지거나 두 블록에 걸치면 새 블록)
+        const touching = active.filter((b) => Math.min(b.I[1], I[1]) - Math.max(b.I[0], I[0]) > 0);
+        const m = touching.length === 1 ? touching[0] : null;
+        const W = (b) => b.I[1] - b.I[0];
+        const same = m && Math.min(m.I[1], I[1]) - Math.max(m.I[0], I[0]) >= W(m) * 0.92 && I[1] - I[0] <= W(m) * 1.15;
+        if (same && !next.includes(m)) { m.I = [Math.max(m.I[0], I[0]), Math.min(m.I[1], I[1])]; m.rows++; next.push(m); } else next.push({ I, va: v, rows: 1, row0: row });
       });
       active.filter((b) => !next.includes(b)).forEach((b) => blocks.push(b));
       active = next;
