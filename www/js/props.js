@@ -764,7 +764,7 @@
       <label class="menu-check seat-check"><input type="checkbox" id="f-seatNo" ${on ? 'checked' : ''}><span>평면에 좌석 번호 보이기 <small>A열이 무대 쪽 앞줄</small></span></label>
       <div class="field-grid">
         ${selectField('f-seatFrom', '번호 시작 (관객 기준)', [['left', '왼쪽부터'], ['right', '오른쪽부터']], commonText((e) => e.seatFrom || 'left'))}
-        <div class="field"><label class="field-label" for="f-seatRow0">첫 열 글자</label><div class="field-box"><input id="f-seatRow0" type="text" maxlength="1" autocomplete="off" value="${esc(commonText((e) => e.seatRow0 || 'A') || '')}"></div></div>
+        <div class="field"><label class="field-label" for="f-seatRow0">첫 열 글자</label><div class="field-box"><input id="f-seatRow0" type="text" maxlength="2" autocomplete="off" value="${esc(commonText((e) => e.seatRow0 || 'A') || '')}"></div></div>
         <div class="field"><label class="field-label" for="f-seatNum0">첫 번호</label><div class="field-box"><input id="f-seatNum0" type="text" inputmode="numeric" autocomplete="off" value="${esc(commonText((e) => String(e.seatNum0 || 1)) || '')}"></div></div>
       </div>
       <button type="button" class="btn" data-act="seat-csv">좌석표 CSV (모든 의자 배열)</button>`;
@@ -1299,8 +1299,8 @@
       if (id === 'f-seatFrom') { if (t.value) apply('좌석 번호 방향', () => ({ seatFrom: t.value })); return; }
       if (id === 'f-seatRow0') {
         const v = t.value.trim().toUpperCase();
-        if (/^[A-Z]$/.test(v)) apply('첫 열 글자', () => ({ seatRow0: v }));
-        else { App.ui.toast('첫 열 글자는 A~Z 한 글자로 넣으세요.'); refresh(); }
+        if (/^[A-Z]{1,2}$/.test(v)) apply('첫 열 글자', () => ({ seatRow0: v }));
+        else { App.ui.toast('첫 열 글자는 A~Z 또는 AA~ZZ로 넣으세요.'); refresh(); }
         return;
       }
       if (id === 'f-seatNum0') {

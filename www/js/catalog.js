@@ -551,7 +551,9 @@
       if (!it || it.kind !== '의자 배열') return [];
       const L = catalog.seatLayout(it);
       const rowName = (i) => (i < 26 ? String.fromCharCode(65 + i) : String.fromCharCode(64 + Math.floor(i / 26)) + String.fromCharCode(65 + (i % 26)));
-      const r0 = /^[A-Z]$/.test(String(it.seatRow0 || 'A').toUpperCase()) ? String(it.seatRow0 || 'A').toUpperCase().charCodeAt(0) - 65 : 0;
+      // 첫 열 글자: A~Z 또는 AA~ZZ (좌석 채우기에서 블록이 이어질 때 Z 다음은 AA)
+      const s0 = String(it.seatRow0 || 'A').toUpperCase();
+      const r0 = /^[A-Z]$/.test(s0) ? s0.charCodeAt(0) - 65 : /^[A-Z]{2}$/.test(s0) ? (s0.charCodeAt(0) - 64) * 26 + (s0.charCodeAt(1) - 65) : 0;
       const n0 = Number.isInteger(it.seatNum0) && it.seatNum0 > 0 ? it.seatNum0 : 1;
       const out = [];
       for (let r = L.rows - 1, k = 0; r >= 0; r--, k++) {

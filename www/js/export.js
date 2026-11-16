@@ -478,8 +478,9 @@
   const natural = (a, b) => String(a).localeCompare(String(b), 'ko', { numeric: true });
   /** 옆 칸에 넣을 묶음들: [{ title, rows: [[왼쪽, 오른쪽]] }] */
   function layoutSections(o = {}) {
-    const exclude = App.layers.excludeHidden();
-    const all = [...App.doc.all()].filter((e) => !exclude || App.layers.visible(e));
+    // 배치도는 도면에 보이는 것만 (숨긴 레이어는 도면에서도 빠지므로 목록도 같게)
+    const vis = (e) => App.layers.visible(e);
+    const all = [...App.doc.all()].filter(vis);
     const items = all.filter((e) => e.type === 'item');
     const n0 = (v) => Math.round(v).toLocaleString('ko-KR');
     const out = [];
@@ -487,10 +488,12 @@
       const count = (k) => items.filter((e) => e.kind === k).length;
       const r = App.safety ? App.safety.run() : null;
       const fac = [];
-      if (r && r.seats) fac.push(['좌석', `${n0(r.seats)}석`]);
+      const seats = items.reduce((t, it) => t + ((it.category === 'event' && App.catalog.seats(it)) || { count: 0 }).count, 0);
+      if (seats) fac.push(['좌석', `${n0(seats)}석`]);
       if (r && r.expected) fac.push([r.auto ? '수용 인원 (어림)' : '예상 인원', `${n0(r.expected)}명`]);
       [['이동식 화장실', '칸'], ['의무실 텐트', '곳'], ['구급차', '대'], ['소화기', '개'], ['안내 키오스크', '개'], ['데스크', '개']].forEach(([k, u]) => { const n = count(k); if (n) fac.push([k, `${n}${u}`]); });
-      if (r && r.data.exits.length) fac.push(['비상구', `${r.data.exits.length}곳`]);
+      const exits = r ? r.data.exits.filter((x) => x.routes.some(vis)).length : 0;
+      if (exits) fac.push(['비상구', `${exits}곳`]);
       const routes = all.filter((e) => e.type === 'route');
       if (routes.length) fac.push(['동선', `${routes.length}개`]);
       if (fac.length) out.push({ title: '주요 시설', rows: fac });
@@ -500,7 +503,7 @@
       const kinds = [...by.entries()].sort((a, b) => b[1] - a[1]).map(([k, n]) => [k, k === '주차 구획' ? `${n}칸` : k === '사람' ? `${n}명` : `${n}개`]);
       if (kinds.length) out.push({ title: '놓은 물건', rows: kinds });
       if (o.booths !== false && App.booths) {
-        const bs = App.booths.all().filter((e) => e.boothNo).sort((a, b) => natural(a.boothNo, b.boothNo));
+        const bs = App.booths.all().filter((e) => e.boothNo && vis(e)).sort((a, b) => natural(a.boothNo, b.boothNo));
         if (bs.length) out.push({ title: `부스 배정 (${bs.length}개)`, rows: bs.map((e) => [e.boothNo, e.exhibitor || '—']), dense: true });
       }
     } else {
@@ -551,15 +554,17 @@
       const sub = sec.dense && colW > 520 ? 2 : 1; // 부스 목록은 칸이 넓으면 두 줄씩
       const sw = (colW - (sub - 1) * 20) / sub;
       for (let i = 0; i < sec.rows.length; i += sub) {
-        if (y + LH > rect.y + rect.height) {
-          if (!nextCol()) {
-            ctx.font = `500 ${R}px ${f}`;
-            ctx.fillStyle = '#868e96';
-            ctx.fillText(`… 외 ${sec.rows.length - i}개`, x0, y - LH + 6);
-            return false;
-          }
-        }
+        if (y + LH > rect.y + rect.height && !nextCol()) return false;
         const xc = rect.x + col * (colW + colGap);
+        // 마지막 단의 마지막 줄인데 더 남았으면: 이 줄에 ‘… 외 N개’를 쓰고 끝
+        const lastRow = col === cols - 1 && y + 2 * LH > rect.y + rect.height;
+        if (lastRow && i + sub < sec.rows.length) {
+          ctx.font = `600 ${R}px ${f}`;
+          ctx.fillStyle = '#868e96';
+          ctx.textAlign = 'left';
+          ctx.fillText(`… 외 ${sec.rows.length - i}개`, xc, y);
+          return false;
+        }
         for (let k = 0; k < sub && i + k < sec.rows.length; k++) {
           const [l, r] = sec.rows[i + k], xs = xc + k * (sw + 20);
           ctx.font = `600 ${R}px ${f}`;
@@ -619,9 +624,10 @@
     scaleBar(ctx, box.x + 34, box.y + box.height - 30, scale, Math.round(Math.min(W, H) * 0.12), `600 26px ${f}`);
     northArrow(ctx, box.x + box.width - 60, box.y + 92, 70, `800 30px ${f}`);
     // 축척 (이 종이 크기로 인쇄했을 때)
+    // 인쇄 축척: 실제 비율을 유효 숫자 두 자리로 (자로 재도 맞게)
     const pxPerMm = DPI / 25.4, ratio = pxPerMm / scale;
-    const nice = [50, 100, 150, 200, 250, 300, 400, 500, 600, 750, 1000, 1250, 1500, 2000, 2500, 3000, 4000, 5000, 7500, 10000];
-    const N = nice.reduce((best, n) => (Math.abs(n - ratio) < Math.abs(best - ratio) ? n : best), nice[0]);
+    const mag = 10 ** Math.max(0, Math.floor(Math.log10(Math.max(1, ratio))) - 1);
+    const N = Math.max(1, Math.round(ratio / mag) * mag);
     // 표제란 (옆 칸 아래)
     const tb = { h: 250 };
     const tbRect = { x: side.x, y: side.y + side.height - tb.h, width: tall ? Math.min(side.width, 900) : side.width, height: tb.h };
