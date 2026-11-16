@@ -473,6 +473,231 @@
     }
   }
 
-  Object.assign(exporter, { exportPng, exportPdf, pdfDialog, pdfFromJpeg, pdfFromPages, planRect, drawPlan, scaleBar, jpegBytes });
+
+  /* ── 현장 배치도 (인쇄용 한 장): 큰 도면 + 방위표·축척 + 옆(또는 아래) 칸에 주요 시설·물건·부스 배정 + 표제란 ── */
+  const natural = (a, b) => String(a).localeCompare(String(b), 'ko', { numeric: true });
+  /** 옆 칸에 넣을 묶음들: [{ title, rows: [[왼쪽, 오른쪽]] }] */
+  function layoutSections(o = {}) {
+    const exclude = App.layers.excludeHidden();
+    const all = [...App.doc.all()].filter((e) => !exclude || App.layers.visible(e));
+    const items = all.filter((e) => e.type === 'item');
+    const n0 = (v) => Math.round(v).toLocaleString('ko-KR');
+    const out = [];
+    if (App.modes.is('event')) {
+      const count = (k) => items.filter((e) => e.kind === k).length;
+      const r = App.safety ? App.safety.run() : null;
+      const fac = [];
+      if (r && r.seats) fac.push(['좌석', `${n0(r.seats)}석`]);
+      if (r && r.expected) fac.push([r.auto ? '수용 인원 (어림)' : '예상 인원', `${n0(r.expected)}명`]);
+      [['이동식 화장실', '칸'], ['의무실 텐트', '곳'], ['구급차', '대'], ['소화기', '개'], ['안내 키오스크', '개'], ['데스크', '개']].forEach(([k, u]) => { const n = count(k); if (n) fac.push([k, `${n}${u}`]); });
+      if (r && r.data.exits.length) fac.push(['비상구', `${r.data.exits.length}곳`]);
+      const routes = all.filter((e) => e.type === 'route');
+      if (routes.length) fac.push(['동선', `${routes.length}개`]);
+      if (fac.length) out.push({ title: '주요 시설', rows: fac });
+      // 물건: 종류별 개수 (많은 것부터)
+      const by = new Map();
+      items.filter((e) => e.category === 'event').forEach((e) => { const k = e.kind === '사람' ? '사람' : e.kind; by.set(k, (by.get(k) || 0) + (e.kind === '사람' ? e.count || 1 : e.kind === '주차 구획' ? e.count || 1 : 1)); });
+      const kinds = [...by.entries()].sort((a, b) => b[1] - a[1]).map(([k, n]) => [k, k === '주차 구획' ? `${n}칸` : k === '사람' ? `${n}명` : `${n}개`]);
+      if (kinds.length) out.push({ title: '놓은 물건', rows: kinds });
+      if (o.booths !== false && App.booths) {
+        const bs = App.booths.all().filter((e) => e.boothNo).sort((a, b) => natural(a.boothNo, b.boothNo));
+        if (bs.length) out.push({ title: `부스 배정 (${bs.length}개)`, rows: bs.map((e) => [e.boothNo, e.exhibitor || '—']), dense: true });
+      }
+    } else {
+      const rooms = all.filter((e) => e.type === 'room' && !e.issue).map((r) => [r.name || '이름 없음', App.units.formatArea(App.model.TYPES.room.area ? App.model.TYPES.room.area(r) : App.measure.room(r).floor)]);
+      if (rooms.length) out.push({ title: `방 (${rooms.length}개)`, rows: rooms });
+      const cnt = (t) => all.filter((e) => e.type === t).length;
+      const misc = [['문', cnt('door')], ['창문', cnt('window')], ['기둥', cnt('column')], ['가구·설비', items.length]].filter(([, n]) => n).map(([k, n]) => [k, `${n}개`]);
+      if (misc.length) out.push({ title: '문·창문·설비', rows: misc });
+    }
+    return out;
+  }
+  /** 방위표 (위가 북쪽) */
+  function northArrow(ctx, x, y, size, font) {
+    ctx.save();
+    ctx.fillStyle = '#212529';
+    ctx.strokeStyle = '#212529';
+    ctx.lineWidth = Math.max(2, size / 22);
+    ctx.beginPath();
+    ctx.moveTo(x, y - size / 2); ctx.lineTo(x + size * 0.28, y + size / 2); ctx.lineTo(x, y + size * 0.28); ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(x, y - size / 2); ctx.lineTo(x - size * 0.28, y + size / 2); ctx.lineTo(x, y + size * 0.28); ctx.closePath();
+    ctx.stroke();
+    ctx.font = font;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText('N', x, y - size / 2 - size * 0.08);
+    ctx.restore();
+  }
+  /** 묶음들을 칸 rect 안에 단으로 흘려 씀. 다 못 넣으면 끝에 ‘… 외 N개’ */
+  function drawSections(ctx, rect, sections, f, cols = 1) {
+    const T = 30, R = 24, LH = 36, gapS = 26, colGap = 30;
+    const colW = (rect.width - colGap * (cols - 1)) / cols;
+    let col = 0, y = rect.y;
+    const fit = (t, max) => { if (ctx.measureText(t).width <= max) return t; let s = t; while (s.length > 1 && ctx.measureText(`${s}…`).width > max) s = s.slice(0, -1); return `${s}…`; };
+    const nextCol = () => { col++; y = rect.y; return col < cols; };
+    for (const sec of sections) {
+      if (y + T + LH > rect.y + rect.height && !nextCol()) return false;
+      const x0 = rect.x + col * (colW + colGap);
+      ctx.fillStyle = '#c54b08';
+      ctx.fillRect(x0, y, 36, 5);
+      ctx.fillStyle = '#212529';
+      ctx.font = `800 ${T}px ${f}`;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillText(sec.title, x0, y + 12);
+      y += T + 26;
+      const sub = sec.dense && colW > 520 ? 2 : 1; // 부스 목록은 칸이 넓으면 두 줄씩
+      const sw = (colW - (sub - 1) * 20) / sub;
+      for (let i = 0; i < sec.rows.length; i += sub) {
+        if (y + LH > rect.y + rect.height) {
+          if (!nextCol()) {
+            ctx.font = `500 ${R}px ${f}`;
+            ctx.fillStyle = '#868e96';
+            ctx.fillText(`… 외 ${sec.rows.length - i}개`, x0, y - LH + 6);
+            return false;
+          }
+        }
+        const xc = rect.x + col * (colW + colGap);
+        for (let k = 0; k < sub && i + k < sec.rows.length; k++) {
+          const [l, r] = sec.rows[i + k], xs = xc + k * (sw + 20);
+          ctx.font = `600 ${R}px ${f}`;
+          ctx.fillStyle = '#343a40';
+          ctx.textAlign = 'left';
+          const lw = Math.min(ctx.measureText(l).width, sw * 0.6);
+          ctx.fillText(fit(l, sw * 0.6), xs, y);
+          ctx.font = `500 ${R}px ${f}`;
+          ctx.fillStyle = '#495057';
+          ctx.textAlign = 'right';
+          ctx.fillText(fit(r, sw - lw - 16), xs + sw, y);
+        }
+        ctx.strokeStyle = '#eef0f2';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(xc, y + LH - 7); ctx.lineTo(xc + colW, y + LH - 7); ctx.stroke();
+        y += LH;
+      }
+      y += gapS;
+    }
+    return true;
+  }
+  /** 현장 배치도 PDF. o: { paper: 'A4'|'A3', booths } */
+  function layoutPdf(o = {}) {
+    const paper = o.paper === 'A4' ? 'A4' : 'A3';
+    const rect = planRect();
+    if (!rect) { App.ui.toast('그린 것이 없습니다.'); return false; }
+    const tall = rect.maxY - rect.minY > (rect.maxX - rect.minX) * 1.15;
+    const [a, b] = PAPER[paper];
+    const [mmW, mmH] = tall ? [b, a] : [a, b];
+    const W = Math.round((mmW / 25.4) * DPI), H = Math.round((mmH / 25.4) * DPI);
+    const canvas = document.createElement('canvas');
+    canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext('2d');
+    const f = FONT();
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, W, H);
+    const m = Math.round(Math.min(W, H) * 0.035);
+    // 머리글
+    ctx.fillStyle = '#c54b08';
+    ctx.fillRect(m, m, 70, 9);
+    ctx.fillStyle = '#c54b08';
+    ctx.font = `800 30px ${f}`;
+    ctx.textBaseline = 'top';
+    ctx.textAlign = 'left';
+    ctx.fillText(App.modes.is('event') ? '현장 배치도' : '평면 배치도', m, m + 22);
+    ctx.fillStyle = '#212529';
+    ctx.font = `800 58px ${f}`;
+    ctx.fillText(projectName(), m, m + 62);
+    const top = m + 150;
+    // 도면 칸과 옆(아래) 칸
+    const side = tall ? { x: m, y: Math.round(H * 0.72), width: W - 2 * m, height: H - m - Math.round(H * 0.72) } : { x: Math.round(W * 0.72), y: top, width: W - m - Math.round(W * 0.72), height: H - m - top };
+    const box = tall ? { x: m, y: top, width: W - 2 * m, height: side.y - top - 30 } : { x: m, y: top, width: side.x - m - 34, height: H - m - top };
+    ctx.strokeStyle = '#ced4da';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(box.x, box.y, box.width, box.height);
+    const scale = drawPlan(ctx, { x: box.x + 24, y: box.y + 24, width: box.width - 48, height: box.height - 100 }, rect, 2.6);
+    scaleBar(ctx, box.x + 34, box.y + box.height - 30, scale, Math.round(Math.min(W, H) * 0.12), `600 26px ${f}`);
+    northArrow(ctx, box.x + box.width - 60, box.y + 92, 70, `800 30px ${f}`);
+    // 축척 (이 종이 크기로 인쇄했을 때)
+    const pxPerMm = DPI / 25.4, ratio = pxPerMm / scale;
+    const nice = [50, 100, 150, 200, 250, 300, 400, 500, 600, 750, 1000, 1250, 1500, 2000, 2500, 3000, 4000, 5000, 7500, 10000];
+    const N = nice.reduce((best, n) => (Math.abs(n - ratio) < Math.abs(best - ratio) ? n : best), nice[0]);
+    // 표제란 (옆 칸 아래)
+    const tb = { h: 250 };
+    const tbRect = { x: side.x, y: side.y + side.height - tb.h, width: tall ? Math.min(side.width, 900) : side.width, height: tb.h };
+    if (tall) tbRect.x = side.x + side.width - tbRect.width;
+    ctx.strokeStyle = '#495057';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(tbRect.x, tbRect.y, tbRect.width, tbRect.height);
+    const co = App.estimate ? App.estimate.company() : {};
+    const rowsTB = [['행사·현장', projectName()], ['날짜', new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' })], ['축척', `약 1:${N.toLocaleString('ko-KR')} (${paper} ${tall ? '세로' : '가로'} 인쇄)`], ['작성', co && co.name ? `${co.name}${co.phone ? ` · ${co.phone}` : ''}` : '현장도면']];
+    const rh = tb.h / rowsTB.length;
+    rowsTB.forEach(([k, v], i) => {
+      const y = tbRect.y + i * rh;
+      if (i) { ctx.strokeStyle = '#ced4da'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(tbRect.x, y); ctx.lineTo(tbRect.x + tbRect.width, y); ctx.stroke(); }
+      ctx.fillStyle = '#868e96';
+      ctx.font = `600 22px ${f}`;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(k, tbRect.x + 18, y + rh / 2);
+      ctx.fillStyle = '#212529';
+      ctx.font = `700 24px ${f}`;
+      let t = String(v);
+      const max = tbRect.width - 180;
+      while (t.length > 1 && ctx.measureText(t).width > max) t = t.slice(0, -1);
+      ctx.fillText(t === String(v) ? t : `${t}…`, tbRect.x + 150, y + rh / 2);
+    });
+    // 묶음들
+    const secRect = tall ? { x: side.x, y: side.y, width: side.width - tbRect.width - 40, height: side.height } : { x: side.x, y: side.y, width: side.width, height: side.height - tb.h - 34 };
+    const sections = layoutSections(o);
+    const done = sections.length ? drawSections(ctx, secRect, sections, f, tall ? 2 : 1) : true;
+    if (!done && App.modes.is('event')) {
+      ctx.fillStyle = '#868e96';
+      ctx.font = `500 20px ${f}`;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'alphabetic';
+      ctx.fillText('전체 목록은 집계표 CSV·부스 배정표 CSV에 있습니다.', secRect.x, secRect.y + secRect.height + 24);
+    }
+    const jpeg = jpegBytes(canvas, 0.92);
+    const pt = (mm) => (mm / 25.4) * 72;
+    const blob = pdfFromJpeg(jpeg, W, H, pt(mmW), pt(mmH));
+    const name = `${safeName(projectName())}_배치도_${exporter.stamp()}.pdf`;
+    exporter.saved(exporter.download(name, blob, 'application/pdf'), `‘${name}’을 저장했습니다. (${paper} ${tall ? '세로' : '가로'}, 약 1:${N.toLocaleString('ko-KR')})`);
+    return { name, paper, tall, scale: N, sections: sections.map((x) => x.title), done, blob, W, H };
+  }
+  async function layoutDialog() {
+    let paper = 'A3';
+    const hasBooths = App.modes.is('event') && App.booths && App.booths.all().some((e) => e.boothNo);
+    const r = await App.ui.dialog({
+      title: App.modes.is('event') ? '현장 배치도 (PDF)' : '평면 배치도 (PDF)',
+      html: `
+        <p>현장에 붙이거나 나눠 줄 배치도를 종이 한 장에 담습니다: 큰 도면(방위표·축척), ${App.modes.is('event') ? '주요 시설·놓은 물건·부스 배정' : '방 목록·문·창문'}, 표제란. 도면이 세로로 길면 세로로 놓습니다.</p>
+        <div class="seg-inline" role="radiogroup" aria-label="종이 크기">
+          <button type="button" class="seg-btn" role="radio" data-paper="A3" aria-checked="true">A3 (현장 게시용)</button>
+          <button type="button" class="seg-btn" role="radio" data-paper="A4" aria-checked="false">A4</button>
+        </div>
+        ${hasBooths ? '<label class="check-row"><input type="checkbox" id="lyBooths" checked><span>부스 배정 목록 넣기<small>번호·업체 (길면 일부만, 전체는 배정표 CSV)</small></span></label>' : ''}
+        <p class="props-meta">표제란의 ‘작성’에는 견적서의 우리 회사 정보가 들어갑니다. 숨긴 레이어는 빠집니다.</p>`,
+      actions: [{ id: 'cancel', label: '취소' }, { id: 'ok', label: 'PDF 만들기', primary: true }],
+      onOpen(body) {
+        body.addEventListener('click', (e) => {
+          const b = e.target.closest('[data-paper]');
+          if (!b) return;
+          paper = b.dataset.paper;
+          body.querySelectorAll('[data-paper]').forEach((x) => x.setAttribute('aria-checked', String(x === b)));
+        });
+      },
+    });
+    if (r.id !== 'ok') return false;
+    const booths = !r.body.querySelector('#lyBooths') || r.body.querySelector('#lyBooths').checked;
+    App.ui.busy('배치도를 만드는 중…');
+    await new Promise((res) => setTimeout(res, 30));
+    try {
+      return layoutPdf({ paper, booths });
+    } finally {
+      App.ui.busy(false);
+    }
+  }
+  Object.assign(exporter, { exportPng, exportPdf, pdfDialog, pdfFromJpeg, pdfFromPages, planRect, drawPlan, scaleBar, jpegBytes, layoutPdf, layoutDialog, layoutSections });
   App.exporter = exporter;
 })();

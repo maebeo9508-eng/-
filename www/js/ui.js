@@ -217,6 +217,7 @@
     item('#menuCsv', () => App.summary.exportCsv());
     item('#menuPng', () => App.exporter.exportPng());
     item('#menuPdf', () => App.exporter.pdfDialog());
+    item('#menuLayout', () => App.exporter.layoutDialog());
     // 견적서: 집계 탭의 '견적' 보기를 열고, 단가를 하나라도 넣었으면 바로 PDF로
     item('#menuEstimate', () => openEstimate());
     item('#menuProposal', () => App.proposal.open());
