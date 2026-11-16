@@ -378,8 +378,8 @@
     if (!pts.length) return null;
     const site = { minX: Math.min(...pts.map((p) => p.x)), maxX: Math.max(...pts.map((p) => p.x)), minY: Math.min(...pts.map((p) => p.y)), maxY: Math.max(...pts.map((p) => p.y)) };
     const siteArea = (site.maxX - site.minX) * (site.maxY - site.minY);
-    // 관람 구역: 현장 거의 전체를 덮는 것(장터 전체 같은)은 피하지 않음
-    const crowd = zones.filter((z) => z.crowd && App.model.TYPES.zone.area(z) < siteArea * 0.6);
+    // 관람 구역: 현장 거의 전체를 덮는 것(장터 전체 같은)은 피하지 않음 — 넓은 관람 구역(부지의 60~70%)은 피함
+    const crowd = zones.filter((z) => z.crowd && App.model.TYPES.zone.area(z) < siteArea * 0.85);
     const m = 600; // 둘레 여유 (사람이 지나갈 틈)
     const takenShapes = taken.map((b) => [{ x: b.minX, y: b.minY }, { x: b.maxX, y: b.minY }, { x: b.maxX, y: b.maxY }, { x: b.minX, y: b.maxY }]);
     const wallShapes = walls.map((wl) => {

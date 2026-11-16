@@ -464,18 +464,20 @@
       });
     });
 
-    // 주차장: 오른쪽에 따로 (칸 수에 맞는 넓이)
+    // 주차장: 오른쪽에 따로 (칸 수에 맞는 넓이 — 칸이 많으면 부지보다 길게, 가로로 늘려 맞춤)
     if (o.parking > 0) {
       let lot = null, lw = 20000;
+      const lh = clamp(Math.ceil(Math.sqrt(o.parking * 28e6) / 1000) * 1000, D, 160000); // 한 칸에 통로까지 28㎡쯤
       const count = () => App.parking.plan(doc.get(lot.id)).reduce((t, p) => t + p.count, 0);
       doc.transact('자동 배치: 주차장', () => {
-        lot = zoneOf(W + 8000, 0, W + 8000 + lw, D, '주차장', 'asphalt', '#5b5f66');
-        for (let i = 0; i < 80 && count() < o.parking; i++) {
+        lot = zoneOf(W + 8000, 0, W + 8000 + lw, lh, '주차장', 'asphalt', '#5b5f66');
+        for (let i = 0; i < 100 && count() < o.parking; i++) {
           lw += 2500;
-          doc.update(lot.id, { points: rect(W + 8000, 0, W + 8000 + lw, D) });
+          doc.update(lot.id, { points: rect(W + 8000, 0, W + 8000 + lw, lh) });
         }
       });
       stats.parking = App.parking.fill(lot.id).reduce((t, id) => t + (doc.get(id).count || 0), 0);
+      if (stats.parking < o.parking) stats.notes.push(`주차는 ${stats.parking}칸까지 만들었습니다`);
     }
     last = stats;
     return stats;

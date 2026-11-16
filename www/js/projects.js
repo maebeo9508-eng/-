@@ -1045,7 +1045,7 @@
       await new Promise((res) => setTimeout(res, 30));
       let ok = false;
       try { ok = await create(name, 'auto', params); } catch (err) { console.error(err); App.ui.toast('자동 배치를 만들지 못했습니다. 크기나 인원을 바꿔 다시 해 보세요.'); } finally { App.ui.busy(false); }
-      if (ok) App.ui.toast(`‘${name}’을 배치했습니다: ${App.wizard.summary()}. 집계의 ‘안전 점검’도 확인하세요.`);
+      if (ok) App.ui.toast(`‘${name}’ 도면을 배치했습니다: ${App.wizard.summary()}. 집계의 ‘안전 점검’도 확인하세요.`);
       return;
     }
     if (!(await create(name, pick))) return;
