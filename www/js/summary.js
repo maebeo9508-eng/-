@@ -64,15 +64,17 @@
   }
 
   /** 도면 전체를 세어 기록 목록으로: { sec, group, key, room(id 또는 null), qty } */
-  function compute() {
-    // 설정에 따라 숨긴 레이어의 것은 집계에서 뺌
-    const exclude = App.layers.excludeHidden();
+  function compute(o = {}) {
+    // 설정에 따라 숨긴 레이어의 것은 집계에서 뺌 (o.visibleOnly: 설정과 상관없이 보이는 것만 — 도면과 같이 인쇄하는 목록)
+    const exclude = !!o.visibleOnly || App.layers.excludeHidden();
     const all = [...App.doc.all()].filter((e) => !exclude || App.layers.visible(e));
     const of = (t) => all.filter((e) => e.type === t);
     const M = App.measure;
     const rooms = of('room').map((r) => ({ id: r.id, name: r.name || '이름 없음', issue: r.issue, points: r.points, box: bbox(r.points), q: M.room(r), el: r }));
     const records = [];
-    const add = (sec, group, key, room, qty, zone = null) => { if (qty > 0) records.push({ sec, group, key, room: room || null, zone, qty }); };
+    // 숨겨서 집계에서 뺀 방(건축 레이어)의 것은 ‘방 밖’으로 (방 묶음이 없는데 방 번호만 남으면 어느 보기에도 안 나옴)
+    const roomIds = new Set(rooms.map((r) => r.id));
+    const add = (sec, group, key, room, qty, zone = null) => { if (qty > 0) records.push({ sec, group, key, room: room && roomIds.has(room) ? room : null, zone, qty }); };
     // 구역 (조감도 모드): 물건이 놓인 가장 작은 영역 — ‘구역별’ 보기와 설치 체크리스트에 씀
     const event = App.modes.is('event');
     const zones = of('zone').filter((z) => z.points && z.points.length >= 3).map((z) => ({ id: z.id, name: z.name || '이름 없는 영역', area: App.model.TYPES.zone.area(z), surface: App.catalog.surfaceName(z), crowd: !!z.crowd, points: z.points, box: bbox(z.points), mid: App.geom.interiorPoint(z.points) }));
@@ -399,9 +401,10 @@
 
   /** 설치 체크리스트의 묶음: ‘구역별’(인테리어는 ‘방별’)과 같은 나눔으로, 놓거나 다는 것만 (좌석·사람·주차 칸 수 같은 딸린 수는 뺌).
       묶음 안에서는 분류(구조물·장비·편의·안전 …, 문·전기·설비 …) 순서로.
+      o.visibleOnly: 숨긴 레이어를 늘 뺌 (배치도에 붙일 때 — 도면에 안 보이는 것은 목록에도 없게).
       돌려주는 값: [{ title, sub, rows: [{ label, text, cat }] }] */
-  function checklist() {
-    const s = compute();
+  function checklist(o = {}) {
+    const s = compute(o);
     const event = App.modes.is('event');
     const secs = sections().filter((x) => !['seat', 'people', 'parking'].includes(x.id));
     const CATS = App.catalog.EVENT_CATS;
@@ -486,7 +489,7 @@
     const blocks = cost ? [] : BUILD[view](s);
     const scroll = pane.scrollTop;
     const bar = `
-      <div class="sum-bar${cost || view === 'room' ? ' is-two' : ''}">
+      <div class="sum-bar${cost ? ' is-two is-cost' : view === 'room' ? ' is-two' : ''}">
         <div class="sum-views" role="tablist" aria-label="집계 보기">
           ${views().map(([id, label]) => `<button type="button" class="seg-btn" role="tab" data-view="${id}" aria-selected="${id === view}">${label}</button>`).join('')}
         </div>

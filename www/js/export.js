@@ -587,10 +587,11 @@
     return true;
   }
   /* ── 설치 체크리스트 (A4 세로, 여러 쪽): 구역(방)마다 품목·수량과 반입·설치·점검·철거 확인 칸, 끝에 행사 전 안전 확인.
-     묶음은 집계의 ‘구역별’(인테리어 모드는 ‘방별’)과 같음. 돌려주는 값: [{ jpeg, w, h, pw, ph }] (없으면 빈 목록) ── */
+     묶음은 집계의 ‘구역별’(인테리어 모드는 ‘방별’)과 같음. o.visibleOnly: 숨긴 레이어를 늘 뺌 (배치도에 붙일 때).
+     돌려주는 값: [{ jpeg, w, h, pw, ph }] (없으면 빈 목록) ── */
   const CHECK_STEPS = ['반입', '설치', '점검', '철거'];
-  function checklistPages() {
-    const groups = App.summary.checklist();
+  function checklistPages(o = {}) {
+    const groups = App.summary.checklist(o);
     if (!groups.length) return [];
     const event = App.modes.is('event');
     const [mmW, mmH] = [PAPER.A4[1], PAPER.A4[0]]; // 세로
@@ -599,7 +600,7 @@
     // 칸: 품목 | 수량 | 반입·설치·점검·철거 | 비고
     const noteW = 250, stepW = 98, qtyW = 150;
     const xNote = x1 - noteW, xStep = xNote - stepW * CHECK_STEPS.length, xQty = xStep - qtyW;
-    const pages = [];
+    const pages = [], heads = []; // heads: 쪽마다 그린 묶음 제목 (시험·확인용)
     let ctx = null, y = 0;
     const fit = (t, max) => { if (ctx.measureText(t).width <= max) return t; let s = String(t); while (s.length > 1 && ctx.measureText(`${s}…`).width > max) s = s.slice(0, -1); return `${s}…`; };
     const bottom = H - m - 70; // 아래는 쪽 번호·담당 칸
@@ -633,6 +634,7 @@
         y = m + 86;
       }
       pages.push(canvas);
+      heads.push([]);
     };
     const line = (yy, color = '#dee2e6', w = 1.5) => { ctx.strokeStyle = color; ctx.lineWidth = w; ctx.beginPath(); ctx.moveTo(x0, yy); ctx.lineTo(x1, yy); ctx.stroke(); };
     const box = (cx, cy, s = 28) => { ctx.strokeStyle = '#495057'; ctx.lineWidth = 2.5; ctx.strokeRect(Math.round(cx - s / 2), Math.round(cy - s / 2), s, s); };
@@ -643,6 +645,7 @@
       ctx.textAlign = 'left';
       ctx.textBaseline = 'top';
       const title = fit(`${g.title}${again ? ' (이어서)' : ''}`, x1 - x0 - 20);
+      heads[heads.length - 1].push(`${g.title}${again ? ' (이어서)' : ''}`);
       ctx.fillText(title, x0, y);
       if (g.sub && !again) {
         const tw = ctx.measureText(title).width;
@@ -662,8 +665,8 @@
     };
     newPage();
     groups.forEach((g) => {
-      // 제목·표 머리·첫 줄이 한 쪽에 같이 있게
-      if (y + 48 + RH * 2 > bottom) newPage();
+      // 제목·표 머리·(분류 줄)·첫 줄이 한 쪽에 같이 있게
+      if (y + 48 + (RH - 6) + (g.rows[0] && g.rows[0].cat ? 34 : 0) + RH > bottom) newPage();
       heading(g, false);
       let cat = null;
       g.rows.forEach((r) => {
@@ -698,7 +701,7 @@
     const checks = event && App.safety ? App.safety.run().checks.filter((c) => c.id !== 'expected') : [];
     if (checks.length) {
       const g = { title: '행사 전 안전 확인', sub: '안전 점검의 어림값 · 현장에서 다시 확인', cols: [['항목', x0 + 12, 'left'], ['내용', x0 + 250, 'left'], ['확인', x1 - 50, 'center']] };
-      if (y + 48 + RH * 2 > bottom) newPage();
+      if (y + 48 + (RH - 6) + RH + 26 > bottom) newPage(); // 첫 줄이 두 줄짜리여도 제목과 같은 쪽에
       heading(g, false);
       checks.forEach((c) => {
         // 내용은 두 줄까지
@@ -735,7 +738,7 @@
       c.fillText(`${i + 1} / ${pages.length}`, x1, H - m);
     });
     const pt = (mm) => (mm / 25.4) * 72;
-    return pages.map((canvas) => ({ jpeg: jpegBytes(canvas, 0.9), w: W, h: H, pw: pt(mmW), ph: pt(mmH) }));
+    return pages.map((canvas, i) => ({ jpeg: jpegBytes(canvas, 0.9), w: W, h: H, pw: pt(mmW), ph: pt(mmH), groups: heads[i] }));
   }
   /** 설치 체크리스트만 PDF로 */
   function checklistPdf() {
@@ -828,7 +831,7 @@
     const jpeg = jpegBytes(canvas, 0.92);
     const pt = (mm) => (mm / 25.4) * 72;
     // 설치 체크리스트 쪽(A4 세로)을 뒤에 붙임
-    const extra = o.checklist ? checklistPages() : [];
+    const extra = o.checklist ? checklistPages({ visibleOnly: true }) : []; // 도면처럼 보이는 것만
     const blob = pdfFromPages([{ jpeg, w: W, h: H }, ...extra], pt(mmW), pt(mmH));
     const name = `${safeName(projectName())}_배치도_${exporter.stamp()}.pdf`;
     exporter.saved(exporter.download(name, blob, 'application/pdf'), `‘${name}’을 저장했습니다. (${paper} ${tall ? '세로' : '가로'}, 약 1:${N.toLocaleString('ko-KR')}${extra.length ? ` · 설치 체크리스트 ${extra.length}쪽` : ''})`);
@@ -837,7 +840,7 @@
   async function layoutDialog() {
     let paper = 'A3';
     const hasBooths = App.modes.is('event') && App.booths && App.booths.all().some((e) => e.boothNo);
-    const hasItems = App.summary.checklist().length > 0;
+    const hasItems = App.summary.checklist({ visibleOnly: true }).length > 0;
     const r = await App.ui.dialog({
       title: App.modes.is('event') ? '현장 배치도 (PDF)' : '평면 배치도 (PDF)',
       html: `

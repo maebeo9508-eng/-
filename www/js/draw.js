@@ -1536,6 +1536,19 @@
     });
   }
 
+  /** 영역 id → 더 작은 다른 영역을 품었는지. 보이는 레이어의 모든 영역으로 셈 (화면 밖으로 나간 안쪽 영역도 — 화면을 옮겨도 이름표 자리가 그대로이게) */
+  let zoneNest = { key: '', map: new Map() };
+  function nestedZones() {
+    const key = `${App.doc.version}|${(App.current.hiddenLayers || []).join(',')}`;
+    if (zoneNest.key === key) return zoneNest.map;
+    const Z = App.model.TYPES.zone;
+    const all = [...App.doc.all()].filter((e) => e.type === 'zone' && e.points && e.points.length >= 3 && App.layers.visible(e))
+      .map((z) => ({ z, area: Z.area(z), center: G.interiorPoint(z.points) })).sort((a, b) => a.area - b.area);
+    const map = new Map();
+    all.forEach((o, i) => map.set(o.z.id, all.slice(0, i).some((x) => G.pointInPolygon(x.center, o.z.points))));
+    zoneNest = { key, map };
+    return map;
+  }
   function drawZoneLabels(plan, zones) {
     const ctx = plan.ctx, Z = App.model.TYPES.zone;
     ctx.textAlign = 'center';
@@ -1544,15 +1557,16 @@
     const placed = [];
     const hit = (b) => placed.some((p) => b.x0 < p.x1 && b.x1 > p.x0 && b.y0 < p.y1 && b.y1 > p.y0);
     const list = zones.map((z) => ({ z, area: Z.area(z), center: G.interiorPoint(z.points) })).sort((a, b) => a.area - b.area);
-    list.forEach(({ z, area, center }, i) => {
+    const nest = nestedZones();
+    list.forEach(({ z, area, center }) => {
       const b = Z.bounds(z);
       if ((b.maxX - b.minX) * plan.view.scale < 50 || (b.maxY - b.minY) * plan.view.scale < 36) return;
       const lines = [[z.name, ROOM_NAME_FONT, -9], [App.units.formatArea(area), ROOM_AREA_FONT, 9]];
       const w = Math.max(...lines.map(([text, font]) => { ctx.font = font; return ctx.measureText(text).width; }));
       const boxAt = (q) => ({ x0: q.x - w / 2 - 4, x1: q.x + w / 2 + 4, y0: q.y - 18, y1: q.y + 18 });
       let s = plan.view.toScreen(center.x, center.y);
-      // 품은 영역이 있는지는 화면 배율과 상관없이 (작아서 이름표를 안 쓴 영역도 셈: 확대·축소 때 자리가 바뀌지 않게)
-      const nested = list.slice(0, i).some((o) => G.pointInPolygon(o.center, z.points));
+      // 품은 영역이 있는지는 화면과 상관없이 (작아서 이름표를 안 쓴 영역, 화면 밖 영역도 셈: 확대·이동 때 자리가 바뀌지 않게)
+      const nested = nest.get(z.id);
       if (nested || hit(boxAt(s))) {
         const mid = (b.minX + b.maxX) / 2;
         const alt = [[b.minY, 24], [b.maxY, -24]].map(([y, dy]) => { const q = plan.view.toScreen(mid, y); return { x: q.x, y: q.y + dy }; })

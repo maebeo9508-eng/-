@@ -68,24 +68,36 @@
       const plan = (pairs) => {
         const sg = sgFor(pairs), aisle = Math.max(6000, sg), rp = rowPairs(m + 4000, aisle);
         const rows = share(rp.rows, xs, o.booths);
-        return { pairs, sg, aisle, rp, rows, usedAisles: rp.aisles.filter((_, k) => rows.length >= 2 * k + 2) };
+        const usedAisles = rp.aisles.filter((_, k) => rows.length >= 2 * k + 2);
+        // 양옆 비상구를 낼 수 있는 높이(가운데 선) 구간: 쓰인 줄 사이 길, 마지막 줄 아래(줄이 없으면 부지 전체)의 빈 곳
+        const free = usedAisles.map((a) => [a - (aisle - sg) / 2, a + (aisle - sg) / 2]);
+        const lo = (rows.length ? rows[rows.length - 1].y + 1500 + 500 : m + 2000) + sg / 2, hi = bandTop - sg / 2 - 500;
+        if (hi >= lo) free.push([lo, hi]);
+        /** target에 가장 가까운 가능한 높이 (avoid가 있으면 그 비상구와 폭 + 2m 넘게 떨어져서) */
+        const pick = (target, avoid = null) => {
+          let best = null;
+          free.forEach(([a, b]) => [target, ...(avoid == null ? [] : [avoid - sg - 2000, avoid + sg + 2000])].forEach((t) => {
+            const c = clamp(t, a, b);
+            if (avoid != null && Math.abs(c - avoid) < sg + 2000 - 1) return;
+            if (best == null || Math.abs(c - target) < Math.abs(best - target)) best = c;
+          }));
+          return best;
+        };
+        let eys = null;
+        if (pairs === 2) { const a = pick(D / 3), b = a == null ? null : pick((D * 2) / 3, a); if (b != null) eys = [a, b].sort((p, q) => p - q); } else {
+          const a = pick(D / 2);
+          eys = [a != null ? a : clamp(D / 2, m + 6000, Math.max(m + 6000, bandTop - sg / 2 - 500))];
+        }
+        return { pairs, sg, aisle, rp, rows, usedAisles, eys: eys && eys.map((v) => Math.round(v)) }; // 정수 mm (소수가 남으면 아래 자리 셈이 어긋남)
       };
       let P = plan(wantPairs);
-      if (P.pairs === 2 && P.usedAisles.length < 2) P = plan(1);
-      const { sg, aisle, rows, usedAisles } = P;
-      const closest = (list, y) => list.reduce((best, a) => (Math.abs(a - y) < Math.abs(best - y) ? a : best), list[0]);
-      let eys;
-      if (P.pairs === 2) {
-        const a = closest(usedAisles, D / 3), b = closest(usedAisles.filter((v) => v !== a), (D * 2) / 3);
-        eys = [a, b].sort((p, q) => p - q);
-      } else if (usedAisles.length) eys = [closest(usedAisles, D / 2)];
-      else if (rows.length) eys = [Math.min(bandTop - sg / 2 - 500, rows[0].y + 1500 + aisle / 2)]; // 한 줄뿐: 그 줄 앞 길
-      else eys = [clamp(D / 2, m + 6000, bandTop - sg / 2 - 500)];
-      const firstAisle = usedAisles.length ? usedAisles[0] : rows.length ? eys[0] : D * 0.4;
+      if (!P.eys) P = plan(1); // 둘씩 낼 자리가 없으면 하나씩
+      const { sg, aisle, rows, usedAisles, eys } = P;
+      const firstAisle = usedAisles.length ? usedAisles[0] : rows.length ? Math.min(bandTop - 1000, rows[0].y + 1500 + aisle / 2) : D * 0.4;
       // 푸드트럭: 오른쪽 가장자리에 세로로 (판매 창이 장터 쪽), 비상구 앞은 비움
       for (let y = m + 5500; y + 3000 <= bandTop;) {
         const e = eys.find((v) => Math.abs(y - v) < sg / 2 + 3600);
-        if (e != null) { y = e + sg / 2 + 3600; continue; }
+        if (e != null) { y = Math.max(y + 100, e + sg / 2 + 3600); continue; } // 비상구 아래로 건너뜀 (늘 앞으로 가게)
         L.truckSlots.push({ x: W - m - 1600, y, rot: 90 });
         y += 7000;
       }
@@ -93,7 +105,7 @@
       const tables = [];
       if (rest) for (let y = m + 5000; y + 1500 <= bandTop - 1000 && tables.length < 10; y += 3600) if (!eys.some((e) => Math.abs(y - e) < sg / 2 + 2000)) tables.push({ x: m + 4250, y });
       Object.assign(L, {
-        sg, pairs: P.pairs, eys: eys.map(round), rest, bx0, bx1, xs, rows, aisle, firstAisle: round(firstAisle), tables,
+        sg, pairs: P.pairs, eys: eys.map((v) => Math.round(v)), rest, bx0, bx1, xs, rows, aisle, firstAisle: Math.round(firstAisle), tables, // 줄 사이 길에 꼭 맞는 높이라 100 단위로 다듬지 않음
         boothCap: P.rp.rows.length * xs.length, exitFrom: [cx - eg / 2 - 1000, cx + eg / 2 + 1000],
         genAt: { x: W - m - 1600, y: m + 1300 }, serviceTop: bandTop,
       });
@@ -273,7 +285,7 @@
         }
         const far = Math.min(L.bx1, cx + Math.max(8000, (L.xs.length / 2) * 3200));
         route('관람객', '관람 동선', [[cx, D + 1500], [cx, L.firstAisle], [far, L.firstAisle]]);
-        route('비상 대피', '비상 대피 동선 1 (입구)', [[cx, Math.min(L.firstAisle, D * 0.5)], [cx, D + 1500]], eg);
+        route('비상 대피', '비상 대피 동선 1 (입구)', [[cx, Math.max(L.firstAisle, D * 0.5)], [cx, D + 1500]], eg); // 길어도 부지 깊이의 절반
       });
     } else {
       /* ── 무대 쪽 (콘서트·축제·기념식) ── */
@@ -385,8 +397,11 @@
       doc.transact('자동 배치: 발전기', () => {
         for (let round = 0; left.length && round < 8; round++) {
           let p;
-          if (round === 0) p = clearAt(L.genAt.x, L.genAt.y, gw, gd) ? L.genAt : nearSpot(L.genAt, 3000);
-          else {
+          if (round === 0) {
+            p = clearAt(L.genAt.x, L.genAt.y, gw, gd) ? L.genAt : nearSpot(L.genAt, 3000);
+            // 정해 둔 자리에서 아무것도 닿지 않으면 (넓은 부지 가운데의 부스들) 그 자리는 건너뛰고 쓰는 곳 가까이에
+            if (!p || !left.some((it) => Math.hypot(it.x - p.x, it.y - p.y) <= reach)) continue;
+          } else {
             // 남은 것 가운데 가장 많이(전기 합) 맡을 수 있는 자리 가까이
             const c = left.reduce((best, it) => { const kw = kwOf(left.filter((u) => Math.hypot(u.x - it.x, u.y - it.y) <= reach - 12000)); return !best || kw > best.kw ? { it, kw } : best; }, null).it;
             p = nearSpot(c, 10000);
@@ -408,7 +423,7 @@
     })();
 
     // 화장실: 줄에 다 못 놓은 것은 빈 곳을 찾아 더 놓음
-    if (stats.toilets < stats.toiletNeed) stats.toilets += S.fillToilets({ quiet: true }).length;
+    if (stats.toilets < stats.toiletNeed) stats.toilets += S.fillToilets({ quiet: true, budgetMs: 1200 }).length; // 좁은 부지에 수백 칸이면 오래 걸려 1.2초까지만
     if (stats.toilets < stats.toiletNeed) stats.notes.push(`화장실은 ${stats.toilets}칸까지 놓았습니다 (권장 ${stats.toiletNeed}칸)`);
 
     /* ── 소화기: 불 쓰는 물건이 모두 20m 안에 들게 (부지 안, 물건·동선을 피해서) ── */
@@ -430,6 +445,12 @@
           put('소화기', q.x, q.y, 0);
           stats.extinguishers++;
         }));
+      }
+      // 불 쓰는 물건이 없어도 사람이 많으면 안내 데스크 옆에 하나
+      if (!stats.extinguishers && N >= S.RULE.careAt) {
+        const p = { x: L.desk.x - 1400, y: L.desk.y }, q = okAt(p) ? p : nearby(p) || p;
+        doc.transact('자동 배치: 소화기', () => put('소화기', q.x, q.y, 0));
+        stats.extinguishers = 1;
       }
     })();
 

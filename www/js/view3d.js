@@ -142,13 +142,14 @@
     const out = [];
     const near = (text, x, z) => out.some((l) => l.text === text && Math.hypot(l.p[0] - x, l.p[2] - z) < 8);
     const add = (text, x, y, z, bg, fg) => { if (text && !near(text, x, z)) out.push({ text, p: [x, y, z], bg, fg }); };
-    // 영역 이름표 (작은 영역부터): 다른 영역을 품은 큰 영역(부지 전체)은 위쪽 가장자리에 — 안쪽 영역의 이름표와 겹치지 않게
+    // 영역 이름표 (작은 영역부터): 다른 영역을 품은 큰 영역(부지 전체)은 위쪽 왼쪽 구석에 — 안쪽 영역의 이름표와 겹치지 않게
     const G = App.geom, ZT = App.model.TYPES.zone, inner = [];
     els.filter((e) => e.type === 'zone' && e.name && e.points && e.points.length >= 3).map((z) => ({ z, area: ZT.area(z) })).sort((a, b) => a.area - b.area).forEach(({ z }) => {
       const mid = G.interiorPoint(z.points);
       let c = mid;
       if (inner.some((p) => G.pointInPolygon(p, z.points))) {
-        const b = ZT.bounds(z), q = { x: (b.minX + b.maxX) / 2, y: b.minY + Math.min(2000, (b.maxY - b.minY) * 0.1) };
+        // 위쪽 왼쪽 구석 (위쪽 가운데는 무대·화면 이름표에 가려짐)
+        const b = ZT.bounds(z), q = { x: b.minX + (b.maxX - b.minX) * 0.12, y: b.minY + Math.min(2000, (b.maxY - b.minY) * 0.1) };
         if (G.pointInPolygon(q, z.points)) c = q;
       }
       inner.push(mid);

@@ -425,14 +425,18 @@
     const anchors = [...App.doc.all()].filter((e) => e.type === 'item' && e.kind === '이동식 화장실').map((e) => ({ x: e.x, y: e.y }));
     const taken = [], spots = [];
     const score = (x, y, b) => (anchors.length ? Math.min(...anchors.map((a) => Math.hypot(a.x - x, a.y - y))) : edgeDist(x, y, b) * 3);
-    for (let guard = 0; left > 0 && guard < 200; guard++) {
+    // 자리가 줄어들기만 하므로 한 번 안 들어간 줄 길이는 다시 찾지 않음 (좁은 곳에 많이 놓을 때 느려지지 않게). o.budgetMs: 이 시간이 지나면 놓은 만큼만
+    let maxK = 8;
+    const deadline = o.budgetMs > 0 ? performance.now() + o.budgetMs : Infinity;
+    for (let guard = 0; left > 0 && guard < 200 && performance.now() < deadline; guard++) {
       // 한 줄 8칸부터, 자리가 없으면 4·2·1칸으로 줄이고, 가로 줄이 안 되면 세로 줄
       let got = null;
-      for (const k of [...new Set([Math.min(8, left), Math.min(4, left), Math.min(2, left), 1])]) {
+      for (const k of [...new Set([8, 4, 2, 1].filter((n) => n <= maxK).map((n) => Math.min(n, left)))]) {
         const w = k * pitch;
         const h = freeSpot(w, d + 2 * queue, score, taken), v = h ? null : freeSpot(d + 2 * queue, w, score, taken); // 세로 줄은 가로 줄이 안 될 때만
         const p = h ? { ...h, vertical: false } : v ? { ...v, vertical: true } : null;
         if (p) { got = { ...p, k, w }; break; }
+        maxK = Math.min(maxK, k - 1); // 이 길이(와 더 긴 줄)는 이제 안 들어감
       }
       if (!got) break;
       spots.push(got);
