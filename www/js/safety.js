@@ -273,76 +273,123 @@
     ].join('');
   }
 
-  /* ── 빈 곳 찾기: w × d(mm) 자리가 다른 물건·동선(통로 폭)·관람 구역과 겹치지 않는 곳 중 score가 가장 낮은 곳 ── */
+  /* ── 빈 곳 찾기: w × d(mm) 자리가 다른 물건(돌린 실제 모양)·벽·동선(통로 폭)·관람 구역과 겹치지 않는 곳 중 score가 가장 낮은 곳.
+     숨긴 레이어의 것도 피함. 방이 있으면(실내) 방 안에만. 돌려주는 값: { x, y, site } 또는 null ── */
+  const corners = (it) => {
+    const { w, h } = App.model.TYPES.item.dims(it), a = ((it.rotation || 0) * Math.PI) / 180, c = Math.cos(a), sn = Math.sin(a);
+    return [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]].map(([lx, ly]) => ({ x: it.x + lx * c - ly * sn, y: it.y + lx * sn + ly * c }));
+  };
+  /** 두 볼록 사각형(점 넷)이 겹치는지 (분리축) */
+  const overlap4 = (A, B) => {
+    for (const P of [A, B]) {
+      for (let i = 0; i < 4; i++) {
+        const p = P[i], q = P[(i + 1) % 4], nx = q.y - p.y, ny = p.x - q.x;
+        const pa = A.map((v) => v.x * nx + v.y * ny), pb = B.map((v) => v.x * nx + v.y * ny);
+        if (Math.max(...pa) <= Math.min(...pb) || Math.max(...pb) <= Math.min(...pa)) return false;
+      }
+    }
+    return true;
+  };
   function freeSpot(w, d, score, taken = []) {
-    const T = App.model.TYPES;
-    const vis = (e) => App.layers.visible(e);
-    const all = [...App.doc.all()].filter(vis);
+    const all = [...App.doc.all()];
     const items = all.filter((e) => e.type === 'item' && !(App.catalog.itemDef(e.kind) || {}).flat);
-    const zones = all.filter((e) => e.type === 'zone');
+    const zones = all.filter((e) => e.type === 'zone' && e.points && e.points.length >= 3);
     const routes = all.filter((e) => e.type === 'route' && e.points && e.points.length >= 2);
-    const site = App.doc.bounds([...items, ...zones].map((e) => e.id));
-    if (!site) return null;
+    const walls = all.filter((e) => e.type === 'wall');
+    const rooms = all.filter((e) => e.type === 'room' && e.points && e.points.length >= 3 && !e.issue);
+    // 현장 범위: 물건의 실제 모양과 영역 (긴 담장·관람석의 정사각형 범위로 밖까지 늘어나지 않게)
+    const shapes = items.map(corners);
+    const pts = [...shapes.flat(), ...zones.flatMap((z) => z.points), ...walls.flatMap((wl) => [wl.start, wl.end])];
+    if (!pts.length) return null;
+    const site = { minX: Math.min(...pts.map((p) => p.x)), maxX: Math.max(...pts.map((p) => p.x)), minY: Math.min(...pts.map((p) => p.y)), maxY: Math.max(...pts.map((p) => p.y)) };
+    const siteArea = (site.maxX - site.minX) * (site.maxY - site.minY);
+    // 관람 구역: 현장 거의 전체를 덮는 것(장터 전체 같은)은 피하지 않음
+    const crowd = zones.filter((z) => z.crowd && App.model.TYPES.zone.area(z) < siteArea * 0.6);
     const m = 600; // 둘레 여유 (사람이 지나갈 틈)
-    const boxes = items.map((it) => T.item.bounds(it)).concat(taken);
-    const crowd = zones.filter((z) => z.crowd);
+    const takenShapes = taken.map((b) => [{ x: b.minX, y: b.minY }, { x: b.maxX, y: b.minY }, { x: b.maxX, y: b.maxY }, { x: b.minX, y: b.maxY }]);
+    const wallShapes = walls.map((wl) => {
+      const dx = wl.end.x - wl.start.x, dy = wl.end.y - wl.start.y, L = Math.hypot(dx, dy) || 1, t = (wl.thickness || 150) / 2 + 100, nx = (-dy / L) * t, ny = (dx / L) * t;
+      return [{ x: wl.start.x + nx, y: wl.start.y + ny }, { x: wl.end.x + nx, y: wl.end.y + ny }, { x: wl.end.x - nx, y: wl.end.y - ny }, { x: wl.start.x - nx, y: wl.start.y - ny }];
+    });
     const hw = w / 2 + m, hd = d / 2 + m;
     let best = null;
     const step = Math.max(500, Math.min(2000, Math.round(Math.max(site.maxX - site.minX, site.maxY - site.minY) / 120)));
     for (let y = site.minY + hd; y <= site.maxY - hd; y += step) {
       for (let x = site.minX + hw; x <= site.maxX - hw; x += step) {
-        if (boxes.some((b) => x - hw < b.maxX && x + hw > b.minX && y - hd < b.maxY && y + hd > b.minY)) continue;
-        if (crowd.some((z) => [[x, y], [x - hw, y - hd], [x + hw, y - hd], [x + hw, y + hd], [x - hw, y + hd]].some(([px, py]) => App.geom.pointInPolygon({ x: px, y: py }, z.points)))) continue;
-        const r = Math.hypot(hw, hd);
-        if (routes.some((rt) => rt.points.some((q, i) => i && App.geom.closestOnSegment({ x, y }, rt.points[i - 1], q).dist < (rt.width || 1200) / 2 + r))) continue;
+        const box = [{ x: x - hw, y: y - hd }, { x: x + hw, y: y - hd }, { x: x + hw, y: y + hd }, { x: x - hw, y: y + hd }];
+        if (rooms.length && !rooms.some((r) => box.every((p) => App.geom.pointInPolygon(p, r.points)))) continue; // 실내: 방 안에만
+        if (shapes.some((S) => overlap4(box, S)) || takenShapes.some((S) => overlap4(box, S)) || wallShapes.some((S) => overlap4(box, S))) continue;
+        if (crowd.some((z) => [{ x, y }, ...box].some((p) => App.geom.pointInPolygon(p, z.points)))) continue;
+        const rect = { minX: x - hw, minY: y - hd, maxX: x + hw, maxY: y + hd };
+        if (routes.some((rt) => rt.points.some((q, i) => i && segBoxDist(rt.points[i - 1], q, rect) < (rt.width || 1200) / 2))) continue;
         const sc = score(x, y, site);
         if (!best || sc < best.sc) best = { x, y, sc };
       }
     }
-    return best && { x: Math.round(best.x), y: Math.round(best.y) };
+    return best && { x: Math.round(best.x), y: Math.round(best.y), site };
   }
   const edgeDist = (x, y, b) => Math.min(x - b.minX, b.maxX - x, y - b.minY, b.maxY - y);
-  /** 이동식 화장실 채우기: 모자란 칸을 한 줄(8칸까지)씩, 있는 화장실 옆을 먼저, 없으면 가장자리 */
+  /** 선분 ab와 축에 나란한 상자 사이의 거리 (겹치면 0) */
+  function segBoxDist(a, b, r) {
+    if (App.geom.segmentIntersectsRect(a, b, r) || App.geom.pointInRect(a, r) || App.geom.pointInRect(b, r)) return 0;
+    const box = (p) => Math.hypot(Math.max(r.minX - p.x, 0, p.x - r.maxX), Math.max(r.minY - p.y, 0, p.y - r.maxY));
+    const cs = [{ x: r.minX, y: r.minY }, { x: r.maxX, y: r.minY }, { x: r.maxX, y: r.maxY }, { x: r.minX, y: r.maxY }];
+    return Math.min(box(a), box(b), ...cs.map((c) => App.geom.closestOnSegment(c, a, b).dist));
+  }
+  /** 이동식 화장실 채우기: 모자란 칸을 한 줄(8칸까지)씩, 있는 화장실 옆을 먼저 (없으면 가장자리).
+      문은 현장 안쪽을 보고, 줄 앞에는 줄 서는 통로(1.5m)를 비움 */
   function fillToilets() {
     const r = run();
     let left = r.data.toiletShort || 0;
     if (!left) { App.ui.toast('화장실이 모자라지 않습니다.'); return []; }
     const def = App.catalog.itemDef('이동식 화장실'), T = App.model.TYPES;
-    const pitch = def.size + 150;
-    const anchors = [...App.doc.all()].filter((e) => e.type === 'item' && e.kind === '이동식 화장실' && App.layers.visible(e)).map((e) => ({ x: e.x, y: e.y }));
+    const pitch = def.size + 150, d = def.depth || def.size, queue = 1500;
+    const anchors = [...App.doc.all()].filter((e) => e.type === 'item' && e.kind === '이동식 화장실').map((e) => ({ x: e.x, y: e.y }));
     const taken = [], spots = [];
-    for (let guard = 0; left > 0 && guard < 20; guard++) {
-      const k = Math.min(8, left), w = k * pitch, d = def.depth || def.size;
-      const p = freeSpot(w, d, (x, y, b) => (anchors.length ? Math.min(...anchors.map((a) => Math.hypot(a.x - x, a.y - y))) : edgeDist(x, y, b) * 3), taken);
-      if (!p) break;
-      spots.push({ ...p, k, w });
-      taken.push({ minX: p.x - w / 2, maxX: p.x + w / 2, minY: p.y - d / 2, maxY: p.y + d / 2 });
-      anchors.push(p);
-      left -= k;
+    const score = (x, y, b) => (anchors.length ? Math.min(...anchors.map((a) => Math.hypot(a.x - x, a.y - y))) : edgeDist(x, y, b) * 3);
+    for (let guard = 0; left > 0 && guard < 200; guard++) {
+      // 한 줄 8칸부터, 자리가 없으면 4·2·1칸으로 줄이고, 가로 줄이 안 되면 세로 줄
+      let got = null;
+      for (const k of [...new Set([Math.min(8, left), Math.min(4, left), Math.min(2, left), 1])]) {
+        const w = k * pitch;
+        const h = freeSpot(w, d + 2 * queue, score, taken), v = h ? null : freeSpot(d + 2 * queue, w, score, taken); // 세로 줄은 가로 줄이 안 될 때만
+        const p = h ? { ...h, vertical: false } : v ? { ...v, vertical: true } : null;
+        if (p) { got = { ...p, k, w }; break; }
+      }
+      if (!got) break;
+      spots.push(got);
+      taken.push(got.vertical ? { minX: got.x - d / 2 - queue, maxX: got.x + d / 2 + queue, minY: got.y - got.w / 2, maxY: got.y + got.w / 2 } : { minX: got.x - got.w / 2, maxX: got.x + got.w / 2, minY: got.y - d / 2 - queue, maxY: got.y + d / 2 + queue });
+      anchors.push(got);
+      left -= got.k;
     }
     if (!spots.length) { App.ui.toast('화장실을 놓을 빈 곳을 찾지 못했습니다. 자리를 비우거나 직접 놓으세요.'); return []; }
     const ids = [];
     App.doc.transact('화장실 채우기', () => spots.forEach((sp) => {
+      // 문(앞)이 현장 가운데 쪽
+      const cx = (sp.site.minX + sp.site.maxX) / 2, cy = (sp.site.minY + sp.site.maxY) / 2;
+      const rot = sp.vertical ? (sp.x < cx ? 270 : 90) : sp.y < cy ? 0 : 180;
       for (let i = 0; i < sp.k; i++) {
-        const it = T.item.create({ x: Math.round(sp.x - sp.w / 2 + pitch * (i + 0.5)), y: sp.y }, def.category, def, 0, null);
+        const o = -sp.w / 2 + pitch * (i + 0.5);
+        const it = T.item.create(sp.vertical ? { x: sp.x, y: Math.round(sp.y + o) } : { x: Math.round(sp.x + o), y: sp.y }, def.category, def, rot, null);
         App.doc.add(it);
         ids.push(it.id);
       }
     }));
-    App.selection.set(ids);
+    const shown = ids.filter((id) => App.layers.visible(App.doc.get(id)));
+    App.selection.set(shown);
     App.ui.toast(left > 0 ? `이동식 화장실 ${ids.length}칸을 놓았습니다. 빈 곳이 모자라 ${left}칸은 직접 놓으세요.` : `이동식 화장실 ${ids.length}칸을 놓았습니다. 자리는 옮겨도 됩니다 (한 번에 되돌리기 Ctrl+Z).`);
     return ids;
   }
   /** 의무실 텐트: 입구(관람 동선 시작·대피 동선 끝)와 가장자리에 가까운 빈 곳 */
   function placeMedical() {
     const def = App.catalog.itemDef('의무실 텐트'), T = App.model.TYPES;
-    const routes = [...App.doc.all()].filter((e) => e.type === 'route' && e.points && e.points.length >= 2 && App.layers.visible(e));
+    const routes = [...App.doc.all()].filter((e) => e.type === 'route' && e.points && e.points.length >= 2);
     const doors = routes.map((rt) => (rt.kind === '비상 대피' ? rt.points[rt.points.length - 1] : rt.points[0]));
     const p = freeSpot(def.size, def.depth || def.size, (x, y, b) => edgeDist(x, y, b) * 2 + (doors.length ? Math.min(...doors.map((q) => Math.hypot(q.x - x, q.y - y))) : 0));
     if (!p) { App.ui.toast('의무실 텐트를 놓을 빈 곳을 찾지 못했습니다. 직접 놓으세요.'); return []; }
     let id;
     App.doc.transact('의무실 텐트 놓기', () => { const it = T.item.create(p, def.category, def, 0, null); App.doc.add(it); id = it.id; });
-    App.selection.set([id]);
+    App.selection.set(App.layers.visible(App.doc.get(id)) ? [id] : []);
     App.ui.toast('의무실 텐트를 놓았습니다. 구급차가 닿기 쉬운 곳으로 옮겨도 됩니다 (되돌리기 Ctrl+Z).');
     return [id];
   }

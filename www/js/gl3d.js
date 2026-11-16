@@ -780,6 +780,7 @@
       this.textured.forEach((t) => { gl.deleteBuffer(t.buf); gl.deleteTexture(t.tex); });
       this.batches = {};
       this.textured = [];
+      if (this.dyn) this.dyn.count = 0; // 걷는 사람들도 (다른 장면·제안서 그림에 남지 않게)
     }
 
     /** 이름표를 올림. labels: [{ p: [x, y, z](m), text, bg, fg }] — 글자는 한 장의 그림에 모아 그림 */
