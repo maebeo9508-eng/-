@@ -94,7 +94,7 @@
       c.locked = false;
       if (c.boothNo) delete c.boothNo; // 부스 번호·업체는 복사본에 따라가지 않음 (같은 번호가 둘 생기지 않게)
       // 주차 칸·둘레 두르기로 놓은 것: 영역도 같이 복사하면 새 영역에 묶고 (다시 채우면 바뀌게), 아니면 묶지 않음
-      ['parkingOf', 'perimeterOf'].forEach((k) => { if (c[k]) { if (idMap.has(c[k])) c[k] = idMap.get(c[k]); else delete c[k]; } });
+      ['parkingOf', 'perimeterOf', 'seatsOf'].forEach((k) => { if (c[k]) { if (idMap.has(c[k])) c[k] = idMap.get(c[k]); else delete c[k]; } });
       if (c.exhibitor) delete c.exhibitor;
       if (c.group) {
         if (!groupMap.has(c.group)) groupMap.set(c.group, `grp-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`);

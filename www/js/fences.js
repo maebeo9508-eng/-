@@ -334,4 +334,144 @@
   }
   App.parking = { PARK, plan: parkingPlan, fill: parkingFill, dialog: parkingDialog, existing: parkingOf };
 
+  /* ── 좌석 채우기: 영역을 의자 줄로 채움 (가장 가까운 무대·화면 쪽을 봄, 양옆 통로, 넓으면 세로 통로, 12줄마다 가로 통로).
+     줄 글자는 블록이 바뀌어도 이어서 (A열이 무대 쪽) ── */
+  const SEAT = { gap: 900, seatW: 500, aisleW: 1200, front: 2000, side: 1000, block: 12 };
+  const LOOK = new Set(['무대', 'LED 스크린', '연단', '스크린', '백월', '포토월']);
+  /** 영역을 보는 방향: 가장 가까운 무대·화면 (없으면 위쪽). 돌려주는 값: 단위 벡터 f (의자가 보는 쪽) */
+  function facingOf(zone) {
+    const c = App.geom.interiorPoint(zone.points);
+    const t = [...App.doc.all()].filter((e) => e.type === 'item' && LOOK.has(e.kind) && App.layers.visible(e))
+      .reduce((m, it) => (!m || Math.hypot(it.x - c.x, it.y - c.y) < Math.hypot(m.x - c.x, m.y - c.y) ? it : m), null);
+    if (!t) return { f: { x: 0, y: -1 }, target: null };
+    const d = Math.hypot(t.x - c.x, t.y - c.y) || 1;
+    return { f: { x: (t.x - c.x) / d, y: (t.y - c.y) / d }, target: t };
+  }
+  function seatingPlan(zone, o = {}) {
+    const pts = zone && zone.points;
+    if (!pts || pts.length < 3) return [];
+    const num = (v, d, lo, hi) => { const n = Number(v); return n > 0 ? Math.min(hi, Math.max(lo, n)) : d; };
+    const gap = num(o.gap, SEAT.gap, 700, 3000), seatW = num(o.seatW, SEAT.seatW, 400, 1500), aisleW = num(o.aisleW, SEAT.aisleW, 800, 4000);
+    const front = o.front === 0 ? 0 : num(o.front, SEAT.front, 0, 30000), side = SEAT.side, perBlock = o.block === 0 ? 999 : num(o.block, SEAT.block, 2, 60);
+    const { f } = o.f ? { f: o.f } : facingOf(zone);
+    // v: 무대에서 멀어지는 쪽, u: 그와 직각
+    const vx = -f.x, vy = -f.y, ux = -vy, uy = vx;
+    const L = pts.map((p) => ({ u: p.x * ux + p.y * uy, v: p.x * vx + p.y * vy }));
+    const v0 = Math.min(...L.map((p) => p.v)), v1 = Math.max(...L.map((p) => p.v));
+    const spans = (v) => {
+      const xs = [];
+      L.forEach((p, i) => { const q = L[(i + 1) % L.length]; if ((p.v <= v) !== (q.v <= v)) xs.push(p.u + ((v - p.v) / (q.v - p.v)) * (q.u - p.u)); });
+      xs.sort((a, b) => a - b);
+      const out = [];
+      for (let i = 0; i + 1 < xs.length; i += 2) out.push([xs[i], xs[i + 1]]);
+      return out;
+    };
+    // 띠 [va, vb] 전체가 들어가는 가장 넓은 u 구간 (양옆 통로만큼 줄임)
+    const widest = (va, vb) => {
+      const vs = [va + 30, (va + vb) / 2, vb - 30, ...L.filter((p) => p.v > va && p.v < vb).flatMap((p) => [p.v - 1, p.v + 1])];
+      let cur = spans(vs[0]);
+      for (const v of vs.slice(1)) {
+        const ls = spans(v), next = [];
+        cur.forEach(([a, b]) => ls.forEach(([x, y]) => { const lo = Math.max(a, x), hi = Math.min(b, y); if (hi > lo) next.push([lo, hi]); }));
+        cur = next;
+      }
+      const best = cur.reduce((m, I) => (!m || I[1] - I[0] > m[1] - m[0] ? I : m), null);
+      return best && best[1] - best[0] - 2 * side > seatW * 2 ? [best[0] + side, best[1] - side] : null;
+    };
+    // 줄마다 구간 → 같은 폭으로 이어지는 줄끼리 한 블록 (perBlock 줄마다 가로 통로)
+    const blocks = [];
+    let v = v0 + front, cur = null;
+    const close = () => { if (cur) { blocks.push(cur); cur = null; } };
+    for (let guard = 0; guard < 400 && v + gap <= v1 - 300 + 1; guard++) {
+      const I = widest(v, v + gap);
+      if (!I) { close(); v += gap; continue; }
+      if (cur) {
+        const lo = Math.max(cur.I[0], I[0]), hi = Math.min(cur.I[1], I[1]);
+        if (cur.rows < perBlock && hi - lo >= (cur.I[1] - cur.I[0]) * 0.92) { cur.I = [lo, hi]; cur.rows++; v += gap; continue; }
+        close();
+        if (blocks.length && blocks[blocks.length - 1].rows >= perBlock) { v += aisleW; if (v + gap > v1 - 300 + 1) break; continue; } // 가로 통로
+      }
+      cur = { I, va: v, rows: 1 };
+      v += gap;
+    }
+    close();
+    const rotation = Math.round(((((Math.atan2(-f.x, f.y) * 180) / Math.PI) % 360) + 360) % 360 * 10) / 10;
+    let letter = 0;
+    return blocks.map((b) => {
+      const W = b.I[1] - b.I[0];
+      const aisles = o.aisles != null && o.aisles !== 'auto' ? Math.max(0, Math.min(8, Number(o.aisles) || 0)) : W > 28000 ? 2 : W > 14000 ? 1 : 0;
+      const cols = Math.max(1, Math.min(200, Math.floor((W - aisles * aisleW) / seatW)));
+      const size = cols * seatW + aisles * aisleW, depth = b.rows * gap;
+      const uc = (b.I[0] + b.I[1]) / 2, vc = b.va + depth / 2;
+      const out = { x: Math.round(uc * ux + vc * vx), y: Math.round(uc * uy + vc * vy), rotation, cols, rows: b.rows, count: cols * b.rows, gap, seatW, aisles, aisleW, size, depth, seatRow0: String.fromCharCode(65 + (letter % 26)) };
+      letter += b.rows;
+      return out;
+    });
+  }
+  const seatsOf = (zoneId) => [...App.doc.all()].filter((e) => e.type === 'item' && e.seatsOf === zoneId);
+  function seatingFill(zoneId, o = {}) {
+    const z = App.doc.get(zoneId);
+    if (!z || z.type !== 'zone') return [];
+    const list = seatingPlan(z, o);
+    if (!list.length) return [];
+    const def = App.catalog.itemDef('의자 배열');
+    const T = App.model.TYPES;
+    const ids = [];
+    App.doc.transact('좌석 채우기', () => {
+      seatsOf(zoneId).forEach((e) => App.doc.remove(e.id));
+      list.forEach((p) => {
+        const it = T.item.create({ x: p.x, y: p.y }, def.category, def, p.rotation, null);
+        Object.assign(it, { cols: p.cols, rows: p.rows, count: p.count, gap: p.gap, seatW: p.seatW, aisles: p.aisles, aisleW: p.aisleW, size: p.size, depth: p.depth, seatNo: true, seatRow0: p.seatRow0, seatsOf: zoneId });
+        if (o.style) it.style = o.style;
+        App.doc.add(it);
+        ids.push(it.id);
+      });
+    });
+    return ids;
+  }
+  async function seatingDialog(zoneId) {
+    const z = App.doc.get(zoneId);
+    if (!z || z.type !== 'zone') return [];
+    const U = App.units, fc = facingOf(z);
+    const old = seatsOf(zoneId).reduce((t, e) => t + (e.count || 0), 0);
+    const len = (id, label, v, note = '') => `<div class="field"><label class="field-label" for="${id}">${label}${note ? ` <small>${note}</small>` : ''}</label><div class="field-box"><input id="${id}" type="text" inputmode="decimal" autocomplete="off" value="${U.inputLength(v)}"><span class="field-unit">${U.lengthLabel()}</span></div></div>`;
+    const styles = (App.catalog.itemDef('의자 배열').styles || []);
+    const r = await App.ui.dialog({
+      title: '좌석 채우기',
+      html: `
+        <p class="dialog-note">‘${(z.name || '영역').replace(/[<>&"]/g, '')}’을 의자 줄로 채웁니다. 의자는 ${fc.target ? `가장 가까운 ${fc.target.kind} 쪽` : '위쪽(무대·화면이 없음)'}을 보고, 양옆에 통로를 둡니다. A열이 앞줄입니다.</p>
+        <div class="field-grid">${len('stGap', '줄 간격', SEAT.gap)}${len('stW', '의자 간격', SEAT.seatW)}</div>
+        <div class="field-grid">${len('stFront', '앞 여백', SEAT.front, '무대 쪽')}${len('stAisle', '통로 폭', SEAT.aisleW)}</div>
+        <div class="field-grid">
+          <div class="field"><label class="field-label" for="stAisles">세로 통로</label><div class="field-box"><select id="stAisles" class="field-select"><option value="auto">자동 (넓으면 1~2개)</option><option value="0">없음</option><option value="1">1개</option><option value="2">2개</option><option value="3">3개</option></select></div></div>
+          <div class="field"><label class="field-label" for="stBlock">가로 통로</label><div class="field-box"><select id="stBlock" class="field-select"><option value="12">12줄마다</option><option value="8">8줄마다</option><option value="16">16줄마다</option><option value="0">없음</option></select></div></div>
+        </div>
+        <div class="field"><label class="field-label" for="stStyle">의자 모양</label><div class="field-box"><select id="stStyle" class="field-select">${styles.map((t) => `<option value="${t}">${t}</option>`).join('')}</select></div></div>
+        <p class="props-meta st-count" aria-live="polite"></p>`,
+      actions: [{ id: 'cancel', label: '취소' }, { id: 'ok', label: '채우기', primary: true }],
+      onOpen(body) {
+        const read = () => ({ gap: U.parseLength(body.querySelector('#stGap').value), seatW: U.parseLength(body.querySelector('#stW').value), front: U.parseLength(body.querySelector('#stFront').value), aisleW: U.parseLength(body.querySelector('#stAisle').value), aisles: body.querySelector('#stAisles').value, block: Number(body.querySelector('#stBlock').value) });
+        const show = () => {
+          const list = seatingPlan(z, read()), n = list.reduce((t, p) => t + p.count, 0), rows = list.reduce((t, p) => t + p.rows, 0);
+          body.querySelector('.st-count').textContent = n ? `의자 ${n.toLocaleString('ko-KR')}석 (${rows}줄, 블록 ${list.length}개)을 놓습니다${old ? ` · 전에 채운 ${old.toLocaleString('ko-KR')}석은 바꿈` : ''}. 좌석 번호가 붙고 수용 인원에 들어갑니다.` : '영역이 좁아 의자가 들어가지 않습니다.';
+        };
+        body._read = read;
+        body.addEventListener('input', show);
+        body.addEventListener('change', show);
+        show();
+      },
+    });
+    if (r.id !== 'ok') return [];
+    const o = r.body._read ? r.body._read() : {};
+    o.style = r.body.querySelector('#stStyle').value;
+    const ids = seatingFill(zoneId, o);
+    if (ids.length) {
+      App.selection.set(ids);
+      const n = ids.reduce((t, id) => t + (App.doc.get(id).count || 0), 0);
+      App.ui.toast(`의자 ${n.toLocaleString('ko-KR')}석을 놓았습니다. 한 번에 되돌리려면 Ctrl+Z.`);
+    } else App.ui.toast('영역이 좁아 의자가 들어가지 않습니다.');
+    return ids;
+  }
+  App.seating = { SEAT, facingOf, plan: seatingPlan, fill: seatingFill, dialog: seatingDialog, existing: seatsOf };
+
 })();
