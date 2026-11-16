@@ -1537,15 +1537,30 @@
   }
 
   function drawZoneLabels(plan, zones) {
-    const ctx = plan.ctx;
+    const ctx = plan.ctx, Z = App.model.TYPES.zone;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    zones.forEach((z) => {
-      const b = App.model.TYPES.zone.bounds(z);
+    // 작은 영역부터 씀: 다른 영역을 품은 큰 영역(부지 전체)의 이름표는 위(안 되면 아래) 가장자리에, 이름표끼리 겹쳐도 비킴
+    const placed = [], inner = [];
+    const hit = (b) => placed.some((p) => b.x0 < p.x1 && b.x1 > p.x0 && b.y0 < p.y1 && b.y1 > p.y0);
+    zones.map((z) => ({ z, area: Z.area(z) })).sort((a, b) => a.area - b.area).forEach(({ z, area }) => {
+      const b = Z.bounds(z);
       if ((b.maxX - b.minX) * plan.view.scale < 50 || (b.maxY - b.minY) * plan.view.scale < 36) return;
+      const lines = [[z.name, ROOM_NAME_FONT, -9], [App.units.formatArea(area), ROOM_AREA_FONT, 9]];
+      const w = Math.max(...lines.map(([text, font]) => { ctx.font = font; return ctx.measureText(text).width; }));
+      const boxAt = (q) => ({ x0: q.x - w / 2 - 4, x1: q.x + w / 2 + 4, y0: q.y - 18, y1: q.y + 18 });
       const center = G.interiorPoint(z.points);
-      const s = plan.view.toScreen(center.x, center.y);
-      [[z.name, ROOM_NAME_FONT, -9], [App.units.formatArea(App.model.TYPES.zone.area(z)), ROOM_AREA_FONT, 9]].forEach(([text, font, dy]) => {
+      let s = plan.view.toScreen(center.x, center.y);
+      const nested = inner.some((p) => G.pointInPolygon(p, z.points));
+      inner.push(center);
+      if (nested || hit(boxAt(s))) {
+        const mid = (b.minX + b.maxX) / 2;
+        const alt = [[b.minY, 24], [b.maxY, -24]].map(([y, dy]) => { const q = plan.view.toScreen(mid, y); return { x: q.x, y: q.y + dy }; })
+          .find((q) => G.pointInPolygon(plan.view.toWorld(q.x, q.y), z.points) && !hit(boxAt(q)));
+        if (alt) s = alt;
+      }
+      placed.push(boxAt(s));
+      lines.forEach(([text, font, dy]) => {
         ctx.font = font;
         ctx.lineWidth = 3;
         ctx.strokeStyle = plan.colors.canvasBg;

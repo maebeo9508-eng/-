@@ -415,10 +415,11 @@
   }
   /** 이동식 화장실 채우기: 모자란 칸을 한 줄(8칸까지)씩, 있는 화장실 옆을 먼저 (없으면 가장자리).
       문은 현장 안쪽을 보고, 줄 앞에는 줄 서는 통로(1.5m)를 비움 */
-  function fillToilets() {
+  function fillToilets(o = {}) {
+    const say = (t) => { if (!o.quiet) App.ui.toast(t); };
     const r = run();
     let left = r.data.toiletShort || 0;
-    if (!left) { App.ui.toast('화장실이 모자라지 않습니다.'); return []; }
+    if (!left) { say('화장실이 모자라지 않습니다.'); return []; }
     const def = App.catalog.itemDef('이동식 화장실'), T = App.model.TYPES;
     const pitch = def.size + 150, d = def.depth || def.size, queue = 1500;
     const anchors = [...App.doc.all()].filter((e) => e.type === 'item' && e.kind === '이동식 화장실').map((e) => ({ x: e.x, y: e.y }));
@@ -439,7 +440,7 @@
       anchors.push(got);
       left -= got.k;
     }
-    if (!spots.length) { App.ui.toast('화장실을 놓을 빈 곳을 찾지 못했습니다. 자리를 비우거나 직접 놓으세요.'); return []; }
+    if (!spots.length) { say('화장실을 놓을 빈 곳을 찾지 못했습니다. 자리를 비우거나 직접 놓으세요.'); return []; }
     const ids = [];
     App.doc.transact('화장실 채우기', () => spots.forEach((sp) => {
       // 문(앞)이 현장 가운데 쪽
@@ -452,9 +453,10 @@
         ids.push(it.id);
       }
     }));
+    if (o.quiet) return ids;
     const shown = ids.filter((id) => App.layers.visible(App.doc.get(id)));
     App.selection.set(shown);
-    App.ui.toast(left > 0 ? `이동식 화장실 ${ids.length}칸을 놓았습니다. 빈 곳이 모자라 ${left}칸은 직접 놓으세요.` : `이동식 화장실 ${ids.length}칸을 놓았습니다. 자리는 옮겨도 됩니다 (한 번에 되돌리기 Ctrl+Z).`);
+    say(left > 0 ? `이동식 화장실 ${ids.length}칸을 놓았습니다. 빈 곳이 모자라 ${left}칸은 직접 놓으세요.` : `이동식 화장실 ${ids.length}칸을 놓았습니다. 자리는 옮겨도 됩니다 (한 번에 되돌리기 Ctrl+Z).`);
     return ids;
   }
   /** 의무실 텐트: 입구(관람 동선 시작·대피 동선 끝)와 가장자리에 가까운 빈 곳 */

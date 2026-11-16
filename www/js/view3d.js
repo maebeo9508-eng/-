@@ -142,11 +142,20 @@
     const out = [];
     const near = (text, x, z) => out.some((l) => l.text === text && Math.hypot(l.p[0] - x, l.p[2] - z) < 8);
     const add = (text, x, y, z, bg, fg) => { if (text && !near(text, x, z)) out.push({ text, p: [x, y, z], bg, fg }); };
+    // 영역 이름표 (작은 영역부터): 다른 영역을 품은 큰 영역(부지 전체)은 위쪽 가장자리에 — 안쪽 영역의 이름표와 겹치지 않게
+    const G = App.geom, ZT = App.model.TYPES.zone, inner = [];
+    els.filter((e) => e.type === 'zone' && e.name && e.points && e.points.length >= 3).map((z) => ({ z, area: ZT.area(z) })).sort((a, b) => a.area - b.area).forEach(({ z }) => {
+      const mid = G.interiorPoint(z.points);
+      let c = mid;
+      if (inner.some((p) => G.pointInPolygon(p, z.points))) {
+        const b = ZT.bounds(z), q = { x: (b.minX + b.maxX) / 2, y: b.minY + Math.min(2000, (b.maxY - b.minY) * 0.1) };
+        if (G.pointInPolygon(q, z.points)) c = q;
+      }
+      inner.push(mid);
+      add(z.name, X(c.x), 0.3, Z(c.y), z.color || '#2f9e44', '#ffffff');
+    });
     els.forEach((e) => {
-      if (e.type === 'zone' && e.name && e.points && e.points.length >= 3) {
-        const c = App.geom.interiorPoint(e.points);
-        add(e.name, X(c.x), 0.3, Z(c.y), e.color || '#2f9e44', '#ffffff');
-      } else if (e.type === 'item' && e.category === 'event') {
+      if (e.type === 'item' && e.category === 'event') {
         const memo = String(e.memo || '').trim();
         const booth = App.booths && App.booths.isBooth(e) && e.boothNo; // 부스 종류만 (종류를 바꾼 물건의 옛 번호는 안 띄움)
         const text = memo && memo.length <= 14 ? memo : booth ? `${e.boothNo}${e.exhibitor ? ` ${e.exhibitor}` : ''}` : LANDMARK[e.kind];

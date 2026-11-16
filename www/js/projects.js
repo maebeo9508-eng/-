@@ -289,6 +289,7 @@
     { id: 'apartment', mode: 'interior', name: '아파트 예시 (방 2·거실·주방·욕실)', desc: '9.6 × 7.2 m 아파트에 마루·타일 바닥, 방마다 벽지 색, 가구·주방·욕실까지 꾸몄습니다. 컬러 평면과 3D를 바로 볼 수 있습니다.' },
     { id: 'cafe', mode: 'interior', name: '카페 매장 예시', desc: '홀·주방·화장실이 있는 12 × 8 m 카페입니다. 카운터·진열장·테이블·라운지·펜던트 조명을 놓았습니다.' },
     { id: 'event-blank', mode: 'event', name: '빈 행사장', desc: '아무것도 없는 바닥에서 시작합니다. 물건·영역·동선을 놓아 보세요.' },
+    { id: 'auto', mode: 'event', name: '자동 배치 (종류·크기·인원으로 만들기)', desc: '콘서트·축제·플리마켓·기념식을 고르고 부지 크기와 예상 인원을 넣으면 무대·객석·부스·화장실·의무실·소화기·발전기·펜스·동선까지 한 번에 놓아 줍니다.' },
     { id: 'ceremony', mode: 'event', name: '야외 기념식 예시', desc: '건물 앞마당에 무대·백월·의자 160석과 원형 테이블·텐트·스피커·주차장·동선까지 놓았습니다. 3D 조감도와 걸어서 둘러보기를 바로 볼 수 있습니다.' },
     { id: 'seminar', mode: 'event', name: '실내 세미나 예시', desc: '강당에 무대·LED 화면·의자 배열·등록 데스크와 입장·대피 동선을 놓았습니다.' },
     { id: 'soccer', mode: 'event', name: '축구 대회 예시 (운동장)', desc: '축구장·관람석·선수 벤치·점수판·시상대·팀 텐트·주차장까지 놓은 운동장입니다.' },
@@ -297,16 +298,22 @@
     { id: 'banquet', mode: 'event', name: '웨딩·연회장 예시', desc: '24 × 18 m 연회장에 무대·백월·원형 테이블 18개(144석)·버진로드·포토월·축하 화환을 놓았습니다.' },
     { id: 'expo', mode: 'event', name: '전시회 예시', desc: '30 × 20 m 전시장에 부스 24칸과 통로, 안내 데스크·포토월·휴게 공간, 관람 동선을 놓았습니다.' },
     { id: 'market', mode: 'event', name: '플리마켓 예시 (공원 광장)', desc: '50 × 32 m 광장에 텐트 부스 32칸(줄마다 A~D 번호·업체), 푸드트럭·휴게 테이블, 펜스·입구 아치, 의무실 텐트·화장실·소화기, 관람·비상 대피 동선까지 놓았습니다. 안전 점검과 부스 배정표를 바로 볼 수 있습니다.' },
+    { id: 'concert', mode: 'event', name: '야외 콘서트 예시 (자동 배치로 만든 것)', desc: '60 × 45 m 잔디 광장에 1,500명 스탠딩 콘서트: 트러스 무대·LED 화면·관람 구역·음향 콘솔·푸드트럭·화장실 15칸·의무실·발전기·펜스·입장과 비상 대피 동선. ‘자동 배치’로 만든 그대로입니다.' },
   ];
 
   /** 템플릿 요소 만들기: 빈 도면에서 시작해 도면 API로 그린 뒤 결과를 돌려줌 */
-  function templateElements(id) {
+  function templateElements(id, params) {
     const doc = App.doc;
     doc.reset(App.catalog.defaultElements());
     const tpl = TEMPLATES.find((t) => t.id === id) || TEMPLATES[0];
     App.current = { mode: tpl.mode, ground: tpl.mode === 'event' ? 'asphalt' : '' };
     App.catalog.ensureCurrent();
     if (id === 'blank' || id === 'event-blank') return [...doc.all()];
+    // 자동 배치: 넣은 값대로 (야외 콘서트 예시는 정해 둔 값으로)
+    if (id === 'auto' || id === 'concert') {
+      App.wizard.build(id === 'concert' ? { type: 'concert', n: 1500, w: 60000, d: 45000, seating: 'standing', trucks: 3, fence: true, name: '여름밤 콘서트' } : params || {});
+      return [...doc.all()];
+    }
     const T = App.model.TYPES, C = App.catalog;
     /** 조감도 물건 놓기: 가운데 (x, y), 회전(도), 고칠 값들 (크기·글자·색 등, 숫자 값을 바꾸면 자리 크기도 맞춤) */
     const put = (kind, x, y, rotation = 0, patch = {}) => {
@@ -836,12 +843,19 @@
   }
 
   /** 새 도면 만들어 열기 */
-  async function create(name, templateId = 'blank') {
+  async function create(name, templateId = 'blank', params = null) {
     if (!flush()) return null;
     loading = true;
+    const before = { elements: [...App.doc.all()], current: App.current };
     let elements;
     try {
-      elements = templateElements(templateId);
+      elements = templateElements(templateId, params);
+    } catch (err) {
+      // 만들다 멈추면 (자동 배치의 드문 오류 등) 열려 있던 도면을 그대로 되돌림 — 반쯤 만든 것이 그 도면에 저장되지 않게
+      App.doc.reset(before.elements);
+      App.current = before.current;
+      App.catalog.ensureCurrent();
+      throw err;
     } finally {
       loading = false;
     }
@@ -1023,6 +1037,17 @@
     });
     if (r.id !== 'ok') return;
     const name = r.body.querySelector('#d-pname').value.trim() || defaultName();
+    if (pick === 'auto') {
+      // 자동 배치: 종류·크기·인원을 물어보고 만듦
+      const params = await App.wizard.dialog(name);
+      if (!params) return;
+      App.ui.busy('행사장을 배치하는 중…');
+      await new Promise((res) => setTimeout(res, 30));
+      let ok = false;
+      try { ok = await create(name, 'auto', params); } catch (err) { console.error(err); App.ui.toast('자동 배치를 만들지 못했습니다. 크기나 인원을 바꿔 다시 해 보세요.'); } finally { App.ui.busy(false); }
+      if (ok) App.ui.toast(`‘${name}’을 배치했습니다: ${App.wizard.summary()}. 집계의 ‘안전 점검’도 확인하세요.`);
+      return;
+    }
     if (!(await create(name, pick))) return;
     App.ui.toast(`‘${name}’ 도면을 만들었습니다.${TEMPLATES.find((t) => t.id === pick).mode === 'event' ? ' 오른쪽 아래 3D 버튼으로 조감도를 볼 수 있습니다.' : ''}`);
   }

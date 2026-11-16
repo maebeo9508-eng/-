@@ -955,6 +955,9 @@ button { font: inherit; color: inherit; }
 .tpl { display: grid; gap: 2px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); text-align: left; cursor: pointer; color: var(--fg); }
 .tpl small { font-size: 12px; color: var(--fg-muted); line-height: 1.4; }
 .tpl[aria-checked="true"] { border: 2px solid var(--accent); background: var(--accent-soft); padding: 9px 11px; }
+/* 자동 배치 창: 행사 종류는 두 칸씩 */
+.wz-types { grid-template-columns: 1fr 1fr; }
+.wz-types .tpl { align-content: start; }
 
 /* 설정 화면 */
 .set-sec { display: grid; gap: 10px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
