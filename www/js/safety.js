@@ -172,6 +172,7 @@
         });
       } else {
         const level = toilets >= need ? 'ok' : toilets >= need / 2 ? 'warn' : 'bad';
+        data.toiletShort = Math.max(0, need - toilets);
         checks.push({ id: 'toilet', title: '화장실', level, value: `${toilets}칸 / 권장 ${need}칸`, detail: `${RULE.perToilet}명에 1칸 어림 (예상 ${n0(N)}명)`, advice: level === 'ok' ? '여성용을 더 많이 두면 줄이 짧아집니다' : `이동식 화장실 ${need - toilets}칸을 더 놓으세요`, print: level === 'ok' ? `이동식 화장실 ${toilets}칸 배치 · 권장 ${need}칸 (${RULE.perToilet}명에 1칸)` : `이동식 화장실 ${toilets}칸 배치 · 권장 ${need}칸으로 ${need - toilets}칸 추가가 필요합니다` });
       }
     }
@@ -204,6 +205,7 @@
       && !medItems.some((it) => Math.hypot(it.x - t.x, it.y - t.y) <= MERGE + Math.max(it.size || 0, it.depth || 0) / 2));
     const medical = [...medItems, ...medZones, ...medTexts];
     const medHow = '구급차나 의무실 텐트(물건 › 편의·안전)를 놓거나, 의무실로 쓸 텐트·영역에 ‘의무실’이라고 적으세요 (영역 이름·메모나 글자 도구)';
+    data.medicalMissing = N >= RULE.careAt && !medical.length;
     if (N >= RULE.medicalAt) {
       checks.push({ id: 'medical', title: '의료·구급', level: medical.length ? 'ok' : 'bad', value: medical.length ? `${medical.length}곳` : '없음', detail: `예상 ${n0(N)}명 (1,000명 이상)`, advice: medical.length ? '구급차가 드나들 길(차량 동선)을 비워 두세요' : medHow, print: medical.length ? `구급차·의무실 ${medical.length}곳 · 구급차 진입로를 비워 둡니다` : '1,000명 이상 행사로 구급차나 의무실 배치가 필요합니다' });
     } else if (N >= RULE.careAt) {
@@ -263,7 +265,86 @@
   /** 점검 창 아래 도구: 소화기에서 먼 곳이 있으면 ‘소화기 채우기’ */
   function toolsHtml(r) {
     const n = r.data.uncovered.length ? fillPlan(r).length : 0;
-    return n ? `<button type="button" class="btn" data-act="sf-fill">소화기 채우기 <small>${n}개를 놓아 먼 곳 ${r.data.uncovered.length}개를 모두 20m 안에</small></button>` : '';
+    const t = r.data.toiletShort || 0;
+    return [
+      n ? `<button type="button" class="btn" data-act="sf-fill">소화기 채우기 <small>${n}개를 놓아 먼 곳 ${r.data.uncovered.length}개를 모두 20m 안에</small></button>` : '',
+      t ? `<button type="button" class="btn" data-act="sf-toilets">화장실 채우기 <small>이동식 화장실 ${t}칸을 빈 곳(있는 화장실 옆이나 가장자리)에</small></button>` : '',
+      r.data.medicalMissing ? '<button type="button" class="btn" data-act="sf-medical">의무실 텐트 놓기 <small>입구·가장자리 가까운 빈 곳에 (구급차가 닿기 쉽게)</small></button>' : '',
+    ].join('');
+  }
+
+  /* ── 빈 곳 찾기: w × d(mm) 자리가 다른 물건·동선(통로 폭)·관람 구역과 겹치지 않는 곳 중 score가 가장 낮은 곳 ── */
+  function freeSpot(w, d, score, taken = []) {
+    const T = App.model.TYPES;
+    const vis = (e) => App.layers.visible(e);
+    const all = [...App.doc.all()].filter(vis);
+    const items = all.filter((e) => e.type === 'item' && !(App.catalog.itemDef(e.kind) || {}).flat);
+    const zones = all.filter((e) => e.type === 'zone');
+    const routes = all.filter((e) => e.type === 'route' && e.points && e.points.length >= 2);
+    const site = App.doc.bounds([...items, ...zones].map((e) => e.id));
+    if (!site) return null;
+    const m = 600; // 둘레 여유 (사람이 지나갈 틈)
+    const boxes = items.map((it) => T.item.bounds(it)).concat(taken);
+    const crowd = zones.filter((z) => z.crowd);
+    const hw = w / 2 + m, hd = d / 2 + m;
+    let best = null;
+    const step = Math.max(500, Math.min(2000, Math.round(Math.max(site.maxX - site.minX, site.maxY - site.minY) / 120)));
+    for (let y = site.minY + hd; y <= site.maxY - hd; y += step) {
+      for (let x = site.minX + hw; x <= site.maxX - hw; x += step) {
+        if (boxes.some((b) => x - hw < b.maxX && x + hw > b.minX && y - hd < b.maxY && y + hd > b.minY)) continue;
+        if (crowd.some((z) => [[x, y], [x - hw, y - hd], [x + hw, y - hd], [x + hw, y + hd], [x - hw, y + hd]].some(([px, py]) => App.geom.pointInPolygon({ x: px, y: py }, z.points)))) continue;
+        const r = Math.hypot(hw, hd);
+        if (routes.some((rt) => rt.points.some((q, i) => i && App.geom.closestOnSegment({ x, y }, rt.points[i - 1], q).dist < (rt.width || 1200) / 2 + r))) continue;
+        const sc = score(x, y, site);
+        if (!best || sc < best.sc) best = { x, y, sc };
+      }
+    }
+    return best && { x: Math.round(best.x), y: Math.round(best.y) };
+  }
+  const edgeDist = (x, y, b) => Math.min(x - b.minX, b.maxX - x, y - b.minY, b.maxY - y);
+  /** 이동식 화장실 채우기: 모자란 칸을 한 줄(8칸까지)씩, 있는 화장실 옆을 먼저, 없으면 가장자리 */
+  function fillToilets() {
+    const r = run();
+    let left = r.data.toiletShort || 0;
+    if (!left) { App.ui.toast('화장실이 모자라지 않습니다.'); return []; }
+    const def = App.catalog.itemDef('이동식 화장실'), T = App.model.TYPES;
+    const pitch = def.size + 150;
+    const anchors = [...App.doc.all()].filter((e) => e.type === 'item' && e.kind === '이동식 화장실' && App.layers.visible(e)).map((e) => ({ x: e.x, y: e.y }));
+    const taken = [], spots = [];
+    for (let guard = 0; left > 0 && guard < 20; guard++) {
+      const k = Math.min(8, left), w = k * pitch, d = def.depth || def.size;
+      const p = freeSpot(w, d, (x, y, b) => (anchors.length ? Math.min(...anchors.map((a) => Math.hypot(a.x - x, a.y - y))) : edgeDist(x, y, b) * 3), taken);
+      if (!p) break;
+      spots.push({ ...p, k, w });
+      taken.push({ minX: p.x - w / 2, maxX: p.x + w / 2, minY: p.y - d / 2, maxY: p.y + d / 2 });
+      anchors.push(p);
+      left -= k;
+    }
+    if (!spots.length) { App.ui.toast('화장실을 놓을 빈 곳을 찾지 못했습니다. 자리를 비우거나 직접 놓으세요.'); return []; }
+    const ids = [];
+    App.doc.transact('화장실 채우기', () => spots.forEach((sp) => {
+      for (let i = 0; i < sp.k; i++) {
+        const it = T.item.create({ x: Math.round(sp.x - sp.w / 2 + pitch * (i + 0.5)), y: sp.y }, def.category, def, 0, null);
+        App.doc.add(it);
+        ids.push(it.id);
+      }
+    }));
+    App.selection.set(ids);
+    App.ui.toast(left > 0 ? `이동식 화장실 ${ids.length}칸을 놓았습니다. 빈 곳이 모자라 ${left}칸은 직접 놓으세요.` : `이동식 화장실 ${ids.length}칸을 놓았습니다. 자리는 옮겨도 됩니다 (한 번에 되돌리기 Ctrl+Z).`);
+    return ids;
+  }
+  /** 의무실 텐트: 입구(관람 동선 시작·대피 동선 끝)와 가장자리에 가까운 빈 곳 */
+  function placeMedical() {
+    const def = App.catalog.itemDef('의무실 텐트'), T = App.model.TYPES;
+    const routes = [...App.doc.all()].filter((e) => e.type === 'route' && e.points && e.points.length >= 2 && App.layers.visible(e));
+    const doors = routes.map((rt) => (rt.kind === '비상 대피' ? rt.points[rt.points.length - 1] : rt.points[0]));
+    const p = freeSpot(def.size, def.depth || def.size, (x, y, b) => edgeDist(x, y, b) * 2 + (doors.length ? Math.min(...doors.map((q) => Math.hypot(q.x - x, q.y - y))) : 0));
+    if (!p) { App.ui.toast('의무실 텐트를 놓을 빈 곳을 찾지 못했습니다. 직접 놓으세요.'); return []; }
+    let id;
+    App.doc.transact('의무실 텐트 놓기', () => { const it = T.item.create(p, def.category, def, 0, null); App.doc.add(it); id = it.id; });
+    App.selection.set([id]);
+    App.ui.toast('의무실 텐트를 놓았습니다. 구급차가 닿기 쉬운 곳으로 옮겨도 됩니다 (되돌리기 Ctrl+Z).');
+    return [id];
   }
 
   /* ── 소화기 채우기: 소화기에서 먼 불 쓰는 물건이 모두 20m 안에 들도록 적은 수로 놓음 (가장 많이 덮는 자리부터) ── */
@@ -352,8 +433,12 @@
           if (showing()) App.plan.requestRender(); // 겹쳐 보기의 밀집도 색·숫자도 바로
         };
         tools.addEventListener('click', (e) => {
-          if (!e.target.closest('[data-act="sf-fill"]')) return;
-          fillExtinguishers();
+          const b = e.target.closest('[data-act]');
+          if (!b) return;
+          if (b.dataset.act === 'sf-fill') fillExtinguishers();
+          else if (b.dataset.act === 'sf-toilets') fillToilets();
+          else if (b.dataset.act === 'sf-medical') placeMedical();
+          else return;
           refresh();
         });
         body.querySelector('#sfExpected').addEventListener('input', (e) => {
@@ -517,5 +602,5 @@
     try { return fn(); } finally { forced = false; }
   }
 
-  App.safety = { RULE, LV, run, block, open, expected, fillPlan, fillExtinguishers, drawUnder, drawOverlay, drawLabels, withOverlay, densityText, get showing() { return showing(); } };
+  App.safety = { RULE, LV, run, block, open, expected, fillPlan, fillExtinguishers, fillToilets, placeMedical, freeSpot, drawUnder, drawOverlay, drawLabels, withOverlay, densityText, get showing() { return showing(); } };
 })();
