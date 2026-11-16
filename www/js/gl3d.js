@@ -763,6 +763,16 @@
       this.bounds = scene.bounds;
       gl.bindBuffer(gl.ARRAY_BUFFER, null);
     }
+    /** 매 장면 바뀌는 것(걷는 사람들): mesh를 그대로 올림 (빈 것이나 null이면 그리지 않음) */
+    setDynamic(mesh) {
+      const gl = this.gl;
+      if (!mesh || !mesh.n) { if (this.dyn) this.dyn.count = 0; return; }
+      if (!this.dyn) this.dyn = { buf: gl.createBuffer(), count: 0 };
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.dyn.buf);
+      gl.bufferData(gl.ARRAY_BUFFER, mesh.a.subarray(0, mesh.n * STRIDE), gl.DYNAMIC_DRAW);
+      gl.bindBuffer(gl.ARRAY_BUFFER, null);
+      this.dyn.count = mesh.n;
+    }
     clearScene() {
       const gl = this.gl;
       const b = this.batches;
@@ -1078,6 +1088,7 @@
       if (o.ground !== false) draw({ buf: this.groundBuf, count: this.groundCount });
       gl.depthMask(true);
       draw(B.solid);
+      if (this.dyn && this.dyn.count) draw(this.dyn); // 걷는 사람들
       if (o.ceil) draw(B.ceil);
       drawTex('solid');
       // 바닥에 붙는 것: 깊이는 쓰지 않고 차례대로 덧그림 (서로 겹쳐도 떨리지 않게)
@@ -1110,6 +1121,7 @@
     dispose() {
       const gl = this.gl;
       this.clearScene();
+      if (this.dyn) { gl.deleteBuffer(this.dyn.buf); this.dyn = null; }
       gl.deleteBuffer(this.groundBuf);
       gl.deleteBuffer(this.skyBuf);
       if (this.shadowFbo) {

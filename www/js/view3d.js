@@ -573,6 +573,51 @@
     return { eye, target: cam.target, fov: FOV_ORBIT, near: Math.max(0.15, cam.dist * 0.04), far: Math.max(4000, cam.dist * 12) };
   }
 
+  /* ── 걷는 사람들 (조감도): 동선을 따라 사람들이 오가며 걸음 (매 장면 새로 만들어 올림, 영상에도) ── */
+  let walkers = null; // { list, t0 }
+  const WALKERS_MAX = 160;
+  const walkersOn = () => App.modes.is('event') && App.settings.walkers3d === true;
+  function buildWalkers() {
+    const routes = [...App.doc.all()].filter((e) => e.type === 'route' && e.points && e.points.length >= 2 && App.layers.visible(e));
+    let list = [];
+    routes.forEach((rt) => {
+      const pts = rt.points.map((p) => [(p.x - scene.center.x) / 1000, (p.y - scene.center.y) / 1000]);
+      const cum = [0];
+      for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+      const L = cum[cum.length - 1];
+      if (L < 2) return;
+      const n = Math.min(30, Math.max(2, Math.round(L / 4)));
+      const rnd = seeded(`walk${rt.id}`), w = (rt.width || 1200) / 1000;
+      const STY = ['일반', '일반', '일반', '정장', '어린이'];
+      for (let i = 0; i < n; i++) list.push({ pts, cum, L, s0: (2 * L * i) / n + rnd() * 1.2, speed: 1.05 + rnd() * 0.45, off: (0.15 + rnd() * 0.3) * w, style: STY[Math.floor(rnd() * STY.length)], seed: `w${rt.id}_${i}` });
+    });
+    if (list.length > WALKERS_MAX) { const k = list.length / WALKERS_MAX; list = Array.from({ length: WALKERS_MAX }, (_, i) => list[Math.floor(i * k)]); }
+    walkers = { list, t0: performance.now() };
+  }
+  /** t초 뒤의 걷는 사람들 모형 (끝까지 갔다가 돌아옴, 가는 사람과 오는 사람은 길의 서로 다른 쪽) */
+  function walkerMesh(t) {
+    const L = newLayers(Math.max(16, walkers.list.length * 2));
+    const C = makeCtx(L, [], { lod: true, crowd: 999 });
+    walkers.list.forEach((w) => {
+      let s = (w.s0 + w.speed * t) % (2 * w.L);
+      const back = s > w.L;
+      if (back) s = 2 * w.L - s;
+      let k = 1;
+      while (k < w.cum.length - 1 && w.cum[k] < s) k++;
+      const a = w.pts[k - 1], b = w.pts[k], seg = (w.cum[k] - w.cum[k - 1]) || 1, u = (s - w.cum[k - 1]) / seg;
+      let dx = (b[0] - a[0]) / seg, dz = (b[1] - a[1]) / seg;
+      if (back) { dx = -dx; dz = -dz; }
+      // 걷는 쪽의 오른쪽으로 비켜 걸음
+      const px = a[0] + (b[0] - a[0]) * u - dz * w.off, pz = a[1] + (b[1] - a[1]) * u + dx * w.off;
+      const rot = (Math.atan2(-dx, dz) * 180) / Math.PI;
+      C.rnd = seeded(w.seed);
+      C.place(px, pz, rot, Math.abs(Math.sin((s / 0.75) * Math.PI)) * 0.03);
+      itemModel(C, { id: w.seed, type: 'item', kind: '사람', category: 'event', size: 500, depth: 400, count: 1, style: w.style, rotation: 0 }, {});
+    });
+    C.world();
+    return L.solid;
+  }
+
   function draw() {
     // 바로 부른 경우(저장·다시 그리기)에도 기다리던 장면을 취소: 안 그러면 그리기 고리가 둘로 늘어 점점 느려짐
     if (raf) cancelAnimationFrame(raf);
@@ -582,6 +627,11 @@
     if (mode === 'walk') stepWalk(t0);
     resize();
     const hq = quality === 'high';
+    const walking = walkersOn() && scene;
+    if (walking) {
+      if (!walkers) buildWalkers();
+      R.setDynamic(walkers.list.length ? walkerMesh((t0 - walkers.t0) / 1000) : null);
+    } else if (R.dyn && R.dyn.count) R.setDynamic(null);
     R.render(camera(), {
       sun: sunIndex(), ceil: mode === 'walk', clouds: hq, shadows: true, shadowSize: hq ? 2048 : 1024, labels: labelsOn(),
       fog: mode === 'walk' ? 1 / 700 : 1 / 1500,
@@ -597,9 +647,17 @@
         requestDraw();
       }
     }
+    if (walking && mode !== 'walk' && shotScale === 1 && !rec) {
+      // 걷는 사람들로 계속 그리는 동안 느리면(55ms 넘게) 해상도를 한 단계 낮춤 (휴대폰)
+      const gap = lastFrame ? t0 - lastFrame : 0;
+      walkSlow = gap > 55 && gap < 500 ? walkSlow + 1 : Math.max(0, walkSlow - 1);
+      if (walkSlow > 30 && slow < 2) { slow++; walkSlow = 0; }
+    }
     lastFrame = t0;
     drawPick();
+    if (walking && walkers && walkers.list.length) requestDraw(); // 걷는 사람들: 계속 움직임
   }
+  let walkSlow = 0;
   const requestDraw = () => { if (!raf) raf = requestAnimationFrame(draw); };
 
   /* ── 3D에서 물건 고르기·옮기기 ──
@@ -791,6 +849,7 @@
 
   /** fresh: 새로 열 때만 원점을 다시 잡음. 연 채로 다시 조립할 때는 원점을 그대로 */
   function rebuild(fresh = false) {
+    walkers = null; // 동선·원점이 바뀌었을 수 있음
     const center = !fresh && scene && isOpen() ? scene.center : null;
     scene = build({ low: low && mode !== 'walk', routes: showRoutes, lod: quality !== 'high', center });
     if (!scene) return false;
@@ -1445,6 +1504,9 @@
     const lb = set.querySelector('[data-opt="labels"]');
     lb.hidden = !App.modes.is('event');
     lb.setAttribute('aria-pressed', String(App.settings.labels3d !== false));
+    const wb = set.querySelector('[data-opt="walkers"]');
+    wb.hidden = !App.modes.is('event');
+    wb.setAttribute('aria-pressed', String(App.settings.walkers3d === true));
     const cb = set.querySelector('[data-opt="crowd"]');
     cb.hidden = !App.modes.is('event');
     cb.setAttribute('aria-pressed', String(App.settings.crowd3d === true));
@@ -1500,6 +1562,7 @@
           <button type="button" class="btn" data-opt="routes" title="동선을 바닥에 표시">동선 표시</button>
           <button type="button" class="btn" data-opt="labels" title="영역 이름·무대·화장실·입구·메모를 3D에 표시 (사진·영상에도)">이름표</button>
           <button type="button" class="btn" data-opt="crowd" title="예상 인원만큼 관람·대기 구역에 사람을 세워 봄 (그림은 최대 ${CROWD_MAX}명, 사진·영상에도)">인파</button>
+          <button type="button" class="btn" data-opt="walkers" title="동선을 따라 사람들이 오가며 걸음 (영상에도)">걷는 사람</button>
           <button type="button" class="btn" data-opt="quality" title="끄면 빠르게 (그림자·해상도를 낮춤)">고화질</button>
         </div></div>
         <div class="v3-set-row"><span>시점</span><div class="v3-seg v3-views"></div></div>
@@ -1563,6 +1626,16 @@
       } else if (b.dataset.opt === 'routes') {
         showRoutes = !showRoutes;
         rebuild();
+      } else if (b.dataset.opt === 'walkers') {
+        App.settings.walkers3d = App.settings.walkers3d !== true;
+        App.saveSettings();
+        walkers = null;
+        syncUi();
+        requestDraw();
+        if (App.settings.walkers3d) {
+          const n = [...App.doc.all()].filter((e) => e.type === 'route' && e.points && e.points.length >= 2 && App.layers.visible(e)).length;
+          App.ui.toast(n ? `동선 ${n}개를 따라 사람들이 걷습니다. 영상(돌려 보기·녹화)에도 나옵니다.` : '동선이 없습니다. 동선 도구로 길을 그리면 사람들이 그 길을 따라 걷습니다.');
+        }
       } else if (b.dataset.opt === 'crowd') {
         App.settings.crowd3d = App.settings.crowd3d !== true;
         App.saveSettings();
@@ -1706,7 +1779,7 @@
   const isOpen = () => !!el && !el.hidden;
 
   App.view3d = {
-    open, close, isOpen, build, buildItem, seeded, GROUNDS, crowdInfo, CROWD_MAX, get lastCrowd() { return lastCrowd; },
+    open, close, isOpen, build, buildItem, seeded, GROUNDS, crowdInfo, CROWD_MAX, get lastCrowd() { return lastCrowd; }, get walkers() { return walkers ? walkers.list.length : 0; }, walkerMesh: (t) => (walkers ? walkerMesh(t) : null),
     /** 영상: kind 'orbit'|'route'|'free', o: { duration(초), noSave, longSide } → Promise<{ blob, name, type } | null> */
     record: (kind, o) => startRecording(kind, o),
     stopRecording: () => stopRecording(),
