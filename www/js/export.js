@@ -586,7 +586,168 @@
     }
     return true;
   }
-  /** 현장 배치도 PDF. o: { paper: 'A4'|'A3', booths } */
+  /* ── 설치 체크리스트 (A4 세로, 여러 쪽): 구역(방)마다 품목·수량과 반입·설치·점검·철거 확인 칸, 끝에 행사 전 안전 확인.
+     묶음은 집계의 ‘구역별’(인테리어 모드는 ‘방별’)과 같음. 돌려주는 값: [{ jpeg, w, h, pw, ph }] (없으면 빈 목록) ── */
+  const CHECK_STEPS = ['반입', '설치', '점검', '철거'];
+  function checklistPages() {
+    const groups = App.summary.checklist();
+    if (!groups.length) return [];
+    const event = App.modes.is('event');
+    const [mmW, mmH] = [PAPER.A4[1], PAPER.A4[0]]; // 세로
+    const W = Math.round((mmW / 25.4) * DPI), H = Math.round((mmH / 25.4) * DPI);
+    const f = FONT(), m = 96, RH = 46, x0 = m, x1 = W - m;
+    // 칸: 품목 | 수량 | 반입·설치·점검·철거 | 비고
+    const noteW = 250, stepW = 98, qtyW = 150;
+    const xNote = x1 - noteW, xStep = xNote - stepW * CHECK_STEPS.length, xQty = xStep - qtyW;
+    const pages = [];
+    let ctx = null, y = 0;
+    const fit = (t, max) => { if (ctx.measureText(t).width <= max) return t; let s = String(t); while (s.length > 1 && ctx.measureText(`${s}…`).width > max) s = s.slice(0, -1); return `${s}…`; };
+    const bottom = H - m - 70; // 아래는 쪽 번호·담당 칸
+    const newPage = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = W; canvas.height = H;
+      ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, W, H);
+      ctx.textBaseline = 'top';
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#c54b08';
+      ctx.fillRect(m, m, 70, 9);
+      if (!pages.length) {
+        ctx.font = `800 30px ${f}`;
+        ctx.fillText('설치 체크리스트', m, m + 22);
+        ctx.fillStyle = '#212529';
+        ctx.font = `800 54px ${f}`;
+        ctx.fillText(fit(projectName(), x1 - x0), m, m + 62);
+        const r = event && App.safety ? App.safety.run() : null;
+        ctx.fillStyle = '#495057';
+        ctx.font = `500 24px ${f}`;
+        ctx.fillText([new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' }), r && r.expected ? `${r.auto ? '수용 인원 (어림)' : '예상 인원'} ${r.expected.toLocaleString('ko-KR')}명` : '', `${event ? '구역' : '방'}마다 반입 → 설치 → 점검 → 철거 순서로 확인하고 ✓ 표시합니다`].filter(Boolean).join(' · '), m, m + 136);
+        y = m + 200;
+      } else {
+        ctx.font = `700 26px ${f}`;
+        ctx.fillText('설치 체크리스트', m, m + 22);
+        ctx.fillStyle = '#495057';
+        ctx.font = `500 24px ${f}`;
+        ctx.fillText(fit(projectName(), x1 - x0 - 260), m + 230, m + 23);
+        y = m + 86;
+      }
+      pages.push(canvas);
+    };
+    const line = (yy, color = '#dee2e6', w = 1.5) => { ctx.strokeStyle = color; ctx.lineWidth = w; ctx.beginPath(); ctx.moveTo(x0, yy); ctx.lineTo(x1, yy); ctx.stroke(); };
+    const box = (cx, cy, s = 28) => { ctx.strokeStyle = '#495057'; ctx.lineWidth = 2.5; ctx.strokeRect(Math.round(cx - s / 2), Math.round(cy - s / 2), s, s); };
+    /** 묶음 제목 + 표 머리 (쪽이 넘어가면 다시 그림) */
+    const heading = (g, again) => {
+      ctx.fillStyle = '#212529';
+      ctx.font = `800 32px ${f}`;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      const title = fit(`${g.title}${again ? ' (이어서)' : ''}`, x1 - x0 - 20);
+      ctx.fillText(title, x0, y);
+      if (g.sub && !again) {
+        const tw = ctx.measureText(title).width;
+        ctx.fillStyle = '#868e96';
+        ctx.font = `500 22px ${f}`;
+        ctx.fillText(fit(g.sub, x1 - x0 - tw - 30), x0 + tw + 18, y + 8);
+      }
+      y += 48;
+      ctx.fillStyle = '#f1f3f5';
+      ctx.fillRect(x0, y, x1 - x0, RH - 6);
+      ctx.fillStyle = '#495057';
+      ctx.font = `700 22px ${f}`;
+      ctx.textBaseline = 'middle';
+      const cy = y + (RH - 6) / 2;
+      (g.cols || [['품목', x0 + 12, 'left'], ['수량', xStep - 16, 'right'], ...CHECK_STEPS.map((t, i) => [t, xStep + stepW * (i + 0.5), 'center']), ['비고', xNote + 14, 'left']]).forEach(([t, x, align]) => { ctx.textAlign = align; ctx.fillText(t, x, cy); });
+      y += RH - 6;
+    };
+    newPage();
+    groups.forEach((g) => {
+      // 제목·표 머리·첫 줄이 한 쪽에 같이 있게
+      if (y + 48 + RH * 2 > bottom) newPage();
+      heading(g, false);
+      let cat = null;
+      g.rows.forEach((r) => {
+        // 분류가 바뀌면 작은 소제목 줄 (분류 줄과 그 첫 줄은 한 쪽에)
+        const sub = r.cat && r.cat !== cat ? 34 : 0;
+        if (y + sub + RH > bottom) { newPage(); heading(g, true); }
+        if (sub) {
+          cat = r.cat;
+          ctx.textBaseline = 'middle';
+          ctx.textAlign = 'left';
+          ctx.fillStyle = '#c54b08';
+          ctx.font = `700 20px ${f}`;
+          ctx.fillText(r.cat, x0 + 12, y + sub / 2 + 3);
+          y += sub;
+        }
+        const cy = y + RH / 2;
+        ctx.textBaseline = 'middle';
+        ctx.textAlign = 'left';
+        ctx.fillStyle = '#212529';
+        ctx.font = `600 25px ${f}`;
+        ctx.fillText(fit(r.label, xQty - x0 - 24), x0 + 12, cy);
+        ctx.textAlign = 'right';
+        ctx.font = `700 25px ${f}`;
+        ctx.fillText(r.text, xStep - 16, cy);
+        CHECK_STEPS.forEach((_, i) => box(xStep + stepW * (i + 0.5), cy));
+        y += RH;
+        line(y);
+      });
+      y += 34;
+    });
+    // 행사 전 안전 확인 (조감도 모드): 안전 점검의 줄마다 확인 칸
+    const checks = event && App.safety ? App.safety.run().checks.filter((c) => c.id !== 'expected') : [];
+    if (checks.length) {
+      const g = { title: '행사 전 안전 확인', sub: '안전 점검의 어림값 · 현장에서 다시 확인', cols: [['항목', x0 + 12, 'left'], ['내용', x0 + 250, 'left'], ['확인', x1 - 50, 'center']] };
+      if (y + 48 + RH * 2 > bottom) newPage();
+      heading(g, false);
+      checks.forEach((c) => {
+        // 내용은 두 줄까지
+        ctx.font = `500 23px ${f}`;
+        const max = x1 - 110 - (x0 + 250), words = String(c.print || c.value || '').split(' ');
+        const lines = [''];
+        words.forEach((w) => { const t = lines[lines.length - 1] ? `${lines[lines.length - 1]} ${w}` : w; if (ctx.measureText(t).width <= max || !lines[lines.length - 1]) lines[lines.length - 1] = t; else lines.push(w); });
+        const shown = lines.slice(0, 2);
+        if (lines.length > 2) shown[1] = fit(`${shown[1]} ${lines.slice(2).join(' ')}`, max);
+        const h = shown.length > 1 ? RH + 26 : RH;
+        if (y + h > bottom) { newPage(); heading(g, true); }
+        ctx.textBaseline = 'middle';
+        ctx.textAlign = 'left';
+        ctx.fillStyle = '#212529';
+        ctx.font = `700 24px ${f}`;
+        ctx.fillText(c.title, x0 + 12, y + h / 2);
+        ctx.fillStyle = '#343a40';
+        ctx.font = `500 23px ${f}`;
+        shown.forEach((t, i) => ctx.fillText(fit(t, max), x0 + 250, y + h / 2 + (i - (shown.length - 1) / 2) * 30));
+        box(x1 - 50, y + h / 2);
+        y += h;
+        line(y);
+      });
+    }
+    // 쪽마다 아래에 담당·확인 칸과 쪽 번호
+    pages.forEach((canvas, i) => {
+      const c = canvas.getContext('2d');
+      c.textBaseline = 'alphabetic';
+      c.fillStyle = '#495057';
+      c.font = `500 22px ${f}`;
+      c.textAlign = 'left';
+      c.fillText('담당 ________________    확인 ________________    날짜 ____ . ____ . ____', m, H - m);
+      c.textAlign = 'right';
+      c.fillText(`${i + 1} / ${pages.length}`, x1, H - m);
+    });
+    const pt = (mm) => (mm / 25.4) * 72;
+    return pages.map((canvas) => ({ jpeg: jpegBytes(canvas, 0.9), w: W, h: H, pw: pt(mmW), ph: pt(mmH) }));
+  }
+  /** 설치 체크리스트만 PDF로 */
+  function checklistPdf() {
+    const pages = checklistPages();
+    if (!pages.length) { App.ui.toast('체크리스트에 넣을 물건이 없습니다. 먼저 물건을 놓으세요.'); return false; }
+    const blob = pdfFromPages(pages, pages[0].pw, pages[0].ph);
+    const name = `${safeName(projectName())}_설치체크리스트_${exporter.stamp()}.pdf`;
+    exporter.saved(exporter.download(name, blob, 'application/pdf'), `‘${name}’을 저장했습니다. (A4 세로 ${pages.length}쪽 · ${App.modes.is('event') ? '구역' : '방'}마다 반입·설치·점검·철거 확인 칸)`);
+    return { name, pages: pages.length, blob, groups: App.summary.checklist() };
+  }
+
+  /** 현장 배치도 PDF. o: { paper: 'A4'|'A3', booths, checklist(설치 체크리스트 쪽을 뒤에 붙임) } */
   function layoutPdf(o = {}) {
     const paper = o.paper === 'A4' ? 'A4' : 'A3';
     const rect = planRect();
@@ -666,14 +827,17 @@
     }
     const jpeg = jpegBytes(canvas, 0.92);
     const pt = (mm) => (mm / 25.4) * 72;
-    const blob = pdfFromJpeg(jpeg, W, H, pt(mmW), pt(mmH));
+    // 설치 체크리스트 쪽(A4 세로)을 뒤에 붙임
+    const extra = o.checklist ? checklistPages() : [];
+    const blob = pdfFromPages([{ jpeg, w: W, h: H }, ...extra], pt(mmW), pt(mmH));
     const name = `${safeName(projectName())}_배치도_${exporter.stamp()}.pdf`;
-    exporter.saved(exporter.download(name, blob, 'application/pdf'), `‘${name}’을 저장했습니다. (${paper} ${tall ? '세로' : '가로'}, 약 1:${N.toLocaleString('ko-KR')})`);
-    return { name, paper, tall, scale: N, sections: sections.map((x) => x.title), done, blob, W, H };
+    exporter.saved(exporter.download(name, blob, 'application/pdf'), `‘${name}’을 저장했습니다. (${paper} ${tall ? '세로' : '가로'}, 약 1:${N.toLocaleString('ko-KR')}${extra.length ? ` · 설치 체크리스트 ${extra.length}쪽` : ''})`);
+    return { name, paper, tall, scale: N, sections: sections.map((x) => x.title), done, blob, W, H, pages: 1 + extra.length };
   }
   async function layoutDialog() {
     let paper = 'A3';
     const hasBooths = App.modes.is('event') && App.booths && App.booths.all().some((e) => e.boothNo);
+    const hasItems = App.summary.checklist().length > 0;
     const r = await App.ui.dialog({
       title: App.modes.is('event') ? '현장 배치도 (PDF)' : '평면 배치도 (PDF)',
       html: `
@@ -683,6 +847,7 @@
           <button type="button" class="seg-btn" role="radio" data-paper="A4" aria-checked="false">A4</button>
         </div>
         ${hasBooths ? '<label class="check-row"><input type="checkbox" id="lyBooths" checked><span>부스 배정 목록 넣기<small>번호·업체 (길면 일부만, 전체는 배정표 CSV)</small></span></label>' : ''}
+        ${hasItems ? `<label class="check-row"><input type="checkbox" id="lyCheck"><span>설치 체크리스트 쪽 붙이기<small>${App.modes.is('event') ? '구역' : '방'}마다 품목·수량과 반입·설치·점검·철거 확인 칸 (A4 세로, 뒤쪽에)</small></span></label>` : ''}
         <p class="props-meta">표제란의 ‘작성’에는 견적서의 우리 회사 정보가 들어갑니다. 숨긴 레이어는 빠집니다.</p>`,
       actions: [{ id: 'cancel', label: '취소' }, { id: 'ok', label: 'PDF 만들기', primary: true }],
       onOpen(body) {
@@ -696,14 +861,15 @@
     });
     if (r.id !== 'ok') return false;
     const booths = !r.body.querySelector('#lyBooths') || r.body.querySelector('#lyBooths').checked;
+    const checklist = !!(r.body.querySelector('#lyCheck') && r.body.querySelector('#lyCheck').checked);
     App.ui.busy('배치도를 만드는 중…');
     await new Promise((res) => setTimeout(res, 30));
     try {
-      return layoutPdf({ paper, booths });
+      return layoutPdf({ paper, booths, checklist });
     } finally {
       App.ui.busy(false);
     }
   }
-  Object.assign(exporter, { exportPng, exportPdf, pdfDialog, pdfFromJpeg, pdfFromPages, planRect, drawPlan, scaleBar, jpegBytes, layoutPdf, layoutDialog, layoutSections });
+  Object.assign(exporter, { exportPng, exportPdf, pdfDialog, pdfFromJpeg, pdfFromPages, planRect, drawPlan, scaleBar, jpegBytes, layoutPdf, layoutDialog, layoutSections, checklistPages, checklistPdf });
   App.exporter = exporter;
 })();

@@ -546,11 +546,11 @@ button { font: inherit; color: inherit; }
 .sum-views { display: flex; flex: 1; gap: 4px; min-width: 0; }
 .sum-views .seg-btn { flex: 1; min-width: 0; padding: 0 6px; white-space: nowrap; }
 .sum-bar > .btn { flex: none; padding: 0 10px; white-space: nowrap; }
-/* 좁은 화면의 견적 보기: 보기 단추가 눌리지 않게 버튼은 아래 줄로 */
+/* 좁은 화면에서 버튼이 둘인 보기(견적: 견적서·CSV, 방별·구역별: 체크리스트·CSV): 보기 단추가 눌리지 않게 버튼은 아래 줄로 */
 @media (max-width: 480px) {
-  .sum-bar.is-cost { flex-wrap: wrap; }
-  .sum-bar.is-cost .sum-views { flex-basis: 100%; }
-  .sum-bar.is-cost > .btn { flex: 1; }
+  .sum-bar.is-two { flex-wrap: wrap; }
+  .sum-bar.is-two .sum-views { flex-basis: 100%; }
+  .sum-bar.is-two > .btn { flex: 1; }
 }
 
 .draw-actions {

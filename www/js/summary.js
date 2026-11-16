@@ -1,4 +1,4 @@
-/* 집계표: 방별 / 전체 / 종류별 보기, 소계·총계, CSV 내보내기.
+/* 집계표: 방별(조감도 모드는 구역별) / 전체 / 종류별 보기, 소계·총계, CSV 내보내기.
    소계: 한 무리(예: 콘센트 여러 형식, 같은 종류의 문 여러 크기)의 합. 두 줄 이상일 때만 보임
    총계: 한 항목 묶음(문, 전기, 전선관 …) 전체의 합 */
 (function () {
@@ -7,8 +7,9 @@
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const num = (v) => String(Number(v));
 
-  const VIEWS = [['room', '방별'], ['all', '전체'], ['kind', '종류별'], ['cost', '견적']];
-  const OUTSIDE = '방 밖';
+  /** 보기 탭. 첫 탭은 인테리어 모드에서 ‘방별’, 조감도 모드에서 ‘구역별’(영역마다 그 안에 있는 것) */
+  const views = () => [['room', App.modes.is('event') ? '구역별' : '방별'], ['all', '전체'], ['kind', '종류별'], ['cost', '견적']];
+  const OUTSIDE = '방 밖', NO_ZONE = '구역 밖';
 
   /** 개수·길이로 세는 항목 묶음. 선은 분류(전선관·배관·덕트·기타)마다 따로 */
   function sections() {
@@ -71,33 +72,52 @@
     const M = App.measure;
     const rooms = of('room').map((r) => ({ id: r.id, name: r.name || '이름 없음', issue: r.issue, points: r.points, box: bbox(r.points), q: M.room(r), el: r }));
     const records = [];
-    const add = (sec, group, key, room, qty) => { if (qty > 0) records.push({ sec, group, key, room: room || null, qty }); };
+    const add = (sec, group, key, room, qty, zone = null) => { if (qty > 0) records.push({ sec, group, key, room: room || null, zone, qty }); };
+    // 구역 (조감도 모드): 물건이 놓인 가장 작은 영역 — ‘구역별’ 보기와 설치 체크리스트에 씀
+    const event = App.modes.is('event');
+    const zones = of('zone').filter((z) => z.points && z.points.length >= 3).map((z) => ({ id: z.id, name: z.name || '이름 없는 영역', area: App.model.TYPES.zone.area(z), surface: App.catalog.surfaceName(z), crowd: !!z.crowd, points: z.points, box: bbox(z.points), mid: App.geom.interiorPoint(z.points) }));
+    const bySize = zones.slice().sort((a, b) => a.area - b.area);
+    // 안에 있거나 경계선에서 0.3m 안 (둘레에 세운 펜스·입구 아치처럼 선 위에 놓인 것도 그 영역의 것)
+    const EDGE = 300;
+    const onEdge = (p, pts) => pts.some((q, i) => App.geom.closestOnSegment(p, q, pts[(i + 1) % pts.length]).dist <= EDGE);
+    const inZone = (p, z) => p.x >= z.box.minX - EDGE && p.x <= z.box.maxX + EDGE && p.y >= z.box.minY - EDGE && p.y <= z.box.maxY + EDGE && (App.geom.pointInPolygon(p, z.points) || onEdge(p, z.points));
+    const zoneIds = new Set(zones.map((z) => z.id));
+    const zoneAt = (p) => {
+      if (!event) return null;
+      const own = p.perimeterOf || p.seatsOf || p.parkingOf; // 그 영역에 두르거나 채운 것은 그 영역의 것
+      if (own && zoneIds.has(own)) return own;
+      const z = bySize.find((x) => inZone(p, x));
+      return z ? z.id : null;
+    };
+    zones.forEach((z) => { z.holds = zones.some((o) => o !== z && o.area < z.area && inZone(o.mid, z)); }); // 다른 영역을 품은 영역
 
     of('door').forEach((d) => add('door', d.kind, `${d.kind} ${num(d.width)}×${num(d.height)}`, (M.openingRoom(d) || {}).id, 1));
     of('window').forEach((w) => add('window', w.kind, `${w.kind} ${num(w.width)}×${num(w.height)}`, (M.openingRoom(w) || {}).id, 1));
     of('column').forEach((c) => {
       const shape = App.catalog.SHAPE_NAMES[c.shape];
-      add('column', shape, c.shape === 'circle' ? `원형 Ø${num(c.width)}` : `사각 ${num(c.width)}×${num(c.depth)}`, c.room, 1);
+      add('column', shape, c.shape === 'circle' ? `원형 Ø${num(c.width)}` : `사각 ${num(c.width)}×${num(c.depth)}`, c.room, 1, zoneAt(c));
     });
     of('item').forEach((it) => {
-      add(it.category, it.kind, App.catalog.itemLabel(it), it.room, 1);
+      const zone = zoneAt(it);
+      add(it.category, it.kind, App.catalog.itemLabel(it), it.room, 1, zone);
       if (it.category !== 'event') return;
       // 좌석: 의자 배열, 낱개 의자, 테이블 둘레 의자
       const seats = App.catalog.seats(it);
-      if (seats) add('seat', '좌석', it.kind === '의자 배열' ? '의자 배열' : it.kind === '의자' ? '낱개 의자' : `${it.kind} 의자`, it.room, seats.count);
-      if (it.kind === '사람') add('people', '사람', `사람 · ${it.style || '정장'}`, it.room, it.count || 1);
-      if (it.kind === '주차 구획') add('parking', '주차', '주차 구획', it.room, it.count || 1);
+      if (seats) add('seat', '좌석', it.kind === '의자 배열' ? '의자 배열' : it.kind === '의자' ? '낱개 의자' : `${it.kind} 의자`, it.room, seats.count, zone);
+      if (it.kind === '사람') add('people', '사람', `사람 · ${it.style || '정장'}`, it.room, it.count || 1, zone);
+      if (it.kind === '주차 구획') add('parking', '주차', '주차 구획', it.room, it.count || 1, zone);
     });
     of('line').forEach((l) => {
       const p = App.doc.get(l.presetId);
       const name = p ? p.name : l.category;
       const sec = `line:${App.catalog.LINE_CATEGORIES.includes(l.category) ? l.category : '기타'}`;
       // 평면 길이는 방 경계에서 잘라 방마다, 기구까지 오르내리는 길이는 그 기구가 있는 방, 추가 수직은 선 가운데가 있는 방
-      M.lineRooms(l, rooms).forEach((len, room) => add(sec, name, name, room, len));
+      const half = { x: (l.start.x + l.end.x) / 2, y: (l.start.y + l.end.y) / 2 }, lz = zoneAt(half); // 구역은 선 가운데가 있는 곳
+      M.lineRooms(l, rooms).forEach((len, room) => add(sec, name, name, room, len, lz));
       const q = M.line(l);
-      q.ends.forEach((e) => add(sec, name, name, e.item.room, e.drop));
-      const mid = M.roomAt({ x: (l.start.x + l.end.x) / 2, y: (l.start.y + l.end.y) / 2 });
-      add(sec, name, name, mid && mid.id, q.extra);
+      q.ends.forEach((e) => add(sec, name, name, e.item.room, e.drop, lz));
+      const mid = M.roomAt(half);
+      add(sec, name, name, mid && mid.id, q.extra, lz);
     });
 
     const walls = of('wall');
@@ -127,7 +147,7 @@
       finishes: finishTotals(counted),
       // 마감 자재: 바닥 모양·벽 마감·천장 마감으로 센 벽지 롤·페인트·마루·타일 (면적을 더한 뒤 올림)
       matLines: App.materials.lines(counted.map((r) => ({ ...r.el, q: r.q }))),
-      zones: of('zone').map((z) => ({ name: z.name, area: App.model.TYPES.zone.area(z), surface: App.catalog.surfaceName(z), crowd: !!z.crowd })),
+      zones: zones.map((z) => ({ id: z.id, name: z.name, area: z.area, surface: z.surface, crowd: z.crowd, holds: z.holds })),
       routes: of('route').map((r) => ({ route: r, ...App.routes.check(r) })),
       items: of('item'),
     };
@@ -339,6 +359,68 @@
     return blocks;
   }
 
+  /** 구역별 (조감도 모드): 영역마다 넓이와 그 안에 있는 것 (겹친 영역은 가장 작은 영역에), 방(실내 행사장), 구역 밖, 총계 */
+  function viewZone(s) {
+    const blocks = [];
+    const secs = sections();
+    const itemsOf = (pick) => {
+      const rows = [];
+      secs.forEach((sec) => {
+        const recs = s.records.filter((r) => r.sec === sec.id && pick(r));
+        if (!recs.length) return;
+        rows.push(row(sec.title, null, '', 'head', sec.title));
+        const byKey = sumBy(recs, (r) => r.key);
+        byKey.forEach((qty, key) => rows.push(row(key, secValue(sec, qty), '', '', sec.title)));
+        if (byKey.size > 1) rows.push(row(`${sec.title} 소계`, secValue(sec, total(recs)), '', 'subtotal', sec.title));
+      });
+      return rows;
+    };
+    s.zones.forEach((z) => {
+      const note = [z.surface, z.crowd ? `관람·대기 구역 · 권장 상한 ${Math.floor(z.area / 5e5).toLocaleString('ko-KR')}명` : ''].filter(Boolean).join(' · ');
+      blocks.push({ title: z.name, sub: z.holds ? '안쪽 영역에 든 것은 그 영역에서 셈' : '', rows: [row('넓이', V.area(z.area), note, '', '면적'), ...itemsOf((r) => r.zone === z.id)] });
+    });
+    // 방 (실내 행사장): 영역에 들지 않은 것
+    s.rooms.forEach((r) => {
+      blocks.push({ title: r.name, sub: r.issue ? '방 · 경계 확인 필요' : '방', warn: !!r.issue, rows: [row('바닥 면적', V.area(r.q.floor), '벽 중심 기준', '', '면적'), ...itemsOf((x) => x.zone == null && x.room === r.id)] });
+    });
+    const outside = itemsOf((x) => x.zone == null && x.room == null);
+    if (outside.length) blocks.push({ title: NO_ZONE, sub: s.zones.length || s.rooms.length ? '영역·방 밖에 있는 것' : '‘영역’ 도구로 구역을 그리면 구역마다 나눠 셉니다', rows: outside });
+    const tot = [];
+    if (s.zones.length > 1) tot.push(row('영역', V.count(s.zones.length, '곳'), '', '', '면적'));
+    secs.forEach((sec) => {
+      const recs = s.records.filter((r) => r.sec === sec.id);
+      if (recs.length) tot.push(row(sec.title, secValue(sec, total(recs)), '', '', sec.title));
+    });
+    if (tot.length) blocks.push({ title: '총계', rows: tot, total: true });
+    const rb = routeBlock(s);
+    if (rb) blocks.push(rb);
+    return blocks;
+  }
+
+  /** 설치 체크리스트의 묶음: ‘구역별’(인테리어는 ‘방별’)과 같은 나눔으로, 놓거나 다는 것만 (좌석·사람·주차 칸 수 같은 딸린 수는 뺌).
+      묶음 안에서는 분류(구조물·장비·편의·안전 …, 문·전기·설비 …) 순서로.
+      돌려주는 값: [{ title, sub, rows: [{ label, text, cat }] }] */
+  function checklist() {
+    const s = compute();
+    const event = App.modes.is('event');
+    const secs = sections().filter((x) => !['seat', 'people', 'parking'].includes(x.id));
+    const CATS = App.catalog.EVENT_CATS;
+    // 행사 물건은 팔레트의 분류로 (종류 → 분류)
+    const catOf = (sec, r) => (sec.id === 'event' ? (App.catalog.itemDef(r.group) || {}).cat || '기타' : sec.title);
+    const rowsOf = (pick) => secs.flatMap((sec) => {
+      const recs = s.records.filter((r) => r.sec === sec.id && r.group !== '사람' && pick(r));
+      const cats = new Map(recs.map((r) => [r.key, catOf(sec, r)]));
+      const rows = [...sumBy(recs, (r) => r.key)].map(([key, qty]) => ({ label: key, text: secValue(sec, qty).text, cat: cats.get(key) }));
+      const order = (c) => (CATS.indexOf(c) < 0 ? CATS.length : CATS.indexOf(c));
+      return sec.id === 'event' ? rows.map((r, i) => ({ r, i })).sort((a, b) => order(a.r.cat) - order(b.r.cat) || a.i - b.i).map((x) => x.r) : rows;
+    });
+    const groups = [];
+    if (event) s.zones.forEach((z) => groups.push({ title: z.name, sub: [App.units.formatArea(z.area), z.surface].filter(Boolean).join(' · '), rows: rowsOf((r) => r.zone === z.id) }));
+    s.rooms.forEach((r) => groups.push({ title: r.name, sub: `방 · ${App.units.formatArea(r.q.floor)}`, rows: rowsOf((x) => x.zone == null && x.room === r.id) }));
+    groups.push({ title: event ? NO_ZONE : OUTSIDE, sub: '', rows: rowsOf((x) => x.zone == null && x.room == null) });
+    return groups.filter((g) => g.rows.length);
+  }
+
   /** 종류별: 항목마다 합계와 어느 방에 얼마나 있는지 */
   function viewKind(s) {
     const blocks = [];
@@ -375,7 +457,7 @@
     return blocks;
   }
 
-  const BUILD = { all: viewAll, room: viewRoom, kind: viewKind };
+  const BUILD = { all: viewAll, room: (s) => (App.modes.is('event') ? viewZone(s) : viewRoom(s)), kind: viewKind };
   let view = 'room';
 
   function blockHtml(b) {
@@ -404,11 +486,12 @@
     const blocks = cost ? [] : BUILD[view](s);
     const scroll = pane.scrollTop;
     const bar = `
-      <div class="sum-bar${cost ? ' is-cost' : ''}">
+      <div class="sum-bar${cost || view === 'room' ? ' is-two' : ''}">
         <div class="sum-views" role="tablist" aria-label="집계 보기">
-          ${VIEWS.map(([id, label]) => `<button type="button" class="seg-btn" role="tab" data-view="${id}" aria-selected="${id === view}">${label}</button>`).join('')}
+          ${views().map(([id, label]) => `<button type="button" class="seg-btn" role="tab" data-view="${id}" aria-selected="${id === view}">${label}</button>`).join('')}
         </div>
         ${cost ? '<button type="button" class="btn btn-primary" data-act="est-pdf" title="견적서를 PDF로 (A4)">견적서</button>' : ''}
+        ${view === 'room' ? `<button type="button" class="btn" data-act="checklist" ${blocks.length ? '' : 'disabled'} title="${App.modes.is('event') ? '구역' : '방'}마다 품목·수량과 반입·설치·점검·철거 확인 칸을 PDF로 (A4)">체크리스트</button>` : ''}
         <button type="button" class="btn" data-act="csv" ${blocks.length || cost ? '' : 'disabled'} title="엑셀에서 열 수 있는 CSV 파일로 저장">CSV</button>
       </div>`;
     widen(cost && !pane.hidden);
@@ -422,7 +505,7 @@
       ${blocks.map(blockHtml).join('') || `
         <div class="empty">
           <div class="empty-title">집계할 항목 없음</div>
-          <p>${view === 'room' && !s.rooms.length && s.records.length
+          <p>${view === 'room' && !s.rooms.length && s.records.length && !App.modes.is('event')
             ? '방이 아직 없습니다. ‘방’ 도구로 벽에 둘러싸인 곳을 누르면 방별로 나눠 집계합니다.'
             : App.modes.is('event')
               ? '물건·영역·동선을 놓으면 좌석 수, 물건 수량, 동선 길이와 걸리는 곳이 여기에 자동으로 정리됩니다.'
@@ -433,7 +516,7 @@
 
   /** 지금 보기를 CSV 줄로: 구분(블록) · 분류 · 항목 · 수량 · 단위 · 비고 */
   function csvRows() {
-    const label = VIEWS.find(([id]) => id === view)[1];
+    const label = views().find(([id]) => id === view)[1];
     const rows = [['구분', '분류', '항목', '수량', '단위', '비고']];
     BUILD[view](compute()).filter((b) => !b.screenOnly).forEach((b) => {
       b.rows.forEach((r) => {
@@ -495,6 +578,7 @@
         return;
       }
       if (e.target.closest('[data-act="csv"]')) exportCsv();
+      if (e.target.closest('[data-act="checklist"]')) App.exporter.checklistPdf();
       if (e.target.closest('[data-act="est-pdf"]')) App.estimate.exportPdf();
       if (e.target.closest('[data-act="proposal"]')) App.proposal.open();
       if (e.target.closest('[data-act="safety-open"]')) App.safety.open();
@@ -506,7 +590,7 @@
   }
 
   App.summary = {
-    init, compute, render, exportCsv, csvRows, sections,
+    init, compute, render, exportCsv, csvRows, sections, checklist,
     /** 보기(room·all·kind)의 표 블록 (PDF에 그릴 때) */
     blocks: (v) => BUILD[v](compute()).filter((b) => !b.screenOnly), // 내보내기용 (화면에서만 보이는 묶음은 뺌)
     get view() { return view; },

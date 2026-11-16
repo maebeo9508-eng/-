@@ -1541,18 +1541,18 @@
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     // 작은 영역부터 씀: 다른 영역을 품은 큰 영역(부지 전체)의 이름표는 위(안 되면 아래) 가장자리에, 이름표끼리 겹쳐도 비킴
-    const placed = [], inner = [];
+    const placed = [];
     const hit = (b) => placed.some((p) => b.x0 < p.x1 && b.x1 > p.x0 && b.y0 < p.y1 && b.y1 > p.y0);
-    zones.map((z) => ({ z, area: Z.area(z) })).sort((a, b) => a.area - b.area).forEach(({ z, area }) => {
+    const list = zones.map((z) => ({ z, area: Z.area(z), center: G.interiorPoint(z.points) })).sort((a, b) => a.area - b.area);
+    list.forEach(({ z, area, center }, i) => {
       const b = Z.bounds(z);
       if ((b.maxX - b.minX) * plan.view.scale < 50 || (b.maxY - b.minY) * plan.view.scale < 36) return;
       const lines = [[z.name, ROOM_NAME_FONT, -9], [App.units.formatArea(area), ROOM_AREA_FONT, 9]];
       const w = Math.max(...lines.map(([text, font]) => { ctx.font = font; return ctx.measureText(text).width; }));
       const boxAt = (q) => ({ x0: q.x - w / 2 - 4, x1: q.x + w / 2 + 4, y0: q.y - 18, y1: q.y + 18 });
-      const center = G.interiorPoint(z.points);
       let s = plan.view.toScreen(center.x, center.y);
-      const nested = inner.some((p) => G.pointInPolygon(p, z.points));
-      inner.push(center);
+      // 품은 영역이 있는지는 화면 배율과 상관없이 (작아서 이름표를 안 쓴 영역도 셈: 확대·축소 때 자리가 바뀌지 않게)
+      const nested = list.slice(0, i).some((o) => G.pointInPolygon(o.center, z.points));
       if (nested || hit(boxAt(s))) {
         const mid = (b.minX + b.maxX) / 2;
         const alt = [[b.minY, 24], [b.maxY, -24]].map(([y, dy]) => { const q = plan.view.toScreen(mid, y); return { x: q.x, y: q.y + dy }; })
