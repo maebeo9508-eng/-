@@ -215,7 +215,7 @@
     { kind: '콘솔 데스크', cat: '장비', size: 2000, depth: 1000, h3: 1100, back: true },
     { kind: 'LED 스크린', cat: '장비', size: 4000, depth: 300, h3: 3000, back: true, face: '화면 글자', sizes: [['3m', 3000, 300], ['4m', 4000, 300], ['6m', 6000, 300], ['8m', 8000, 300]] },
     { kind: '조명 타워', cat: '장비', size: 600, depth: 600, h3: 5000 },
-    { kind: '발전기', cat: '장비', size: 2000, depth: 1000, h3: 1200 },
+    { kind: '발전기', cat: '장비', size: 2000, depth: 1000, h3: 1200, numbers: { kw: N('용량', 'kW', 60, 3, 2000) } }, // 안전 점검의 전기 용량에 씀
     // ── 안내·장식
     { kind: '백월', cat: '안내·장식', size: 6000, depth: 400, h3: 3000, back: true, colors: '띠 색', face: '행사 제목', sizes: [['3m', 3000, 400], ['4.8m', 4800, 400], ['6m', 6000, 400], ['9m', 9000, 400]] },
     { kind: '현수막', cat: '안내·장식', size: 5000, depth: 100, h3: 3000, pass: true, colors: '띠 색', face: '현수막 글자', sizes: [['3m', 3000, 100], ['5m', 5000, 100], ['7m', 7000, 100], ['10m', 10000, 100]] },
@@ -491,6 +491,7 @@
         if (it.kind === '의자 배열') return `의자 배열 ${seats.cols}개×${seats.rows}줄 (${seats.count}석)`;
         if (it.kind === '사람') return `사람 ${it.count || 1}명 · ${it.style || '정장'}`;
         if (it.kind === '주차 구획') return `주차 구획 ${it.count || 1}칸`;
+        if (it.kind === '발전기') return `발전기 ${Number(it.kw) > 0 ? Number(it.kw) : 60}kW`; // 용량이 값을 정함
         const parts = [`${it.kind} ${it.kind === '건물' ? `${it.floors || 1}층 ` : ''}${catalog.sizeName(it) || `${num(it.size)}×${num(it.depth)}`}`];
         if (seats && it.kind !== '의자') parts.push(/테이블/.test(it.kind) ? `의자 ${seats.count}개` : `${seats.count}석`);
         if (it.style && def.styles && it.style !== (def.styleDefault || def.styles[0])) parts.push(it.style);

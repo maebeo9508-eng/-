@@ -1,4 +1,4 @@
-/* 행사 안전 점검 (조감도 모드): 예상 인원으로 화장실·소화기·의료·인파 밀집·비상 대피를 어림해서 알려 줌.
+/* 행사 안전 점검 (조감도 모드): 예상 인원으로 화장실·소화기·의료·인파 밀집·비상 대피를, 놓은 물건으로 전기 용량을 어림해서 알려 줌.
    - 집계 ‘전체’의 ‘안전 점검’ 묶음, 점검 창(동선 도구 위쪽 막대·집계에서 열기)
    - 도면에 겹쳐 보기: 소화기가 닿는 거리(20m), 소화기에서 먼 불 쓰는 물건, 관람 구역의 밀집도, 비상구
    - 제안서 PDF의 ‘안전 점검’ 쪽
@@ -17,7 +17,30 @@
     densityBad: 4,           // 4명을 넘으면 위험 (밀려 넘어질 수 있음)
     flow: 80,                // 출구 폭 1m에 1분에 80명 빠져나감
     evacMin: 8,              // 8분 안에 다 나가면 여유
+    powerMargin: 1.25,       // 발전기 용량은 필요 전력의 1.25배 (기동 전류·여유)
+    cableMax: 50000,         // 발전기에서 50m 넘으면 전압 강하·케이블 주의 (mm)
   };
+  /* 전기 (kW, 어림): 물건 종류별 기본값. 물건 속성의 ‘전기’ 칸에 넣은 값이 있으면 그 값 */
+  const kw1 = (v) => Math.round(v * 10) / 10;
+  const POWER = {
+    무대: (it) => Math.max(5, Math.round((it.size / 1000) * ((it.depth != null ? it.depth : it.size) / 1000) * 0.3)), // 음향·조명
+    'LED 스크린': (it) => Math.max(1, kw1((it.size / 1000) * (App.catalog.itemHeight3(it) / 1000) * 0.35)),
+    스피커: () => 1, 라인어레이: (it) => kw1((it.units || 5) * 0.8), '모니터 스피커': () => 0.5, '콘솔 데스크': () => 2,
+    '조명 타워': () => 1.5, 카메라: () => 0.3, 스크린: () => 0.5,
+    푸드트럭: () => 5, 부스: () => 1, 몽골텐트: () => 0.5, '대형 텐트': () => 2, '돔 텐트': () => 1, 컨테이너: () => 3, 매표소: () => 1,
+    '의무실 텐트': () => 1, '안내 키오스크': () => 0.3, 점수판: () => 1, 에어아치: () => 1.1, 분수: () => 1.5,
+  };
+  const GEN_SIZES = [10, 30, 60, 100, 200, 300]; // 흔한 발전기 용량 (kW)
+  /** 종류의 기본 전기 (kW). 전기를 안 쓰는 종류는 null */
+  const powerDefault = (it) => (it && POWER[it.kind] ? POWER[it.kind](it) : null);
+  /** 물건 하나가 쓰는 전기 (kW): 넣은 값, 없으면 기본값 */
+  function powerOf(it) {
+    if (!it || it.type !== 'item' || it.category !== 'event' || it.kind === '발전기' || !POWER[it.kind]) return 0;
+    const v = Number(it.kw);
+    return it.kw != null && it.kw !== '' && v >= 0 ? v : POWER[it.kind](it);
+  }
+  /** 발전기 용량 (kW) */
+  const genKw = (it) => (Number(it.kw) > 0 ? Number(it.kw) : 60);
   // 불이 날 수 있는 것 (전기·가스·조리·조명): 가까이에 소화기
   const FIRE = new Set(['푸드트럭', '발전기', '무대', '부스', '대형 텐트', '몽골텐트', '돔 텐트', '난로', '조명 타워', 'LED 스크린', '컨테이너', '매표소', '콘솔 데스크']);
   // 의무실·구급 자리를 알아보는 말 (‘착용 의무’, ‘응급 상황 시 연락’ 같은 말은 빼려고 붙는 말까지 봄)
@@ -233,6 +256,44 @@
     } else if (N >= RULE.careAt) {
       checks.push({ id: 'evac', title: '비상 대피', level: 'warn', value: '대피 동선 없음', detail: `예상 ${n0(N)}명`, advice: '동선 도구에서 ‘비상 대피’를 골라 자리에서 출구까지 그리세요 (끝이 비상구)', print: '비상 대피 동선과 비상구가 아직 정해지지 않았습니다' });
     }
+    // 6) 전기: 놓은 물건이 쓰는 전기(어림)와 발전기 용량, 발전기에서 먼 곳
+    const users = c.items.filter((it) => powerOf(it) > 0);
+    const demand = kw1(users.reduce((t, it) => t + powerOf(it), 0));
+    const gens = c.items.filter((it) => it.kind === '발전기');
+    const supply = gens.reduce((t, g) => t + genKw(g), 0);
+    data.power = { demand, supply, need: kw1(demand * RULE.powerMargin), far: [], gens: gens.length, short: 0 };
+    if (demand > 0 || gens.length) {
+      // 많이 쓰는 종류 셋
+      const byKind = new Map();
+      users.forEach((it) => byKind.set(it.kind, (byKind.get(it.kind) || 0) + powerOf(it)));
+      const top = [...byKind.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, v]) => `${k} ${n1(v)}`).join(' · ');
+      const detail0 = `필요 약 ${n1(demand)}kW${top ? ` (${top}${byKind.size > 3 ? ' …' : ''})` : ''}`;
+      if (!gens.length) {
+        // 발전기가 없으면 건물·상용 전원을 쓰는 것으로 보고 알려만 줌
+        data.power.short = c.indoor ? 0 : data.power.need;
+        checks.push({
+          id: 'power', title: '전기 용량', level: 'info', value: `약 ${n1(demand)}kW 필요`,
+          detail: `${detail0} · 발전기 없음${c.indoor ? ' (실내: 건물 전원)' : ''}`,
+          advice: c.indoor ? '건물 분전반의 남는 용량과 콘센트 자리를 확인하세요' : `발전기(${n0(data.power.need)}kW 이상)를 놓거나 상용 전원(임시 전력) 용량을 확인하세요. 물건 속성의 ‘전기’ 칸에서 값을 고칠 수 있습니다`,
+          print: `전기는 약 ${n1(demand)}kW가 필요합니다 (어림) · ${c.indoor ? '건물 전원 용량 확인' : '발전기 또는 상용 전원 확인'}이 필요합니다`,
+        });
+      } else {
+        const far = users.filter((it) => !gens.some((g) => Math.hypot(g.x - it.x, g.y - it.y) <= RULE.cableMax));
+        data.power.far = far;
+        data.power.short = Math.max(0, kw1(data.power.need - supply));
+        const level = supply < demand ? 'bad' : supply < data.power.need || far.length ? 'warn' : 'ok';
+        const farNote = far.length ? ` · 발전기에서 50m 넘는 곳 ${far.length}개` : '';
+        checks.push({
+          id: 'power', title: '전기 용량', level, value: `${n0(supply)}kW / 필요 ${n1(demand)}kW`,
+          detail: `${detail0} · 발전기 ${gens.length}대 ${n0(supply)}kW (여유율 ${Math.round((RULE.powerMargin - 1) * 100)}% 권장)${farNote}`,
+          advice: supply < demand ? `발전기 용량이 ${n1(demand - supply)}kW 모자랍니다. 발전기를 더 놓거나 용량(속성)을 올리세요`
+            : supply < data.power.need ? `돌아가지만 여유가 적습니다 (권장 ${n0(data.power.need)}kW 이상). 한꺼번에 켜면 차단될 수 있습니다`
+              : far.length ? '먼 곳은 굵은 케이블을 쓰거나 가까이에 발전기를 하나 더 두세요 (전압 강하)' : '케이블은 동선을 가로지르지 않게 하고, 가로지르면 케이블 덮개를 쓰세요',
+          print: supply < demand ? `필요 전력 약 ${n1(demand)}kW에 발전기 ${n0(supply)}kW로 용량이 모자랍니다 · 발전기 추가가 필요합니다`
+            : `필요 전력 약 ${n1(demand)}kW · 발전기 ${gens.length}대 ${n0(supply)}kW${supply < data.power.need ? ' (여유율 부족)' : '로 여유가 있습니다'}${farNote}`,
+        });
+      }
+    }
     return { expected: N, auto, capacity: capacity(c), seats: c.seats, crowdArea: c.crowdArea, venue: c.venue, autoIndoor: c.autoIndoor, indoor: c.indoor, excluded: c.exclude, checks, data };
   }
 
@@ -270,7 +331,21 @@
       n ? `<button type="button" class="btn" data-act="sf-fill">소화기 채우기 <small>${n}개를 놓아 먼 곳 ${r.data.uncovered.length}개를 모두 20m 안에</small></button>` : '',
       t ? `<button type="button" class="btn" data-act="sf-toilets">화장실 채우기 <small>이동식 화장실 ${t}칸을 빈 곳(있는 화장실 옆이나 가장자리)에</small></button>` : '',
       r.data.medicalMissing ? '<button type="button" class="btn" data-act="sf-medical">의무실 텐트 놓기 <small>입구·가장자리 가까운 빈 곳에 (구급차가 닿기 쉽게)</small></button>' : '',
+      genPlan(r).length ? `<button type="button" class="btn" data-act="sf-power">발전기 놓기 <small>${genPlan(r).map((k) => `${k}kW`).join(' + ')}를 가장자리 빈 곳에 (필요 약 ${n1(r.data.power.demand)}kW)</small></button>` : '',
     ].join('');
+  }
+  /** 모자란 전기를 채울 발전기 용량들 (kW). 야외이고 3kW 넘게 모자랄 때만 */
+  function genPlan(r = run()) {
+    const p = r.data.power;
+    if (!p || r.indoor || p.short < 3) return [];
+    const out = [];
+    let left = p.short;
+    for (let guard = 0; left > 0 && guard < 20; guard++) {
+      const k = GEN_SIZES.find((g) => g >= left) || GEN_SIZES[GEN_SIZES.length - 1];
+      out.push(k);
+      left -= k;
+    }
+    return out;
   }
 
   /* ── 빈 곳 찾기: w × d(mm) 자리가 다른 물건(돌린 실제 모양)·벽·동선(통로 폭)·관람 구역과 겹치지 않는 곳 중 score가 가장 낮은 곳.
@@ -313,12 +388,14 @@
     });
     const hw = w / 2 + m, hd = d / 2 + m;
     let best = null;
+    // 겹침은 먼저 바깥 상자로 걸러 냄 (물건이 수백 개여도 빠르게)
+    const solid = [...shapes, ...takenShapes, ...wallShapes].map((S) => ({ S, x0: Math.min(...S.map((p) => p.x)), x1: Math.max(...S.map((p) => p.x)), y0: Math.min(...S.map((p) => p.y)), y1: Math.max(...S.map((p) => p.y)) }));
     const step = Math.max(500, Math.min(2000, Math.round(Math.max(site.maxX - site.minX, site.maxY - site.minY) / 120)));
     for (let y = site.minY + hd; y <= site.maxY - hd; y += step) {
       for (let x = site.minX + hw; x <= site.maxX - hw; x += step) {
         const box = [{ x: x - hw, y: y - hd }, { x: x + hw, y: y - hd }, { x: x + hw, y: y + hd }, { x: x - hw, y: y + hd }];
         if (rooms.length && !rooms.some((r) => box.every((p) => App.geom.pointInPolygon(p, r.points)))) continue; // 실내: 방 안에만
-        if (shapes.some((S) => overlap4(box, S)) || takenShapes.some((S) => overlap4(box, S)) || wallShapes.some((S) => overlap4(box, S))) continue;
+        if (solid.some((o) => o.x1 > x - hw && o.x0 < x + hw && o.y1 > y - hd && o.y0 < y + hd && overlap4(box, o.S))) continue;
         if (crowd.some((z) => [{ x, y }, ...box].some((p) => App.geom.pointInPolygon(p, z.points)))) continue;
         const rect = { minX: x - hw, minY: y - hd, maxX: x + hw, maxY: y + hd };
         if (routes.some((rt) => rt.points.some((q, i) => i && segBoxDist(rt.points[i - 1], q, rect) < (rt.width || 1200) / 2))) continue;
@@ -392,6 +469,33 @@
     App.selection.set(App.layers.visible(App.doc.get(id)) ? [id] : []);
     App.ui.toast('의무실 텐트를 놓았습니다. 구급차가 닿기 쉬운 곳으로 옮겨도 됩니다 (되돌리기 Ctrl+Z).');
     return [id];
+  }
+
+  /** 발전기 놓기: 모자란 용량만큼, 가장자리이면서 전기를 가장 많이 쓰는 것(무대 등)에 가까운 빈 곳 */
+  function placeGenerators(o = {}) {
+    const r = run(), sizes = genPlan(r);
+    if (!sizes.length) { if (!o.quiet) App.ui.toast('발전기가 모자라지 않습니다.'); return []; }
+    const def = App.catalog.itemDef('발전기'), T = App.model.TYPES;
+    const users = [...App.doc.all()].filter((e) => powerOf(e) > 0).sort((a, b) => powerOf(b) - powerOf(a));
+    const big = users[0];
+    const taken = [], ids = [];
+    const spots = sizes.map((kw) => {
+      const p = freeSpot(def.size, def.depth || def.size, (x, y, b) => edgeDist(x, y, b) * 2 + (big ? Math.hypot(big.x - x, big.y - y) : 0), taken);
+      if (p) taken.push({ minX: p.x - def.size / 2 - 600, maxX: p.x + def.size / 2 + 600, minY: p.y - 1100, maxY: p.y + 1100 });
+      return p && { ...p, kw };
+    }).filter(Boolean);
+    if (!spots.length) { if (!o.quiet) App.ui.toast('발전기를 놓을 빈 곳을 찾지 못했습니다. 직접 놓으세요.'); return []; }
+    App.doc.transact('발전기 놓기', () => spots.forEach((sp) => {
+      const it = T.item.create({ x: sp.x, y: sp.y }, def.category, def, 0, null);
+      it.kw = sp.kw;
+      App.doc.add(it);
+      ids.push(it.id);
+    }));
+    if (!o.quiet) {
+      App.selection.set(ids.filter((id) => App.layers.visible(App.doc.get(id))));
+      App.ui.toast(`발전기 ${spots.map((sp) => `${sp.kw}kW`).join(' + ')}를 놓았습니다. 소음이 있으니 객석에서 먼 곳으로 옮겨도 됩니다 (되돌리기 Ctrl+Z).`);
+    }
+    return ids;
   }
 
   /* ── 소화기 채우기: 소화기에서 먼 불 쓰는 물건이 모두 20m 안에 들도록 적은 수로 놓음 (가장 많이 덮는 자리부터) ── */
@@ -468,7 +572,7 @@
         <label class="check-row"><input type="checkbox" id="sfView" ${App.current.safetyView ? 'checked' : ''}><span>도면에 겹쳐 보기<small>소화기 닿는 거리(20m)·먼 물건·관람 구역 밀집도·비상구 (화면에서만, 내보낼 때는 빠짐)</small></span></label>
         <div class="sf-tools">${toolsHtml(r0)}</div>
         <div class="sf-list" aria-live="polite">${listHtml(r0)}</div>
-        <p class="props-meta">현장에서 흔히 쓰는 어림 기준입니다: 화장실 ${RULE.perToilet}명에 1칸, 소화기 20m, 밀집 1㎡에 ${RULE.densityOk}명까지 권장·${RULE.densityBad}명 넘으면 위험, 출구 폭 1m에 1분 ${RULE.flow}명, 대피 ${RULE.evacMin}분. 법정 기준·인허가는 관할 기관에 확인하세요.</p>`,
+        <p class="props-meta">현장에서 흔히 쓰는 어림 기준입니다: 화장실 ${RULE.perToilet}명에 1칸, 소화기 20m, 밀집 1㎡에 ${RULE.densityOk}명까지 권장·${RULE.densityBad}명 넘으면 위험, 출구 폭 1m에 1분 ${RULE.flow}명, 대피 ${RULE.evacMin}분, 전기는 물건 종류별 어림값(속성의 ‘전기’ 칸에서 고침)에 발전기 여유율 ${Math.round((RULE.powerMargin - 1) * 100)}%. 법정 기준·인허가는 관할 기관에 확인하세요.</p>`,
       actions: [{ id: 'close', label: '닫기', primary: true }],
       onOpen(body) {
         const list = body.querySelector('.sf-list'), tools = body.querySelector('.sf-tools');
@@ -485,6 +589,7 @@
           if (b.dataset.act === 'sf-fill') fillExtinguishers();
           else if (b.dataset.act === 'sf-toilets') fillToilets();
           else if (b.dataset.act === 'sf-medical') placeMedical();
+          else if (b.dataset.act === 'sf-power') placeGenerators();
           else return;
           refresh();
         });
@@ -649,5 +754,5 @@
     try { return fn(); } finally { forced = false; }
   }
 
-  App.safety = { RULE, LV, run, block, open, expected, fillPlan, fillExtinguishers, fillToilets, placeMedical, freeSpot, drawUnder, drawOverlay, drawLabels, withOverlay, densityText, get showing() { return showing(); } };
+  App.safety = { RULE, LV, run, block, open, expected, fillPlan, fillExtinguishers, fillToilets, placeMedical, placeGenerators, genPlan, powerOf, powerDefault, GEN_SIZES, freeSpot, drawUnder, drawOverlay, drawLabels, withOverlay, densityText, get showing() { return showing(); } };
 })();

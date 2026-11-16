@@ -706,6 +706,7 @@
       ${def && def.colors ? colorField('f-itemColor', esc(def.colors), commonText((e) => e.color || '')) : ''}
       ${kind === '의자 배열' ? `<div class="field-grid">${intField('count', { label: '총 의자 수', unit: '개' }, (e) => App.catalog.seats(e).count)}</div>` : ''}
       ${numbers.length ? `<div class="field-grid">${numbers.map(([key, o]) => intField(key, o)).join('')}</div>` : ''}
+      ${event && App.safety && els.every((e) => App.safety.powerDefault(e) != null) ? powerField() : ''}
       ${kind === '의자 배열' ? '<p class="props-meta">총 의자 수를 넣으면 줄 수가 맞춰지고, 모자라는 자리는 맨 뒷줄에서 빠집니다. 의자는 기호의 아래쪽(앞)을 보고 앉습니다. 놓을 때 가까운 무대 쪽을 보게 돌려 놓습니다.</p>' : ''}
       ${kind === '의자 배열' ? seatNoFields() : ''}
       ${event && App.booths && els.some((e) => App.booths.isBooth(e)) ? boothFields() : ''}
@@ -739,6 +740,18 @@
       <p class="props-meta">벽 가까이로 끌면 벽면에 딱 붙습니다. 아래 미세 이동 화살표로 1mm까지 맞출 수 있습니다.${event ? ' 오른쪽 아래 3D 버튼으로 조감도를 보고 걸어서 둘러볼 수 있습니다.' : ''}</p>
       ${commonFields(single)}
       ${deleteButton(event ? '물건' : '가구')}`;
+  }
+
+  /** 전기 (kW): 안전 점검의 전기 용량에 쓰는 값. 비우면 종류별 기본값 */
+  function powerField() {
+    const custom = commonText((e) => (e.kw != null && e.kw !== '' ? String(e.kw) : ''));
+    const defs = [...new Set(els.map((e) => App.safety.powerDefault(e)))];
+    const hint = defs.length === 1 ? `${defs[0]}` : '종류별 기본값';
+    return `
+      <div class="field">
+        <label class="field-label" for="f-kw">전기 <small>비우면 기본값 ${esc(hint)}${defs.length === 1 ? 'kW' : ''} · 안전 점검의 전기 용량에 씀</small></label>
+        <div class="field-box"><input id="f-kw" type="text" inputmode="decimal" enterkeyhint="done" autocomplete="off" value="${esc(custom || '')}" placeholder="${custom === null ? '여러 값' : esc(hint)}"><span class="field-unit">kW</span></div>
+      </div>`;
   }
 
   /** 부스 배정: 번호·업체 (여럿이면 번호는 ‘번호 매기기’로), 배정표 CSV */
@@ -1235,7 +1248,7 @@
         const def = App.catalog.itemDef(t.value);
         if (def) {
           apply('종류 변경', () => ({
-            kind: def.kind, size: def.size, gang: null, variant: null, circuits: null, h3: null, style: null, ...App.catalog.itemDefaults(def),
+            kind: def.kind, size: def.size, gang: null, variant: null, circuits: null, h3: null, style: null, kw: null, ...App.catalog.itemDefaults(def),
             ...(def.depth ? { depth: def.depth } : {}),
             ...(def.wall ? {} : { wallId: null, t: null, side: null }),
             // 부스가 아닌 종류로 바꾸면 부스 번호·업체도 지움 (배정표에서 빠진 채 이름표만 남지 않게)
@@ -1294,6 +1307,14 @@
         return;
       }
       if (id === 'f-seatNo') { apply('좌석 번호', () => ({ seatNo: t.checked })); return; }
+      if (id === 'f-kw') {
+        const v = t.value.trim().replace(',', '.');
+        if (v === '') { apply('전기', () => ({ kw: null })); return; }
+        const n = Number(v);
+        if (!(n >= 0) || n > 5000) { App.ui.toast('전기는 0~5000 사이 숫자(kW)로 넣으세요. 비우면 기본값을 씁니다.'); refresh(); return; }
+        apply('전기', () => ({ kw: Math.round(n * 10) / 10 }));
+        return;
+      }
       if (id === 'f-boothNo') { apply('부스 번호', (e) => (App.booths.isBooth(e) ? { boothNo: t.value.trim() } : {})); return; }
       if (id === 'f-exhibitor') { apply('업체·이름', (e) => (App.booths.isBooth(e) ? { exhibitor: t.value.trim() } : {})); return; }
       if (id === 'f-seatFrom') { if (t.value) apply('좌석 번호 방향', () => ({ seatFrom: t.value })); return; }
