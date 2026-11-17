@@ -3,3 +3,6 @@ node_modules/
 android/keystore.properties
 *.keystore
 *.jks
+
+# 에이전트 작업 사본 (Claude Code worktree)
+.claude/worktrees/
