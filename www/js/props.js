@@ -473,6 +473,8 @@
         ${numberField('wallHeight')}
       </div>
       ${numberField('ceilingArea')}
+      <div class="menu-label">철거 (리모델링)</div>
+      ${[['demoFloor', '바닥재 철거', '안목 바닥 면적'], ['demoCeil', '천장 철거', '천장 면적'], ['demoWall', '벽지·도장 제거', '도배·도장 면적']].map(([k, label, note]) => `<label class="menu-check seat-check"><input type="checkbox" id="f-${k}" ${els.every((e) => e[k]) ? 'checked' : ''}><span>${label} <small>${note} → 집계 ‘철거·신설’·견적</small></span></label>`).join('')}
       ${roomLook()}
       ${finishRows(qs)}
       ${commonFields(single)}
@@ -553,6 +555,7 @@
       ${head(T.label, single ? (kind || '') : `${els.length}개 선택`)}
       ${presetSelect(type)}
       ${selectField('f-kind', '종류', T.KINDS.map((k) => [k, k]), kind)}
+      ${selectField('f-opPhase', '공사 <small>정하지 않으면 달린 벽을 따름</small>', [['', `벽 따라 (지금 ${({ new: '신설', keep: '기존', demo: '철거' })[App.model.phaseOf({ type, wallId: els[0].wallId })]})`], ['new', '신설 (새로 닮)'], ['keep', '기존 (그대로 둠)'], ['demo', '철거']], common((e) => e.phase || ''))}
       <div class="field-grid">
         ${numberField('width')}
         ${numberField('height')}
@@ -1337,6 +1340,8 @@
         return;
       }
       if (id === 'f-zoneCrowd') { apply('관람 구역', () => ({ crowd: t.checked })); return; }
+      if (id === 'f-demoFloor' || id === 'f-demoCeil' || id === 'f-demoWall') { const k = id.slice(2); apply('철거 항목', () => ({ [k]: t.checked || null })); return; }
+      if (id === 'f-opPhase') { apply(t.value === 'demo' ? '문·창문 철거로' : t.value === 'keep' ? '기존 문·창문으로' : t.value === 'new' ? '신설 문·창문으로' : '공사: 벽 따라', () => ({ phase: t.value || null })); return; }
       if (id === 'f-wallWork' || id === 'f-ceilWork') {
         const key = id === 'f-wallWork' ? 'wallWork' : 'ceilWork';
         apply(id === 'f-wallWork' ? '벽 마감' : '천장 마감', () => ({ [key]: t.value || null }));

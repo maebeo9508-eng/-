@@ -374,7 +374,7 @@
           photo.quadUV([p[0], y0, p[1]], [q[0], y0, q[1]], [q[0], y1, q[1]], [p[0], y1, p[1]], [[1 - s1 / len, v(y0)], [1 - s0 / len, v(y0)], [1 - s0 / len, v(y1)], [1 - s1 / len, v(y1)]], [1, 1, 1]);
         }
       };
-      const ops = App.measure.openingsOf(w.id).map((op) => ({ op, g: App.model.openingGeom(op) })).filter((x) => x.g && App.layers.visible(x.op))
+      const ops = App.measure.openingsOf(w.id).map((op) => ({ op, g: App.model.openingGeom(op) })).filter((x) => x.g && App.layers.visible(x.op) && App.model.phaseOf(x.op) !== 'demo')
         .sort((a, b) => a.g.c - b.g.c);
       let s = 0;
       ops.forEach(({ op, g }) => {

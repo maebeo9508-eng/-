@@ -147,9 +147,13 @@
         else push('마감재', f.name, f.target === 'wall' ? '벽' : '바닥', area(f.area), areaU);
       });
     }
-    if (!event && s.phases && s.phases.demo.n) {
-      push('철거', '벽 철거', '한 면', area(s.phases.demo.area), areaU, `길이 ${App.measure.meters(s.phases.demo.length)} · 문·창문 뺌`);
-      push('철거', '문·창문 철거', '', s.phases.demoDoors + s.phases.demoWindows, '개', '철거 벽에 달린 것');
+    if (!event && s.phases) {
+      const P = s.phases; // 0이면 줄이 생기지 않음
+      push('철거', '벽 철거', '한 면', area(P.demo.area), areaU, `길이 ${App.measure.meters(P.demo.length)} · 문·창문 뺌`);
+      push('철거', '문·창문 철거', '', P.demoDoors + P.demoWindows, '개', '철거로 정한 것 (철거 벽에 달린 것 포함)');
+      push('철거', '바닥재 철거', '', area(P.demoFloor), areaU, '고른 방의 안목 바닥');
+      push('철거', '천장 철거', '', area(P.demoCeil), areaU, '고른 방의 천장');
+      push('철거', '벽지·도장 제거', '', area(P.demoWall), areaU, '안목 둘레 × 천장 높이 (문·창문 뺌)');
     }
     (s.matLines || []).forEach((l) => push('마감 자재', l.name, l.spec, l.qty, l.unit, l.note));
     if (s.rooms.length) {

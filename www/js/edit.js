@@ -37,8 +37,9 @@
   function updateLayerButton() {
     const n = layers.hidden().length;
     const b = $('#btnLayers');
-    b.classList.toggle('is-warn', n > 0);
-    $('#layerCount').textContent = n ? ` · ${n}개 숨김` : '';
+    const pv = App.phaseView ? App.phaseView() : '';
+    b.classList.toggle('is-warn', n > 0 || !!pv);
+    $('#layerCount').textContent = `${n ? ` · ${n}개 숨김` : ''}${pv === 'demo' ? ' · 철거도' : pv === 'new' ? ' · 신설도' : ''}`;
   }
   function layerMenuHtml() {
     const counts = {};
@@ -55,7 +56,19 @@
       <label class="menu-check">
         <input type="checkbox" data-exclude ${App.current.excludeHiddenFromSummary ? 'checked' : ''}>
         <span>숨긴 레이어는 집계에서도 빼기</span>
-      </label>`;
+      </label>${phaseMenuHtml()}`;
+  }
+  /** 리모델링 도면 (인테리어, 공사 구분이 있을 때): 전체 / 철거도(신설 빼고) / 신설도(철거 빼고) — PNG·PDF도 그대로 */
+  function phaseMenuHtml() {
+    if (App.modes.is('event')) return '';
+    const has = [...doc().all()].some((e) => (e.type === 'wall' || e.type === 'door' || e.type === 'window') && (e.phase === 'keep' || e.phase === 'demo'));
+    if (!has) return '';
+    const cur = App.current.phaseView || '';
+    return `
+      <div class="menu-sep" role="separator"></div>
+      <div class="menu-label">리모델링 도면</div>
+      ${[['', '전체 (철거·신설 함께)'], ['demo', '철거도 (공사 전 + 철거할 것)'], ['new', '신설도 (공사 뒤 모습)']].map(([v, t]) => `
+        <label class="menu-check"><input type="radio" name="phaseView" data-pv="${v}" ${v === cur ? 'checked' : ''}><span>${t}</span></label>`).join('')}`;
   }
 
   /* ── 복사·붙여넣기·복제 ── */
@@ -446,6 +459,10 @@
       if (t.dataset.layer) layers.set(t.dataset.layer, t.checked);
       else if ('exclude' in t.dataset) {
         App.current.excludeHiddenFromSummary = t.checked;
+        changedLayers();
+      }
+      else if ('pv' in t.dataset) {
+        App.current.phaseView = t.dataset.pv || null;
         changedLayers();
       }
     });

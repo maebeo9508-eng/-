@@ -7,6 +7,16 @@
   const LABEL_FONT = '11px system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif';
   const TAG_FONT = '600 13px system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif';
   const WALL_KEEP = '#adb5bd', WALL_DEMO = '#e03131'; // 리모델링: 기존 벽(회색)·철거할 벽(빨강)
+  /** 리모델링 도면 보기: 인테리어 모드이고 공사 구분(기존·철거)이 있을 때만 App.current.phaseView ('demo' 철거도, 'new' 신설도) */
+  let phasedCache = { v: -1, on: false };
+  function hasPhases() {
+    if (phasedCache.v !== App.doc.version) phasedCache = { v: App.doc.version, on: [...App.doc.all()].some((e) => (e.type === 'wall' || e.type === 'door' || e.type === 'window') && (e.phase === 'keep' || e.phase === 'demo')) };
+    return phasedCache.on;
+  }
+  function phaseView() {
+    const pv = App.current && App.current.phaseView;
+    return (pv === 'demo' || pv === 'new') && !App.modes.is('event') && hasPhases() ? pv : '';
+  }
   const ROOM_NAME_FONT = '700 13px system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif';
   const ROOM_AREA_FONT = '12px system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif';
   const DIM_TEXT_MAX_PX = 22;
@@ -58,9 +68,15 @@
     const scale = plan.view.scale;
 
     const walls = [], rooms = [], openings = [], columns = [], zones = [], lines = [], items = [], texts = [], dims = [], underlays = [], routes = [], photos = [];
+    const pv = phaseView(); // 철거도('demo')·신설도('new')·전체('')
     for (const el of App.doc.all()) {
       const t = App.model.TYPES[el.type];
       if (!t || t.catalog || !App.layers.visible(el)) continue; // 숨긴 레이어
+      if (pv && (el.type === 'wall' || el.type === 'door' || el.type === 'window')) {
+        const ph = App.model.phaseOf(el);
+        if (pv === 'demo' ? ph === 'new' : ph === 'demo') continue; // 철거도에는 신설이, 신설도에는 철거가 없음
+      }
+      if (pv && el.type === 'room' && (pv === 'demo' || el.issue === 'overlap')) continue; // 방은 공사 뒤 모양이라 철거도에는 없고, 신설도에는 칸막이 철거로 합쳐진(겹친) 방을 그리지 않음
       const b = t.bounds(el);
       if (!b || !G.rectsOverlap(b, vis)) continue;
       if (el.type === 'wall') walls.push(el);
@@ -418,8 +434,9 @@
     list.forEach((el) => {
       const g = App.model.openingGeom(el);
       if (!g) return;
+      const ph = App.model.phaseOf(el); // 리모델링: 기존은 회색, 철거는 빨강
       const color = App.selection.has(el.id) ? plan.colors.accent
-        : marks && marks.ids.has(el.id) ? plan.colors[marks.color] : null;
+        : marks && marks.ids.has(el.id) ? plan.colors[marks.color] : ph === 'demo' ? WALL_DEMO : ph === 'keep' ? WALL_KEEP : null;
       openingSymbol(plan, el, g, color);
     });
   }
@@ -2353,6 +2370,7 @@
     });
   }
 
+  App.phaseView = phaseView; // 리모델링 도면 보기 (철거도·신설도) — 내보내기 제목·레이어 버튼에서 씀
   App.draw = {
     scene, wallOutlines, clearanceGuides, previewWall, lengthTag, snapMarker, pointMarker, selectionBox, facePreview,
     openingPreview, columnPreview, distanceTag, worldTransform, screenTransform,

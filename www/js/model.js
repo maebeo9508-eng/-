@@ -781,5 +781,16 @@
     return { rotate: at(0, -d - 34 / scale), stem: at(0, -d), sizes };
   }
 
-  App.model = { DATA_VERSION, LAYERS, TYPES, Doc, clone, newId, openingGeom, openingCorners, mountPoint, handled, itemHandles };
+  /** 리모델링 공사 구분: 'new'(신설) · 'keep'(기존, 그대로 둠) · 'demo'(철거).
+      벽은 정한 값(없으면 신설), 문·창문은 정한 값이 없으면 달린 벽을 따름 (기존 벽의 문은 기존, 철거 벽의 문은 철거) */
+  function phaseOf(el) {
+    if (!el) return 'new';
+    if (el.type === 'door' || el.type === 'window') {
+      if (el.phase) return el.phase;
+      const w = App.doc && App.doc.get(el.wallId);
+      return (w && w.phase) || 'new';
+    }
+    return el.phase || 'new';
+  }
+  App.model = { DATA_VERSION, LAYERS, TYPES, Doc, clone, newId, openingGeom, openingCorners, mountPoint, handled, itemHandles, phaseOf };
 })();

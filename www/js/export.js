@@ -225,7 +225,7 @@
   }
 
   const FONT = () => getComputedStyle(document.documentElement).getPropertyValue('--font-ui') || 'sans-serif';
-  const projectName = () => (App.projects && App.projects.current ? App.projects.current.name : '도면');
+  const projectName = () => { const n = App.projects && App.projects.current ? App.projects.current.name : '도면'; const pv = App.phaseView ? App.phaseView() : ''; return pv ? `${n} (${pv === 'demo' ? '철거도' : '신설도'})` : n; };
   const safeName = (s) => s.replace(/[\\/:*?"<>|]+/g, '_').trim() || '도면';
   const dateText = () => new Date().toLocaleString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
