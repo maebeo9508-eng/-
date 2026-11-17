@@ -19,6 +19,8 @@
     evacMin: 8,              // 8분 안에 다 나가면 여유
     powerMargin: 1.25,       // 발전기 용량은 필요 전력의 1.25배 (기동 전류·여유)
     cableMax: 50000,         // 발전기에서 50m 넘으면 전압 강하·케이블 주의 (mm)
+    perStaff: 250,           // 안전 요원: 250명에 1명 (어림, 행사 성격·지자체 기준에 따라 다름)
+    staffMin: 2,             // 적어도 2명
   };
   /* 전기 (kW, 어림): 물건 종류별 기본값. 물건 속성의 ‘전기’ 칸에 넣은 값이 있으면 그 값 */
   const kw1 = (v) => Math.round(v * 10) / 10;
@@ -256,6 +258,23 @@
     } else if (N >= RULE.careAt) {
       checks.push({ id: 'evac', title: '비상 대피', level: 'warn', value: '대피 동선 없음', detail: `예상 ${n0(N)}명`, advice: '동선 도구에서 ‘비상 대피’를 골라 자리에서 출구까지 그리세요 (끝이 비상구)', print: '비상 대피 동선과 비상구가 아직 정해지지 않았습니다' });
     }
+    // 5-1) 안전 요원: 스태프 차림의 사람 수 (300명 이상일 때)
+    const staff = c.items.filter((it) => it.kind === '사람' && it.style === '스태프').reduce((t, it) => t + (it.count || 1), 0);
+    data.staff = staff;
+    data.staffShort = 0;
+    if (N >= RULE.careAt) {
+      const need = Math.max(RULE.staffMin, Math.ceil(N / RULE.perStaff));
+      data.staffShort = Math.max(0, need - staff);
+      // 하나도 안 세웠으면 1,000명 미만은 알려만 줌 (작은 행사는 진행 요원이 겸하기도 함)
+      const level = staff >= need ? 'ok' : !staff && N < RULE.medicalAt ? 'info' : 'warn';
+      checks.push({
+        id: 'staff', title: '안전 요원', level, value: `${n0(staff)}명 / 권장 ${n0(need)}명`,
+        detail: `스태프 차림의 사람 · ${RULE.perStaff}명에 1명 어림, 적어도 ${RULE.staffMin}명 (예상 ${n0(N)}명)`,
+        advice: staff >= need ? '비상구·입구·무대 앞처럼 사람이 몰리는 곳에 세우고, 조끼·무전기·비상 연락망을 준비하세요'
+          : `안전 요원 ${n0(need - staff)}명을 더 세우세요 (물건 › 사람·차량 › 사람, 차림 ‘스태프’). 위 ‘안전 요원 세우기’ 버튼으로 한 번에 세울 수 있습니다`,
+        print: staff >= need ? `안전 요원 ${n0(staff)}명 배치 · 권장 ${n0(need)}명 (${RULE.perStaff}명에 1명)` : `안전 요원 ${n0(staff)}명 · 권장 ${n0(need)}명으로 ${n0(need - staff)}명 추가 배치가 필요합니다`,
+      });
+    }
     // 6) 전기: 놓은 물건이 쓰는 전기(어림)와 발전기 용량, 발전기에서 먼 곳
     const users = c.items.filter((it) => powerOf(it) > 0);
     const demand = kw1(users.reduce((t, it) => t + powerOf(it), 0));
@@ -274,7 +293,7 @@
         checks.push({
           id: 'power', title: '전기 용량', level: 'info', value: `약 ${n1(demand)}kW 필요`,
           detail: `${detail0} · 발전기 없음${c.indoor ? ' (실내: 건물 전원)' : ''}`,
-          advice: c.indoor ? '건물 분전반의 남는 용량과 콘센트 자리를 확인하세요' : `발전기(${n0(data.power.need)}kW 이상)를 놓거나 상용 전원(임시 전력) 용량을 확인하세요. 물건 속성의 ‘전기’ 칸에서 값을 고칠 수 있습니다`,
+          advice: c.indoor ? '건물 분전반의 남는 용량과 콘센트 자리를 확인하세요' : `발전기(${n0(Math.ceil(data.power.need))}kW 이상)를 놓거나 상용 전원(임시 전력) 용량을 확인하세요. 물건 속성의 ‘전기’ 칸에서 값을 고칠 수 있습니다`,
           print: `전기는 약 ${n1(demand)}kW가 필요합니다 (어림) · ${c.indoor ? '건물 전원 용량 확인' : '발전기 또는 상용 전원 확인'}이 필요합니다`,
         });
       } else {
@@ -287,7 +306,7 @@
           id: 'power', title: '전기 용량', level, value: `${n0(supply)}kW / 필요 ${n1(demand)}kW`,
           detail: `${detail0} · 발전기 ${gens.length}대 ${n0(supply)}kW (여유율 ${Math.round((RULE.powerMargin - 1) * 100)}% 권장)${farNote}`,
           advice: supply < demand ? `발전기 용량이 ${n1(demand - supply)}kW 모자랍니다. 발전기를 더 놓거나 용량(속성)을 올리세요`
-            : supply < data.power.need ? `돌아가지만 여유가 적습니다 (권장 ${n0(data.power.need)}kW 이상). 한꺼번에 켜면 차단될 수 있습니다`
+            : supply < data.power.need ? `돌아가지만 여유가 적습니다 (권장 ${n0(Math.ceil(data.power.need))}kW 이상). 한꺼번에 켜면 차단될 수 있습니다`
               : far.length ? '먼 곳은 굵은 케이블을 쓰거나 가까이에 발전기를 하나 더 두세요 (전압 강하)' : '케이블은 동선을 가로지르지 않게 하고, 가로지르면 케이블 덮개를 쓰세요',
           print: supply < demand ? `필요 전력 약 ${n1(demand)}kW에 발전기 ${n0(supply)}kW로 용량이 모자랍니다 · 발전기 추가가 필요합니다`
             : `필요 전력 약 ${n1(demand)}kW · 발전기 ${gens.length}대 ${n0(supply)}kW${supply < data.power.need ? ' (여유율 부족)' : '로 여유가 있습니다'}${farNote}`,
@@ -331,6 +350,7 @@
       n ? `<button type="button" class="btn" data-act="sf-fill">소화기 채우기 <small>${n}개를 놓아 먼 곳 ${r.data.uncovered.length}개를 모두 20m 안에</small></button>` : '',
       t ? `<button type="button" class="btn" data-act="sf-toilets">화장실 채우기 <small>이동식 화장실 ${t}칸을 빈 곳(있는 화장실 옆이나 가장자리)에</small></button>` : '',
       r.data.medicalMissing ? '<button type="button" class="btn" data-act="sf-medical">의무실 텐트 놓기 <small>입구·가장자리 가까운 빈 곳에 (구급차가 닿기 쉽게)</small></button>' : '',
+      r.data.staffShort ? `<button type="button" class="btn" data-act="sf-staff">안전 요원 세우기 <small>${r.data.staffShort}명을 비상구·입구·무대 앞·관람 구역 둘레에</small></button>` : '',
       genPlan(r).length ? `<button type="button" class="btn" data-act="sf-power">발전기 놓기 <small>${genPlan(r).map((k) => `${k}kW`).join(' + ')}를 가장자리 빈 곳에 (필요 약 ${n1(r.data.power.demand)}kW)</small></button>` : '',
     ].join('');
   }
@@ -349,7 +369,7 @@
   }
 
   /* ── 빈 곳 찾기: w × d(mm) 자리가 다른 물건(돌린 실제 모양)·벽·동선(통로 폭)·관람 구역과 겹치지 않는 곳 중 score가 가장 낮은 곳.
-     숨긴 레이어의 것도 피함. 방이 있으면(실내) 방 안에만. 돌려주는 값: { x, y, site } 또는 null ── */
+     숨긴 레이어의 것도 피함. 실내 행사장이면 방 안에만, 야외 행사장이면 건물(방) 밖에만. 돌려주는 값: { x, y, site } 또는 null ── */
   const corners = (it) => {
     const { w, h } = App.model.TYPES.item.dims(it), a = ((it.rotation || 0) * Math.PI) / 180, c = Math.cos(a), sn = Math.sin(a);
     return [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]].map(([lx, ly]) => ({ x: it.x + lx * c - ly * sn, y: it.y + lx * sn + ly * c }));
@@ -372,6 +392,7 @@
     const routes = all.filter((e) => e.type === 'route' && e.points && e.points.length >= 2);
     const walls = all.filter((e) => e.type === 'wall');
     const rooms = all.filter((e) => e.type === 'room' && e.points && e.points.length >= 3 && !e.issue);
+    const indoor = rooms.length > 0 && collect().indoor; // 실내로 보는 행사장 (자동이면 벽이 있을 때, 또는 점검 창에서 ‘실내’)
     // 현장 범위: 물건의 실제 모양과 영역 (긴 담장·관람석의 정사각형 범위로 밖까지 늘어나지 않게)
     const shapes = items.map(corners);
     const pts = [...shapes.flat(), ...zones.flatMap((z) => z.points), ...walls.flatMap((wl) => [wl.start, wl.end])];
@@ -394,7 +415,8 @@
     for (let y = site.minY + hd; y <= site.maxY - hd; y += step) {
       for (let x = site.minX + hw; x <= site.maxX - hw; x += step) {
         const box = [{ x: x - hw, y: y - hd }, { x: x + hw, y: y - hd }, { x: x + hw, y: y + hd }, { x: x - hw, y: y + hd }];
-        if (rooms.length && !rooms.some((r) => box.every((p) => App.geom.pointInPolygon(p, r.points)))) continue; // 실내: 방 안에만
+        if (indoor) { if (!rooms.some((r) => box.every((p) => App.geom.pointInPolygon(p, r.points)))) continue; } // 실내 행사장: 방 안에만
+        else if (rooms.some((r) => [{ x, y }, ...box].some((p) => App.geom.pointInPolygon(p, r.points)))) continue;      // 야외 행사장 옆의 건물(방) 안에는 놓지 않음
         if (solid.some((o) => o.x1 > x - hw && o.x0 < x + hw && o.y1 > y - hd && o.y0 < y + hd && overlap4(box, o.S))) continue;
         if (crowd.some((z) => [{ x, y }, ...box].some((p) => App.geom.pointInPolygon(p, z.points)))) continue;
         const rect = { minX: x - hw, minY: y - hd, maxX: x + hw, maxY: y + hd };
@@ -504,6 +526,94 @@
     return ids;
   }
 
+  /** 안전 요원 세우기: 모자란 수만큼 스태프(한 명씩)를 비상구 안쪽 양옆 → 입구 → 무대 앞 양옆 → 관람 구역 둘레 → 현장 가장자리 순서로 세움.
+      물건 위·동선 가운데는 피하고 현장 안쪽을 보게 함 */
+  function placeStaff(o = {}) {
+    const say = (t) => { if (!o.quiet) App.ui.toast(t); };
+    const r = run();
+    const want = r.data.staffShort || 0;
+    if (!want) { say('안전 요원이 모자라지 않습니다.'); return []; }
+    const def = App.catalog.itemDef('사람'), T = App.model.TYPES, G = App.geom;
+    const all = [...App.doc.all()];
+    const items = all.filter((e) => e.type === 'item' && !(App.catalog.itemDef(e.kind) || {}).flat);
+    const routes = all.filter((e) => e.type === 'route' && e.points && e.points.length >= 2);
+    const zones = all.filter((e) => e.type === 'zone' && e.points && e.points.length >= 3);
+    const crowd = zones.filter((z) => z.crowd);
+    // 현장 범위와 가운데 (보는 쪽): 따로 떨어진 주차장(주차 칸을 채운 영역)은 빼고 봄
+    const lots = new Set(items.filter((it) => it.parkingOf).map((it) => it.parkingOf));
+    const mainZones = zones.filter((z) => !lots.has(z.id)), mainItems = items.filter((it) => !it.parkingOf);
+    const pts = [...mainZones.flatMap((z) => z.points), ...mainItems.map((it) => ({ x: it.x, y: it.y }))];
+    if (!pts.length) { say('안전 요원을 세울 곳이 없습니다. 먼저 물건이나 영역을 놓으세요.'); return []; }
+    const box = { minX: Math.min(...pts.map((q) => q.x)), maxX: Math.max(...pts.map((q) => q.x)), minY: Math.min(...pts.map((q) => q.y)), maxY: Math.max(...pts.map((q) => q.y)) };
+    const mid = (list) => ({ x: list.reduce((t, q) => t + q.x, 0) / list.length, y: list.reduce((t, q) => t + q.y, 0) / list.length });
+    const seats = mainItems.filter((it) => it.kind === '의자 배열');
+    // 보는 쪽: 가장 큰 관람 구역 → 좌석 → 놓인 것들의 가운데
+    const focus = crowd.length ? G.interiorPoint(crowd.slice().sort((a, b) => T.zone.area(b) - T.zone.area(a))[0].points) : seats.length ? mid(seats) : mainItems.length ? mid(mainItems) : { x: (box.minX + box.maxX) / 2, y: (box.minY + box.maxY) / 2 };
+    // 부지: 그 가운데를 품은 가장 큰 영역 (있으면 안전 요원은 그 안에만)
+    const host = mainZones.filter((z) => G.pointInPolygon(focus, z.points)).sort((a, b) => T.zone.area(b) - T.zone.area(a))[0];
+    const cands = [];
+    const unit = (a, b) => { const L = Math.hypot(b.x - a.x, b.y - a.y) || 1; return { x: (b.x - a.x) / L, y: (b.y - a.y) / L }; };
+    // 1) 비상구: 대피 길 끝에서 2.5m 안쪽, 길 양옆 (통로 폭의 절반 + 0.8m 밖)
+    (r.data.exits || []).forEach((ex) => {
+      const u = unit(ex.from, ex.at), n = { x: -u.y, y: u.x }, half = ex.width / 2 + 800;
+      [-1, 1].forEach((k) => cands.push({ x: ex.at.x - u.x * 2500 + n.x * half * k, y: ex.at.y - u.y * 2500 + n.y * half * k }));
+    });
+    // 2) 입구: 관람객 동선이 시작하는 곳에서 3m 안쪽, 길 양옆
+    routes.filter((rt) => rt.kind === '관람객').forEach((rt) => {
+      const u = unit(rt.points[0], rt.points[1]), n = { x: -u.y, y: u.x }, half = (rt.width || 1500) / 2 + 1200;
+      [-1, 1].forEach((k) => cands.push({ x: rt.points[0].x + u.x * 3000 + n.x * half * k, y: rt.points[0].y + u.y * 3000 + n.y * half * k }));
+    });
+    // 3) 무대 앞 양옆
+    items.filter((it) => it.kind === '무대').forEach((it) => {
+      const a = ((it.rotation || 0) * Math.PI) / 180, cs = Math.cos(a), sn = Math.sin(a), hw = (it.size || 0) / 2 + 900, hd = (it.depth != null ? it.depth : it.size || 0) / 2 + 1300;
+      [-1, 1].forEach((k) => cands.push({ x: it.x + hw * k * cs - hd * sn, y: it.y + hw * k * sn + hd * cs }));
+    });
+    // 4) 관람 구역 둘레를 따라 고르게, 5) 현장 가장자리(1.5m 안쪽)를 따라 고르게
+    const along = (poly, n, inset) => {
+      const c = G.interiorPoint(poly), per = poly.reduce((t, q, i) => t + Math.hypot(poly[(i + 1) % poly.length].x - q.x, poly[(i + 1) % poly.length].y - q.y), 0);
+      const out = [];
+      for (let k = 0; k < n; k++) {
+        let d = (per * (k + 0.5)) / n;
+        for (let i = 0; i < poly.length; i++) {
+          const q = poly[i], w = poly[(i + 1) % poly.length], L = Math.hypot(w.x - q.x, w.y - q.y);
+          if (d <= L || i === poly.length - 1) { const t = L ? Math.min(1, d / L) : 0, x = q.x + (w.x - q.x) * t, y = q.y + (w.y - q.y) * t, u = unit({ x, y }, c); out.push({ x: x + u.x * inset, y: y + u.y * inset }); break; }
+          d -= L;
+        }
+      }
+      return out;
+    };
+    crowd.forEach((z) => cands.push(...along(z.points, Math.max(4, want), 900))); // 구역 가장자리에서 0.9m 안쪽 (부지 전체가 관람 구역이어도 밖으로 안 나가게)
+    // 가장자리: 부지 영역(없으면 놓인 것들의 범위)을 따라
+    cands.push(...along(host ? host.points : [{ x: box.minX, y: box.minY }, { x: box.maxX, y: box.minY }, { x: box.maxX, y: box.maxY }, { x: box.minX, y: box.maxY }], Math.max(8, want * 2), 1500));
+    // 고르기: 물건과 0.4m 넘게 떨어지고, 동선 가운데(통로 폭 안)가 아니고, 이미 세운 사람과 1.5m 넘게 떨어진 곳
+    const people = items.filter((it) => it.kind === '사람').map((it) => ({ x: it.x, y: it.y }));
+    const okAt = (q) => (!host || G.pointInPolygon(q, host.points)) && !items.some((it) => Math.abs(it.x - q.x) < 40000 && T.item.distance(it, q) < 400)
+      && !routes.some((rt) => rt.points.some((w, i) => i && G.closestOnSegment(q, rt.points[i - 1], w).dist < (rt.width || 1200) / 2 + 300))
+      && !people.some((w) => Math.hypot(w.x - q.x, w.y - q.y) < 1500);
+    const chosen = [];
+    for (const q of cands) {
+      if (chosen.length >= want) break;
+      const p = { x: Math.round(q.x), y: Math.round(q.y) };
+      if (!okAt(p)) continue;
+      chosen.push(p);
+      people.push(p);
+    }
+    if (!chosen.length) { say('안전 요원을 세울 빈 곳을 찾지 못했습니다. 직접 놓으세요 (물건 › 사람·차량 › 사람, 차림 ‘스태프’).'); return []; }
+    const ids = [];
+    App.doc.transact('안전 요원 세우기', () => chosen.forEach((q) => {
+      const rot = Math.round((((Math.atan2(-(focus.x - q.x), focus.y - q.y) * 180) / Math.PI) % 360 + 360) % 360); // 현장 안쪽(관람 구역)을 봄
+      const it = T.item.create(q, def.category, def, rot, null);
+      Object.assign(it, { style: '스태프', count: 1 });
+      if (def.resize) Object.assign(it, def.resize(it));
+      App.doc.add(it);
+      ids.push(it.id);
+    }));
+    if (o.quiet) return ids;
+    App.selection.set(ids.filter((id) => App.layers.visible(App.doc.get(id))));
+    say(chosen.length < want ? `안전 요원 ${ids.length}명을 세웠습니다. 자리가 모자라 ${want - chosen.length}명은 직접 세우세요.` : `안전 요원 ${ids.length}명을 비상구·입구·무대 앞·관람 구역 둘레에 세웠습니다. 자리는 옮겨도 됩니다 (되돌리기 Ctrl+Z).`);
+    return ids;
+  }
+
   /* ── 소화기 채우기: 소화기에서 먼 불 쓰는 물건이 모두 20m 안에 들도록 적은 수로 놓음 (가장 많이 덮는 자리부터) ── */
   let fillCache = null; // 같은 도면이면 다시 셈하지 않음 (예상 인원과 상관없음)
   function fillPlan(r = run()) {
@@ -578,7 +688,7 @@
         <label class="check-row"><input type="checkbox" id="sfView" ${App.current.safetyView ? 'checked' : ''}><span>도면에 겹쳐 보기<small>소화기 닿는 거리(20m)·먼 물건·관람 구역 밀집도·비상구 (화면에서만, 내보낼 때는 빠짐)</small></span></label>
         <div class="sf-tools">${toolsHtml(r0)}</div>
         <div class="sf-list" aria-live="polite">${listHtml(r0)}</div>
-        <p class="props-meta">현장에서 흔히 쓰는 어림 기준입니다: 화장실 ${RULE.perToilet}명에 1칸, 소화기 20m, 밀집 1㎡에 ${RULE.densityOk}명까지 권장·${RULE.densityBad}명 넘으면 위험, 출구 폭 1m에 1분 ${RULE.flow}명, 대피 ${RULE.evacMin}분, 전기는 물건 종류별 어림값(속성의 ‘전기’ 칸에서 고침)에 발전기 여유율 ${Math.round((RULE.powerMargin - 1) * 100)}%. 법정 기준·인허가는 관할 기관에 확인하세요.</p>`,
+        <p class="props-meta">현장에서 흔히 쓰는 어림 기준입니다: 화장실 ${RULE.perToilet}명에 1칸, 소화기 20m, 밀집 1㎡에 ${RULE.densityOk}명까지 권장·${RULE.densityBad}명 넘으면 위험, 출구 폭 1m에 1분 ${RULE.flow}명, 대피 ${RULE.evacMin}분, 안전 요원 ${RULE.perStaff}명에 1명, 전기는 물건 종류별 어림값(속성의 ‘전기’ 칸에서 고침)에 발전기 여유율 ${Math.round((RULE.powerMargin - 1) * 100)}%. 법정 기준·인허가는 관할 기관에 확인하세요.</p>`,
       actions: [{ id: 'close', label: '닫기', primary: true }],
       onOpen(body) {
         const list = body.querySelector('.sf-list'), tools = body.querySelector('.sf-tools');
@@ -596,6 +706,7 @@
           else if (b.dataset.act === 'sf-toilets') fillToilets();
           else if (b.dataset.act === 'sf-medical') placeMedical();
           else if (b.dataset.act === 'sf-power') placeGenerators();
+          else if (b.dataset.act === 'sf-staff') placeStaff();
           else return;
           refresh();
         });
@@ -760,5 +871,5 @@
     try { return fn(); } finally { forced = false; }
   }
 
-  App.safety = { RULE, LV, run, block, open, expected, fillPlan, fillExtinguishers, fillToilets, placeMedical, placeGenerators, genPlan, powerOf, powerDefault, GEN_SIZES, freeSpot, drawUnder, drawOverlay, drawLabels, withOverlay, densityText, get showing() { return showing(); } };
+  App.safety = { RULE, LV, run, block, open, expected, fillPlan, fillExtinguishers, fillToilets, placeMedical, placeGenerators, placeStaff, genPlan, powerOf, powerDefault, GEN_SIZES, freeSpot, drawUnder, drawOverlay, drawLabels, withOverlay, densityText, get showing() { return showing(); } };
 })();

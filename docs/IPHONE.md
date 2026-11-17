@@ -87,7 +87,7 @@ npx cap open ios      # Xcode가 열림
 - **TestFlight**: Xcode → Product → Archive → Distribute App → App Store Connect. 동료는 TestFlight 앱으로 초대 링크를 받아 설치 (90일마다 새 빌드).
 - **앱 스토어** 정식 등록도 같은 길로 합니다 (심사 1~3일).
 
-버전은 Xcode의 **General → Version / Build**에서 올립니다 (지금 2.7.0 / 17, 안드로이드와 맞춤).
+버전은 Xcode의 **General → Version / Build**에서 올립니다 (지금 2.8.0 / 18, 안드로이드와 맞춤).
 
 ### 2-4. 고친 뒤 다시 넣기
 

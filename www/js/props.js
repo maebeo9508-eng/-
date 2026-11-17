@@ -1308,7 +1308,8 @@
       }
       if (id === 'f-seatNo') { apply('좌석 번호', () => ({ seatNo: t.checked })); return; }
       if (id === 'f-kw') {
-        const v = t.value.trim().replace(',', '.');
+        // 1,000처럼 세 자리마다 찍은 쉼표는 천 단위, 1,5처럼 쓴 쉼표는 소수점으로 읽음
+        const raw = t.value.trim(), v = /^\d{1,3}(,\d{3})+(\.\d+)?$/.test(raw) ? raw.replace(/,/g, '') : raw.replace(',', '.');
         if (v === '') { apply('전기', () => ({ kw: null })); return; }
         const n = Number(v);
         if (!(n >= 0) || n > 5000) { App.ui.toast('전기는 0~5000 사이 숫자(kW)로 넣으세요. 비우면 기본값을 씁니다.'); refresh(); return; }

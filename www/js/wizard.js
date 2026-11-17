@@ -1,7 +1,7 @@
 /* 행사장 자동 배치 (조감도 모드): 행사 종류·부지 크기·예상 인원을 넣으면 무대·객석·부스·편의 시설·동선·펜스를 한 번에 놓음.
    새 도면을 만들 때 씀 (파일 → 새 도면 → 자동 배치). ‘야외 콘서트 예시’도 이것으로 만듦.
    좌석 채우기(seating)·부스 번호(booths)·둘레 두르기(fences)·주차 칸(parking)·안전 점검(safety)의 도구를 그대로 씀.
-   자리: 무대가 위쪽, 입구가 아래쪽 가운데, 비상구는 양옆 */
+   자리 셈: 무대가 위쪽, 입구가 아래쪽 가운데, 비상구는 양옆 — 입구 쪽을 다르게 고르면 다 만든 뒤 통째로 돌림 */
 (function () {
   'use strict';
   const App = (window.App = window.App || {});
@@ -187,6 +187,14 @@
     const perRow = Math.max(0, Math.floor((tx1 - tx0) / 1350)), rowsFit = Math.max(1, Math.floor((yb - Math.max(L.serviceTop, bandTop)) / 3000));
     const toiletNeed = Math.ceil(N / 100);
     for (let r = 0; r < rowsFit && toilets.length < toiletNeed; r++) for (let i = 0; i < perRow && toilets.length < toiletNeed; i++) toilets.push({ x: tx0 + 600 + i * 1350, y: yb - 700 - r * 3000 });
+    // 줄에 다 안 들어가면: 왼쪽 펜스를 따라 위로 (문이 오른쪽), 비상구 앞은 비움. 넓은 무대형 부지(양옆 9m 넘게 빔)는 두 줄까지
+    const cols = !market && Math.max(m + 4000, W * 0.1) >= 9000 ? 2 : 1;
+    for (let c = 0; c < cols && toilets.length < toiletNeed; c++) {
+      for (let y = bandTop - 1200; y >= m + 3000 && toilets.length < toiletNeed; y -= 1350) {
+        if (L.eys.some((e) => Math.abs(y - e) < L.sg / 2 + 1500)) continue;
+        toilets.push({ x: m + 700 + c * 3200, y, rot: c ? 90 : 270 }); // 두 줄이면 마주 봄 (사이 2m는 줄 서는 곳)
+      }
+    }
     return Object.assign(L, { desk, photo, bin, medical, banner, toilets, toiletNeed });
   }
   /** 이 크기에 인원·부스·푸드트럭이 다 들어가는지 */
@@ -209,21 +217,33 @@
   }
   const seatingOf = (t, seating) => (t.id === 'ceremony' ? 'seated' : t.id === 'concert' && seating === 'seated' ? 'seated' : 'standing');
 
-  /** 옵션을 다듬음 (범위·기본값). 길이는 mm */
+  const ENTRANCES = [['bottom', '아래'], ['top', '위'], ['left', '왼쪽'], ['right', '오른쪽']];
+  /** 입구가 옆(왼쪽·오른쪽)인지: 그러면 완성된 부지의 가로·세로가 자리 셈(무대가 위, 입구가 아래)의 세로·가로 */
+  const sideways = (entrance) => entrance === 'left' || entrance === 'right';
+  /** 옵션을 다듬음 (범위·기본값). 길이는 mm.
+      넣는 w·d는 완성된 부지의 가로·세로, 돌려주는 w·d는 자리 셈의 크기(입구가 옆이면 바뀜) — 한 번 다듬은 것(_n)은 그대로 돌려줌 */
   function normalize(o = {}) {
+    if (o && o._n) return o;
     const t = typeOf(o.type);
     const num = (v, [lo, hi], d) => (Number.isFinite(Number(v)) && v !== '' && v != null ? clamp(Math.round(Number(v)), lo, hi) : d);
     const n = num(o.n, LIMIT.n, 1000), booths = num(o.booths, LIMIT.booths, t.booths), trucks = num(o.trucks, LIMIT.trucks, t.trucks);
     const seating = seatingOf(t, o.seating);
+    const entrance = ENTRANCES.some(([id]) => id === o.entrance) ? o.entrance : 'bottom';
     const s = suggest({ type: t.id, n, booths, trucks, seating });
     const mm = (v, lim, d) => (Number(v) > 0 ? clamp(Math.round(Number(v) / 100) * 100, lim[0] * 1000, lim[1] * 1000) : d * 1000);
+    const [w0, d0] = sideways(entrance) ? [o.d, o.w] : [o.w, o.d];
     return {
-      type: t.id, n, booths, seating, trucks,
-      w: mm(o.w, LIMIT.w, s.w), d: mm(o.d, LIMIT.d, s.d),
+      _n: true, type: t.id, n, booths, seating, trucks, entrance,
+      w: mm(w0, LIMIT.w, s.w), d: mm(d0, LIMIT.d, s.d),
       parking: num(o.parking, LIMIT.parking, 0),
       fence: o.fence !== false, surface: SURFACE[o.surface] ? o.surface : t.id === 'market' ? 'paver' : 'grass',
       name: String(o.name || '').trim().slice(0, 40),
     };
+  }
+  /** 완성된 부지의 권장 크기 (m): 입구가 옆이면 세로로 긴 모양 */
+  function suggestSite(o = {}) {
+    const s = suggest(o);
+    return sideways(o.entrance) ? { w: s.d, d: s.w } : s;
   }
 
   let last = null; // 마지막으로 만든 것의 요약 (알림에 씀)
@@ -233,7 +253,7 @@
     const o = normalize(o0), L = layout(o);
     const doc = App.doc, T = App.model.TYPES, C = App.catalog, S = App.safety;
     const { W, D, N, cx, m, eg, sg, yb, eys } = L;
-    const stats = { type: o.type, n: N, w: W, d: D, seats: 0, standing: 0, booths: 0, trucks: 0, toilets: 0, toiletNeed: L.toiletNeed, extinguishers: 0, generators: [], fences: 0, parking: 0, exits: 1 + 2 * eys.length, notes: [] };
+    const stats = { type: o.type, n: N, w: W, d: D, staff: 0, seats: 0, standing: 0, booths: 0, trucks: 0, toilets: 0, toiletNeed: L.toiletNeed, extinguishers: 0, generators: [], fences: 0, parking: 0, exits: 1 + 2 * eys.length, notes: [] };
     App.current.expected = N;
     App.current.ground = o.surface === 'grass' ? 'asphalt' : 'grass';
 
@@ -326,13 +346,14 @@
         route('비상 대피', '비상 대피 동선 1 (입구)', [[cx, L.backY], [cx, D + 1500]], eg);
       });
     }
-    // 양옆 비상구로 가는 길 (비상구마다 왼쪽·오른쪽)
+    // 양옆 비상구로 가는 길 (비상구마다 왼쪽·오른쪽). 이름은 다 만들고 돌린 뒤의 쪽으로 (입구가 왼쪽이면 양옆 비상구는 위쪽·아래쪽)
+    const SIDE = { bottom: ['왼쪽', '오른쪽'], left: ['위쪽', '아래쪽'], top: ['오른쪽', '왼쪽'], right: ['아래쪽', '위쪽'] }[o.entrance] || ['왼쪽', '오른쪽'];
     doc.transact('자동 배치: 대피 동선', () => {
       let k = 2;
       eys.forEach((ey, i) => {
         const where = eys.length > 1 ? (i ? ' 뒤' : ' 앞') : '';
-        route('비상 대피', `비상 대피 동선 ${k++} (왼쪽${where})`, [[L.exitFrom[0], ey], [-1500, ey]], sg);
-        route('비상 대피', `비상 대피 동선 ${k++} (오른쪽${where})`, [[L.exitFrom[1], ey], [W + 1500, ey]], sg);
+        route('비상 대피', `비상 대피 동선 ${k++} (${SIDE[0]}${where})`, [[L.exitFrom[0], ey], [-1500, ey]], sg);
+        route('비상 대피', `비상 대피 동선 ${k++} (${SIDE[1]}${where})`, [[L.exitFrom[1], ey], [W + 1500, ey]], sg);
       });
     });
 
@@ -347,7 +368,7 @@
       L.truckSlots.slice(0, o.trucks).forEach((p, i) => put('푸드트럭', p.x, p.y, p.rot, { color: TRUCK_COLORS[i % TRUCK_COLORS.length] }));
       stats.trucks = Math.min(o.trucks, L.truckSlots.length);
       if (stats.trucks < o.trucks) stats.notes.push(`푸드트럭은 ${stats.trucks}대까지 들어갑니다`);
-      L.toilets.forEach((p) => put('이동식 화장실', p.x, p.y, 180));
+      L.toilets.forEach((p) => put('이동식 화장실', p.x, p.y, p.rot != null ? p.rot : 180));
       stats.toilets = L.toilets.length;
     });
 
@@ -479,6 +500,21 @@
       stats.parking = App.parking.fill(lot.id).reduce((t, id) => t + (doc.get(id).count || 0), 0);
       if (stats.parking < o.parking) stats.notes.push(`주차는 ${stats.parking}칸까지 만들었습니다`);
     }
+    // 안전 요원: 권장 수만큼 비상구·입구·무대 앞·관람 구역 둘레에
+    stats.staff = S.placeStaff({ quiet: true }).length;
+
+    // 입구 쪽: 자리 셈은 늘 무대가 위·입구가 아래 — 다른 쪽이면 만든 것을 통째로 돌림 (시계 방향 90° × k)
+    const k = { bottom: 0, left: 1, top: 2, right: 3 }[o.entrance] || 0;
+    if (k) {
+      const turn = (p) => (k === 1 ? { x: D - p.y, y: p.x } : k === 2 ? { x: W - p.x, y: D - p.y } : { x: p.y, y: W - p.x });
+      const pt = (p) => { const q = turn(p); return { x: Math.round(q.x), y: Math.round(q.y) }; };
+      doc.transact('자동 배치: 입구 방향', () => [...doc.all()].forEach((e) => {
+        if (e.type === 'item' && Number.isFinite(e.x) && Number.isFinite(e.y)) doc.update(e.id, { ...pt(e), rotation: ((e.rotation || 0) + 90 * k) % 360 });
+        else if ((e.type === 'zone' || e.type === 'route') && Array.isArray(e.points)) doc.update(e.id, { points: e.points.map(pt) });
+      }));
+      if (k !== 2) { stats.w = D; stats.d = W; } // 완성된 부지의 가로·세로
+    }
+    stats.entrance = o.entrance;
     last = stats;
     return stats;
   }
@@ -494,47 +530,55 @@
     parts.push(`화장실 ${s.toilets}칸`);
     if (s.generators.length) parts.push(`발전기 ${s.generators.map((k) => `${k}kW`).join('+')}`);
     if (s.extinguishers) parts.push(`소화기 ${s.extinguishers}개`);
+    if (s.staff) parts.push(`안전 요원 ${s.staff}명`);
     if (s.fences) parts.push(`펜스 ${s.fences}개`);
     if (s.parking) parts.push(`주차 ${s.parking}칸`);
     return `${parts.join(' · ')}${s.notes.length ? ` — ${s.notes.join(', ')}` : ''}`;
   }
 
-  /** 입력 창. 돌려주는 값: 옵션(만들기) 또는 null(취소) */
+  /** 입력 창. 돌려주는 값: 옵션(만들기) 또는 null(취소). 마지막에 만든 값(종류·인원·부스 …, 크기는 빼고)은 이 기기에 기억해 다음에 채움 */
+  const KEY_LAST = 'hjdm.wizard.last';
   async function dialog(name) {
-    let type = 'concert', sized = false; // sized: 크기를 직접 고쳤는지 (안 고쳤으면 권장 크기를 따라감)
+    const saved = (App.storage && App.storage.read(KEY_LAST)) || {};
+    let type = typeOf(saved.type).id, sized = false; // sized: 크기를 직접 고쳤는지 (안 고쳤으면 권장 크기를 따라감)
     const numBox = (id, label, value, unit, note = '') => `
       <div class="field"><label class="field-label" for="${id}">${label}${note ? ` <small>${note}</small>` : ''}</label>
         <div class="field-box"><input id="${id}" type="text" inputmode="numeric" autocomplete="off" value="${value}"><span class="field-unit">${unit}</span></div></div>`;
+    const digits = (v, d) => (Number.isFinite(Number(v)) && v !== '' && v != null ? String(Math.round(Number(v))) : String(d));
     const r = await App.ui.dialog({
       title: '행사장 자동 배치',
       html: `
-        <p class="dialog-note">행사 종류와 부지 크기, 예상 인원을 넣으면 무대·객석·부스·화장실·의무실·소화기·발전기·펜스·동선까지 한 번에 놓습니다. 무대가 위쪽, 입구가 아래쪽입니다. 만든 뒤 자유롭게 고치세요.</p>
+        <p class="dialog-note">행사 종류와 부지 크기, 예상 인원을 넣으면 무대·객석·부스·화장실·의무실·소화기·발전기·펜스·동선·안전 요원까지 한 번에 놓습니다. 무대는 입구 맞은편에 둡니다. 만든 뒤 자유롭게 고치세요.</p>
         <div class="tpl-list wz-types" role="radiogroup" aria-label="행사 종류">
           ${TYPES.map((t) => `<button type="button" class="tpl" role="radio" data-wz="${t.id}" aria-checked="${t.id === type}"><b>${t.name}</b><small>${t.desc}</small></button>`).join('')}
         </div>
         <div class="field-grid">
-          ${numBox('wzN', '예상 인원', 1000, '명')}
-          <div class="field wz-seat"><label class="field-label" for="wzSeat">관람</label><div class="field-box"><select id="wzSeat" class="field-select"><option value="standing">스탠딩</option><option value="seated">좌석</option></select></div></div>
+          ${numBox('wzN', '예상 인원', digits(saved.n, 1000), '명')}
+          <div class="field wz-seat"><label class="field-label" for="wzSeat">관람</label><div class="field-box"><select id="wzSeat" class="field-select"><option value="standing">스탠딩</option><option value="seated"${saved.seating === 'seated' ? ' selected' : ''}>좌석</option></select></div></div>
         </div>
         <div class="field-grid">${numBox('wzW', '부지 가로', '', 'm')}${numBox('wzD', '부지 세로', '', 'm')}</div>
         <div class="field-grid">${numBox('wzBooths', '부스', 0, '칸')}${numBox('wzTrucks', '푸드트럭', 2, '대')}</div>
         <div class="field-grid">
-          ${numBox('wzPark', '주차 칸', 0, '칸', '0이면 안 만듦')}
+          <div class="field"><label class="field-label" for="wzEnt">입구 쪽 <small>무대는 맞은편</small></label><div class="field-box"><select id="wzEnt" class="field-select">${ENTRANCES.map(([id, t]) => `<option value="${id}"${saved.entrance === id ? ' selected' : ''}>${t}</option>`).join('')}</select></div></div>
           <div class="field"><label class="field-label" for="wzSurf">바닥</label><div class="field-box"><select id="wzSurf" class="field-select">${Object.entries(SURFACE).map(([id, s]) => `<option value="${id}">${s[0]}</option>`).join('')}</select></div></div>
         </div>
-        <label class="check-row"><input type="checkbox" id="wzFence" checked><span>둘레 펜스<small>입구와 양옆 비상구는 비워 둠</small></span></label>
+        <div class="field-grid">${numBox('wzPark', '주차 칸', digits(saved.parking, 0), '칸', '0이면 안 만듦')}</div>
+        <label class="check-row"><input type="checkbox" id="wzFence"${saved.fence === false ? '' : ' checked'}><span>둘레 펜스<small>입구와 양옆 비상구는 비워 둠</small></span></label>
         <p class="props-meta wz-hint" aria-live="polite"></p>`,
       actions: [{ id: 'cancel', label: '취소' }, { id: 'ok', label: '만들기', primary: true }],
       onOpen(body) {
         const $ = (id) => body.querySelector(`#${id}`);
+        // 개수: 앞쪽 숫자만 (1,500 → 1500, 2000명 → 2000, 12.5 → 12). 길이(m): 1,000은 천 단위, 40,5는 소수점
+        const int = (id) => { const m = $(id).value.replace(/[,\s]/g, '').match(/\d+/); return m ? m[0] : ''; };
+        const metres = (id) => { const raw = $(id).value.trim(); return Number(/^\d{1,3}(,\d{3})+$/.test(raw) ? raw.replace(/,/g, '') : raw.replace(',', '.')); };
         const read = () => ({
-          type, n: $('wzN').value.replace(/[^\d]/g, ''), seating: $('wzSeat').value, booths: $('wzBooths').value.replace(/[^\d]/g, ''), trucks: $('wzTrucks').value.replace(/[^\d]/g, ''),
-          parking: $('wzPark').value.replace(/[^\d]/g, ''), surface: $('wzSurf').value, fence: $('wzFence').checked, name,
-          w: sized ? Number($('wzW').value.replace(',', '.')) * 1000 : null, d: sized ? Number($('wzD').value.replace(',', '.')) * 1000 : null,
+          type, n: int('wzN'), seating: $('wzSeat').value, booths: int('wzBooths'), trucks: int('wzTrucks'),
+          parking: int('wzPark'), surface: $('wzSurf').value, fence: $('wzFence').checked, entrance: $('wzEnt').value, name,
+          w: sized ? metres('wzW') * 1000 : null, d: sized ? metres('wzD') * 1000 : null,
         });
         const sync = () => {
-          const o = normalize(read());
-          const s = suggest(o);
+          const raw = read(), o = normalize(raw);
+          const s = suggestSite(o);
           if (!sized) { $('wzW').value = s.w; $('wzD').value = s.d; }
           body.querySelector('.wz-seat').hidden = type !== 'concert';
           $('wzBooths').closest('.field').hidden = type !== 'market' && type !== 'festival';
@@ -543,12 +587,14 @@
             : fits(o) ? `권장 부지는 약 ${s.w} × ${s.d} m입니다. ` : `이 크기에는 다 들어가지 않을 수 있습니다 (권장 약 ${s.w} × ${s.d} m 이상). `;
           body.querySelector('.wz-hint').textContent = `${size}부지 ${n0(area)}㎡ · 한 사람에 ${per >= 10 ? n0(per) : (Math.round(per * 10) / 10).toLocaleString('ko-KR')}㎡. 크기는 ${LIMIT.w[0]}~${LIMIT.w[1]} m, 비우면 권장값.`;
         };
-        const setType = (id) => {
+        /** 종류를 고름: 그 종류의 기본값(부스·푸드트럭·바닥)을 채움. keep이 있으면(기억해 둔 같은 종류) 그 값으로 */
+        const setType = (id, keep = null) => {
           type = id;
           body.querySelectorAll('[data-wz]').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.wz === id)));
           const t = typeOf(id);
-          $('wzBooths').value = t.booths; $('wzTrucks').value = t.trucks;
-          $('wzSurf').value = id === 'market' ? 'paver' : 'grass';
+          $('wzBooths').value = keep ? digits(keep.booths, t.booths) : t.booths;
+          $('wzTrucks').value = keep ? digits(keep.trucks, t.trucks) : t.trucks;
+          $('wzSurf').value = keep && SURFACE[keep.surface] ? keep.surface : id === 'market' ? 'paver' : 'grass';
           sync();
         };
         body.addEventListener('click', (e) => { const b = e.target.closest('[data-wz]'); if (b) setType(b.dataset.wz); });
@@ -556,12 +602,14 @@
         body.addEventListener('input', (e) => { if (e.target.id === 'wzW' || e.target.id === 'wzD') sized = !!($('wzW').value.trim() || $('wzD').value.trim()); sync(); });
         body.addEventListener('change', sync);
         body._read = () => normalize(read());
-        setType(type);
+        setType(type, saved.type === type ? saved : null);
       },
     });
     if (r.id !== 'ok' || !r.body._read) return null;
-    return r.body._read();
+    const o = r.body._read();
+    if (App.storage) App.storage.write(KEY_LAST, { type: o.type, n: o.n, seating: o.seating, booths: o.booths, trucks: o.trucks, parking: o.parking, surface: o.surface, fence: o.fence, entrance: o.entrance });
+    return o;
   }
 
-  App.wizard = { TYPES, LIMIT, suggest, normalize, layout, fits, build, dialog, summary, get last() { return last; } };
+  App.wizard = { TYPES, LIMIT, ENTRANCES, suggest, suggestSite, normalize, layout, fits, build, dialog, summary, get last() { return last; } };
 })();
