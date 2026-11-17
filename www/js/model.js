@@ -669,6 +669,28 @@
       this._changed();
     }
 
+    /** 따로 떨어진 빈 도면에서 fn을 돌리고, 그 안에서 만든 요소들(복사본)을 돌려줌. 이 도면의 요소와 실행 취소 기록은 그대로.
+        (자동 배치를 지금 도면의 영역에 넣을 때: 빈 곳에서 만든 뒤 옮겨 붙임 — 만드는 동안 다른 물건과 섞이지 않게) */
+    sandbox(fn) {
+      if (this.tx) this.commit();
+      const keep = { elements: this.elements, undoStack: this.undoStack, redoStack: this.redoStack };
+      this.elements = new Map();
+      this.undoStack = [];
+      this.redoStack = [];
+      try {
+        fn();
+        if (this.tx) this.commit();
+        return [...this.elements.values()].map(clone);
+      } finally {
+        this.tx = null;
+        this.elements = keep.elements;
+        this.undoStack = keep.undoStack;
+        this.redoStack = keep.redoStack;
+        this.wallVersion++;
+        this._changed(); // 판 번호를 올려 빈 도면에서 셈해 둔 캐시(안전 점검·동선 체크)를 버림
+      }
+    }
+
     _put(id, value) {
       this._wallTouch(value || this.elements.get(id));
       if (value) this.elements.set(id, clone(value));

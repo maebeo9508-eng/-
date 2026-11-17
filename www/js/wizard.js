@@ -12,7 +12,13 @@
     { id: 'festival', name: '축제', desc: '무대 + 관람 구역 + 부스 거리', trucks: 3, booths: 12 },
     { id: 'market', name: '플리마켓·장터', desc: '마주 보는 부스 줄과 휴게 공간', trucks: 3, booths: 30 },
     { id: 'ceremony', name: '기념식·개막식', desc: '무대와 좌석, 접수대', trucks: 0, booths: 0 },
+    { id: 'sports', name: '체육대회·운동회', desc: '운동장과 본부석, 팀 텐트·응원 구역', trucks: 1, booths: 4 }, // booths = 팀 텐트 수
   ];
+  /** 부스 칸에 넣는 것: 장터·축제는 부스(칸), 체육대회는 팀 텐트(동) */
+  const BOOTH_LABEL = { market: ['부스', '칸'], festival: ['부스', '칸'], sports: ['팀 텐트', '동'] };
+  const TEAMS = [['청', '#1971c2'], ['백', '#f1f3f5'], ['홍', '#e03131'], ['황', '#f08c00'], ['녹', '#2f9e44'], ['보라', '#7048e8']];
+  // 운동장에 그릴 경기장: 들어가는 가장 큰 것 (가로 × 세로 mm)
+  const COURTS = [['육상 트랙', 176000, 92000], ['육상 트랙', 88000, 46000], ['축구장', 68000, 50000], ['축구장', 50000, 30000], ['풋살장', 40000, 20000], ['풋살장', 30000, 15000], ['배구장', 18000, 9000]];
   const SURFACE = { grass: ['잔디', '#2f9e44'], paver: ['보도블록', '#b98f73'], asphalt: ['아스팔트', '#5b5f66'] };
   const LIMIT = { n: [50, 30000], w: [25, 300], d: [25, 300], booths: [0, 300], trucks: [0, 12], parking: [0, 500] };
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
@@ -25,7 +31,7 @@
       권장 부지 크기(suggest)와 실제 배치(build)가 같은 셈을 씀. o: { type, n, w, d(mm), booths, trucks, seating } */
   function layout(o) {
     const W = o.w, D = o.d, N = o.n, cx = W / 2, m = 2000; // m: 펜스 안쪽 여백
-    const market = o.type === 'market', ceremony = o.type === 'ceremony', festival = o.type === 'festival';
+    const market = o.type === 'market', ceremony = o.type === 'ceremony', festival = o.type === 'festival', sports = o.type === 'sports';
     const eg = clamp(N > 8000 ? 10000 : N > 3000 ? 8000 : 6000, 4000, W - 12000); // 입구 폭 (아래 가운데)
     const band = clamp(D * 0.22, 6500, 13000), yb = D - m, bandTop = yb - band;    // 아래쪽 편의 시설 띠 (화장실·안내·의무실·푸드트럭)
     // 비상구: 입구 + 양옆. 모두 나가는 데 6분쯤 걸리게 (출구 1m에 1분 80명). 양옆 하나씩으로 모자라면 둘씩
@@ -58,7 +64,7 @@
       return rows.slice(0, used).map((r, i) => ({ ...r, count: base + (i < extra ? 1 : 0) }));
     };
     const round = (v) => Math.round(v / 100) * 100;
-    const L = { W, D, N, cx, m, eg, band, yb, bandTop, market, ceremony, festival, truckSlots: [] };
+    const L = { W, D, N, cx, m, eg, band, yb, bandTop, market, ceremony, festival, sports, truckSlots: [] };
 
     if (market) {
       /* 플리마켓: 마주 보는 부스 줄, 왼쪽 휴게 구역, 오른쪽 푸드트럭 줄. 비상구는 부스 줄 사이 길의 양 끝 */
@@ -108,6 +114,31 @@
         sg, pairs: P.pairs, eys: eys.map((v) => Math.round(v)), rest, bx0, bx1, xs, rows, aisle, firstAisle: Math.round(firstAisle), tables, // 줄 사이 길에 꼭 맞는 높이라 100 단위로 다듬지 않음
         boothCap: P.rp.rows.length * xs.length, exitFrom: [cx - eg / 2 - 1000, cx + eg / 2 + 1000],
         genAt: { x: W - m - 1600, y: m + 1300 }, serviceTop: bandTop,
+      });
+    } else if (sports) {
+      /* 체육대회·운동회: 위쪽 가운데 본부석(큰 텐트·시상대·음향·점수판), 가운데 운동장, 양옆에 응원 구역과 팀 텐트 줄 */
+      const top = m + 1500, fy0 = top + 10500, fy1 = bandTop - 2000;   // 운동장·응원 구역의 위·아래
+      const len = Math.max(0, fy1 - fy0), strip = m + 6500;             // strip: 펜스에서 팀 텐트 줄 안쪽 끝까지
+      // 응원 구역 깊이: 서 있을 넓이(1㎡에 1.8명)를 양옆에 나눔 — 운동장 폭은 30m 넘게 남김
+      const czMax = Math.max(4000, Math.floor((W - 2 * strip - 3000 - 30000) / 2 / 500) * 500);
+      const cz = clamp(len > 0 ? Math.ceil(((N / 1.8) * 1e6) / (2 * len) / 500) * 500 : 4000, 4000, czMax);
+      const depthA = len;
+      const pairs = wantPairs === 2 && depthA * 0.44 >= sgFor(2) + 2000 ? 2 : 1, sg = sgFor(pairs);
+      const eys = (pairs === 2 ? [fy0 + depthA * 0.28, fy0 + depthA * 0.72] : [clamp((fy0 + fy1) / 2, m + 6000, bandTop - 2000)]).map(round);
+      // 팀 텐트(5×5): 왼쪽·오른쪽 번갈아 위에서부터, 비상구 앞은 비움
+      const tents = [];
+      for (let y = fy0 + 2500; y + 2500 <= fy1; y += 5500) {
+        if (eys.some((e) => Math.abs(y - e) < sg / 2 + 3100)) continue;
+        tents.push({ x: m + 3500, y, rot: 270 }, { x: W - m - 3500, y, rot: 90 });
+      }
+      // 운동장과 그 안에 그릴 경기장 (들어가는 가장 큰 것, 세로로 길면 돌려서)
+      const fx0 = strip + cz + 1500, fx1 = W - fx0, bw = fx1 - fx0, bh = len - 2000;
+      const fit = COURTS.map(([kind, w, h]) => (w <= bw && h <= bh ? { kind, w, h, rot: 0 } : h <= bw && w <= bh ? { kind, w, h, rot: 90 } : null)).find(Boolean) || null;
+      Object.assign(L, {
+        sg, pairs, eys, top, fy0, fy1, cz, tents, field: bw >= 12000 && bh >= 8000 ? { x0: fx0, y0: fy0 + 1000, x1: fx1, y1: fy1 - 1000 } : null, court: fit,
+        cheer: [[strip, strip + cz], [W - strip - cz, W - strip]], standArea: (2 * cz * len) / 1e6, rows: [], xs: [], boothCap: tents.length,
+        backY: round(Math.min(fy1 + 3000, D - 2500)), exitFrom: [strip, W - strip],
+        genAt: { x: cx - 9000, y: top + 1000 }, serviceTop: fy1 + 1500,
       });
     } else {
       /* 무대 쪽 (콘서트·축제·기념식): 무대가 위, 그 앞에 관람 자리, 축제는 그 아래 부스 거리 */
@@ -188,7 +219,7 @@
     const toiletNeed = Math.ceil(N / 100);
     for (let r = 0; r < rowsFit && toilets.length < toiletNeed; r++) for (let i = 0; i < perRow && toilets.length < toiletNeed; i++) toilets.push({ x: tx0 + 600 + i * 1350, y: yb - 700 - r * 3000 });
     // 줄에 다 안 들어가면: 왼쪽 펜스를 따라 위로 (문이 오른쪽), 비상구 앞은 비움. 넓은 무대형 부지(양옆 9m 넘게 빔)는 두 줄까지
-    const cols = !market && Math.max(m + 4000, W * 0.1) >= 9000 ? 2 : 1;
+    const cols = sports ? 0 : !market && Math.max(m + 4000, W * 0.1) >= 9000 ? 2 : 1; // 체육대회는 왼쪽 펜스를 따라 팀 텐트가 섬
     for (let c = 0; c < cols && toilets.length < toiletNeed; c++) {
       for (let y = bandTop - 1200; y >= m + 3000 && toilets.length < toiletNeed; y -= 1350) {
         if (L.eys.some((e) => Math.abs(y - e) < L.sg / 2 + 1500)) continue;
@@ -202,6 +233,7 @@
     const L = layout(o);
     if (L.truckSlots.length < o.trucks) return false;
     if (o.type === 'market') return L.boothCap >= o.booths && (o.w / 1000) * (o.d / 1000) >= o.n * 1.5;
+    if (o.type === 'sports') return L.standArea + 0.01 >= o.n / 1.8 && L.tents.length >= o.booths && !!L.court;
     if (o.seating === 'seated') return L.seatCap >= o.n;
     return L.standArea + 0.01 >= o.n / 1.8 && L.boothCap >= (o.type === 'festival' ? o.booths : 0);
   }
@@ -248,14 +280,15 @@
 
   let last = null; // 마지막으로 만든 것의 요약 (알림에 씀)
 
-  /** 지금 도면(빈 조감도)에 배치를 만듦. 돌려주는 값: 요약 { type, seats, booths, trucks, toilets, … } */
-  function build(o0) {
+  /** 지금 도면(빈 조감도)에 배치를 만듦. opt.embed: 다른 도면의 영역에 옮겨 붙일 것 (둘레 바닥을 바꾸지 않음).
+      돌려주는 값: 요약 { type, seats, booths, trucks, toilets, siteId, … } */
+  function build(o0, opt = {}) {
     const o = normalize(o0), L = layout(o);
     const doc = App.doc, T = App.model.TYPES, C = App.catalog, S = App.safety;
     const { W, D, N, cx, m, eg, sg, yb, eys } = L;
-    const stats = { type: o.type, n: N, w: W, d: D, staff: 0, seats: 0, standing: 0, booths: 0, trucks: 0, toilets: 0, toiletNeed: L.toiletNeed, extinguishers: 0, generators: [], fences: 0, parking: 0, exits: 1 + 2 * eys.length, notes: [] };
+    const stats = { type: o.type, n: N, w: W, d: D, staff: 0, tents: 0, seats: 0, standing: 0, booths: 0, trucks: 0, toilets: 0, toiletNeed: L.toiletNeed, extinguishers: 0, generators: [], fences: 0, parking: 0, exits: 1 + 2 * eys.length, notes: [] };
     App.current.expected = N;
-    App.current.ground = o.surface === 'grass' ? 'asphalt' : 'grass';
+    if (!opt.embed) App.current.ground = o.surface === 'grass' ? 'asphalt' : 'grass'; // 지금 도면의 영역에 넣을 때는 둘레 바닥을 건드리지 않음
 
     const put = (kind, x, y, rotation = 0, patch = {}) => {
       const def = C.itemDef(kind);
@@ -281,6 +314,7 @@
 
     let site;
     doc.transact('자동 배치: 부지', () => { site = zoneOf(0, 0, W, D, o.name || '행사장', o.surface, SURFACE[o.surface][1], L.market ? { crowd: true } : {}); });
+    stats.siteId = site.id;
 
     /* ── 부스 줄: rows [{ y, rot, count }], xs(가운데부터) → 몽골텐트 (번호도 매김) ── */
     const COLORS = ['#f87171', '#fbbf24', '#34d399', '#60a5fa', '#a78bfa', '#f472b6', '#2dd4bf', '#fb923c'];
@@ -307,6 +341,30 @@
         route('관람객', '관람 동선', [[cx, D + 1500], [cx, L.firstAisle], [far, L.firstAisle]]);
         route('비상 대피', '비상 대피 동선 1 (입구)', [[cx, Math.max(L.firstAisle, D * 0.5)], [cx, D + 1500]], eg); // 길어도 부지 깊이의 절반
       });
+    } else if (L.sports) {
+      /* ── 체육대회·운동회 ── */
+      const { top, fy0, fy1 } = L;
+      doc.transact('자동 배치: 본부석', () => {
+        put('현수막', cx, m + 700, 0, { size: pickSize([3000, 5000, 7000, 10000], W - 2 * m - 2000), text: o.name || '체육대회' });
+        put('대형 텐트', cx, top + 2500, 0);
+        put('시상대', cx, top + 6800, 0);
+        [-1, 1].forEach((k) => put('스피커', cx + k * 6200, top + 4600, 0));
+        put('점수판', cx + 8500, top + 2500, 0, { text: '청 0 : 0 백' });
+      });
+      doc.transact('자동 배치: 운동장', () => {
+        if (L.field) zoneOf(L.field.x0, L.field.y0, L.field.x1, L.field.y1, '운동장', 'sand', '#e6d3a3');
+        if (L.field && L.court) put(L.court.kind, cx, (L.field.y0 + L.field.y1) / 2, L.court.rot, { size: L.court.w, depth: L.court.h });
+        L.cheer.forEach(([x0, x1], i) => zoneOf(x0, fy0, x1, fy1, `응원 구역 ${i + 1}`, o.surface === 'grass' ? '' : o.surface, '#1c7ed6', { crowd: true }));
+        const used = L.tents.slice(0, o.booths);
+        used.forEach((p, i) => put('몽골텐트', p.x, p.y, p.rot, { size: 5000, depth: 5000, variant: '뒤', color: TEAMS[i % TEAMS.length][1], memo: i < TEAMS.length ? `${TEAMS[i][0]}팀` : `${i + 1}팀` }));
+        stats.tents = used.length;
+        if (used.length < o.booths) stats.notes.push(`팀 텐트는 ${used.length}동까지 들어갑니다`);
+        route('관람객', '입장 동선', [[cx, D + 1500], [cx, L.backY]]);
+        route('비상 대피', '비상 대피 동선 1 (입구)', [[cx, L.backY], [cx, D + 1500]], eg);
+      });
+      stats.standing = Math.round(L.standArea);
+      if (L.standArea * 2 < N) stats.notes.push(`응원 구역은 ${n0(L.standArea * 2)}명까지가 권장입니다 (부지를 넓히면 더 넓어짐)`);
+      if (!L.court) stats.notes.push('운동장이 좁아 경기장 선은 그리지 않았습니다');
     } else {
       /* ── 무대 쪽 (콘서트·축제·기념식) ── */
       const { sw, sd, top, front, ax0, ax1, ay0 } = L;
@@ -347,7 +405,7 @@
       });
     }
     // 양옆 비상구로 가는 길 (비상구마다 왼쪽·오른쪽). 이름은 다 만들고 돌린 뒤의 쪽으로 (입구가 왼쪽이면 양옆 비상구는 위쪽·아래쪽)
-    const SIDE = { bottom: ['왼쪽', '오른쪽'], left: ['위쪽', '아래쪽'], top: ['오른쪽', '왼쪽'], right: ['아래쪽', '위쪽'] }[o.entrance] || ['왼쪽', '오른쪽'];
+    const SIDE = { bottom: ['왼쪽', '오른쪽'], left: ['위쪽', '아래쪽'], top: ['오른쪽', '왼쪽'], right: ['아래쪽', '위쪽'] }[opt.side || o.entrance] || ['왼쪽', '오른쪽'];
     doc.transact('자동 배치: 대피 동선', () => {
       let k = 2;
       eys.forEach((ey, i) => {
@@ -524,7 +582,8 @@
     if (!s) return '';
     const parts = [];
     if (s.seats) parts.push(`좌석 ${n0(s.seats)}석`);
-    if (s.standing) parts.push(`관람 구역 ${n0(s.standing)}㎡`);
+    if (s.standing) parts.push(`${s.type === 'sports' ? '응원' : '관람'} 구역 ${n0(s.standing)}㎡`);
+    if (s.tents) parts.push(`팀 텐트 ${s.tents}동`);
     if (s.booths) parts.push(`부스 ${s.booths}칸`);
     if (s.trucks) parts.push(`푸드트럭 ${s.trucks}대`);
     parts.push(`화장실 ${s.toilets}칸`);
@@ -536,9 +595,99 @@
     return `${parts.join(' · ')}${s.notes.length ? ` — ${s.notes.join(', ')}` : ''}`;
   }
 
-  /** 입력 창. 돌려주는 값: 옵션(만들기) 또는 null(취소). 마지막에 만든 값(종류·인원·부스 …, 크기는 빼고)은 이 기기에 기억해 다음에 채움 */
+  /* ── 지금 도면의 영역에 자동 배치: 네모난 영역(돌아가 있어도 됨)의 크기로 빈 도면에서 만든 뒤 그 영역 자리로 옮겨 붙임 ── */
+  /** 영역이 네모면 { pts(네 꼭짓점), a·b(이웃한 두 변 길이), cw } — 아니면 null. 한 줄 위의 점은 빼고 봄 */
+  function rectOf(zone) {
+    if (!zone || zone.type !== 'zone' || !zone.points || zone.points.length < 4) return null;
+    const P = zone.points, n = P.length;
+    const unit = (a, b) => { const L = Math.hypot(b.x - a.x, b.y - a.y) || 1; return { x: (b.x - a.x) / L, y: (b.y - a.y) / L }; };
+    // 꺾이는 점만 (같은 방향으로 이어지는 점·겹친 점은 뺌)
+    const pts = P.filter((p, i) => {
+      const a = P[(i + n - 1) % n], b = P[(i + 1) % n];
+      if (Math.hypot(p.x - a.x, p.y - a.y) < 1) return false;
+      const u = unit(a, p), v = unit(p, b);
+      return Math.abs(u.x * v.y - u.y * v.x) > 0.035; // 2°
+    });
+    if (pts.length !== 4) return null;
+    const e = pts.map((p, i) => unit(p, pts[(i + 1) % 4])), len = pts.map((p, i) => Math.hypot(pts[(i + 1) % 4].x - p.x, pts[(i + 1) % 4].y - p.y));
+    if (e.some((u, i) => Math.abs(u.x * e[(i + 1) % 4].x + u.y * e[(i + 1) % 4].y) > 0.01)) return null; // 모서리가 직각(±0.6°)이 아님
+    if (Math.abs(len[0] - len[2]) > Math.max(100, len[0] * 0.005) || Math.abs(len[1] - len[3]) > Math.max(100, len[1] * 0.005)) return null;
+    const area2 = pts.reduce((t, p, i) => t + p.x * pts[(i + 1) % 4].y - pts[(i + 1) % 4].x * p.y, 0);
+    return { pts, a: (len[0] + len[2]) / 2, b: (len[1] + len[3]) / 2, cw: area2 > 0 };
+  }
+  /** 입구 쪽(화면에서 아래·위·왼쪽·오른쪽)에 가장 가까운 변을 입구로 한 자리 틀: 자리 셈의 (x, y) → 도면 자리 */
+  function frameOf(R, entrance) {
+    const dir = { bottom: { x: 0, y: 1 }, top: { x: 0, y: -1 }, left: { x: -1, y: 0 }, right: { x: 1, y: 0 } }[entrance] || { x: 0, y: 1 };
+    let best = null;
+    R.pts.forEach((p, i) => {
+      const q = R.pts[(i + 1) % 4], L = Math.hypot(q.x - p.x, q.y - p.y) || 1, d = { x: (q.x - p.x) / L, y: (q.y - p.y) / L };
+      const out = R.cw ? { x: d.y, y: -d.x } : { x: -d.y, y: d.x }; // 바깥쪽
+      const score = out.x * dir.x + out.y * dir.y;
+      if (!best || score > best.score) best = { score, p, q, out, i };
+    });
+    const nrm = best.out, ex = { x: nrm.y, y: -nrm.x };                // 자리 셈의 +x (입구를 등지고 섰을 때 왼쪽 → 오른쪽), +y는 바깥쪽
+    const W = best.i % 2 === 0 ? R.a : R.b, D = best.i % 2 === 0 ? R.b : R.a;
+    const E0 = Math.hypot(best.p.x + ex.x * W - best.q.x, best.p.y + ex.y * W - best.q.y) < Math.hypot(best.q.x + ex.x * W - best.p.x, best.q.y + ex.y * W - best.p.y) ? best.p : best.q;
+    return {
+      W, D, theta: (Math.atan2(ex.y, ex.x) * 180) / Math.PI,
+      // 0.01mm까지 (정수 mm로 다듬으면 돌아간 영역에서 펜스 끝이 비상구 폭 안으로 1mm쯤 들어가 ‘걸림’이 됨)
+      at: (p) => ({ x: Math.round((E0.x + ex.x * p.x + nrm.x * (p.y - D)) * 100) / 100, y: Math.round((E0.y + ex.y * p.x + nrm.y * (p.y - D)) * 100) / 100 }),
+    };
+  }
+  /** 영역에 배치 (창 없이): raw는 창에서 고른 값 { type, n, seating, booths, trucks, fence, surface, side(입구 쪽) }.
+      돌려주는 값: 요약(stats) 또는 null(네모가 아니거나 크기가 범위를 벗어남 — 까닭은 알림으로) */
+  function placeInZone(zoneId, raw = {}) {
+    const zone = App.doc.get(zoneId), R = rectOf(zone);
+    if (!R) { App.ui.toast('자동 배치는 네모난 영역(꼭짓점 네 개, 직각)에만 할 수 있습니다. 영역 도구로 부지를 네모로 그려 주세요.'); return null; }
+    const lo = LIMIT.w[0] * 1000, hi = LIMIT.w[1] * 1000;
+    if (Math.min(R.a, R.b) < lo - 50 || Math.max(R.a, R.b) > hi + 50) { App.ui.toast(`이 영역은 ${n0(R.a / 1000)} × ${n0(R.b / 1000)} m입니다. 한 변이 ${LIMIT.w[0]}~${LIMIT.w[1]} m인 영역에 배치할 수 있습니다.`); return null; }
+    const F = frameOf(R, raw.side || raw.entrance);
+    const o = { ...normalize({ ...raw, entrance: 'bottom', parking: 0, name: zone.name || raw.name }), w: clamp(Math.round(F.W), lo, hi), d: clamp(Math.round(F.D), lo, hi) };
+    // 빈 도면에서 만든 뒤 (숨긴 레이어가 있어도 다 보이는 것으로) 영역 자리로 옮겨 붙임
+    const hidden = App.current.hiddenLayers;
+    let stats = null, made = [];
+    App.current.hiddenLayers = [];
+    try { made = App.doc.sandbox(() => { stats = build(o, { embed: true, side: raw.side || raw.entrance }); }); } finally { App.current.hiddenLayers = hidden; }
+    const turn = (deg) => Math.round(((((deg || 0) + F.theta) % 360) + 360) % 360 * 100) / 100;
+    const els = made.filter((e) => e.id !== stats.siteId).map((e) => {
+      if (e.type === 'item' && Number.isFinite(e.x) && Number.isFinite(e.y)) Object.assign(e, F.at(e), { rotation: turn(e.rotation) });
+      else if ((e.type === 'zone' || e.type === 'route') && Array.isArray(e.points)) e.points = e.points.map(F.at);
+      if (e.perimeterOf === stats.siteId) e.perimeterOf = zone.id;
+      return e;
+    });
+    App.doc.transact('자동 배치', () => {
+      els.forEach((e) => App.doc.add(e));
+      if (o.type === 'market' && !zone.crowd) App.doc.update(zone.id, { crowd: true }); // 장터는 부지 전체가 관람·대기 구역
+    });
+    stats.added = els.length;
+    stats.entrance = raw.side || raw.entrance || 'bottom';
+    last = stats;
+    return stats;
+  }
+  /** 영역 속성의 ‘이 영역에 자동 배치’: 창을 띄우고 배치 */
+  async function intoZone(zoneId) {
+    const zone = App.doc.get(zoneId), R = rectOf(zone);
+    if (!R) { App.ui.toast('자동 배치는 네모난 영역(꼭짓점 네 개, 직각)에만 할 수 있습니다. 영역 도구로 부지를 네모로 그려 주세요.'); return null; }
+    const lo = LIMIT.w[0] * 1000, hi = LIMIT.w[1] * 1000;
+    if (Math.min(R.a, R.b) < lo - 50 || Math.max(R.a, R.b) > hi + 50) { App.ui.toast(`이 영역은 ${n0(R.a / 1000)} × ${n0(R.b / 1000)} m입니다. 한 변이 ${LIMIT.w[0]}~${LIMIT.w[1]} m인 영역에 배치할 수 있습니다.`); return null; }
+    const inside = [...App.doc.all()].filter((e) => e.type === 'item' && !(App.catalog.itemDef(e.kind) || {}).flat && App.geom.pointInPolygon(e, zone.points)).length;
+    const raw = await dialog(zone.name || '행사장', { sizeFor: (side) => { const F = frameOf(R, side); return { w: F.W, d: F.D }; }, inside });
+    if (!raw) return null;
+    App.ui.busy('행사장을 배치하는 중…');
+    await new Promise((res) => setTimeout(res, 30));
+    let stats = null;
+    try { stats = placeInZone(zoneId, raw); } catch (err) { console.error(err); App.ui.toast('자동 배치를 만들지 못했습니다. 인원이나 종류를 바꿔 다시 해 보세요.'); } finally { App.ui.busy(false); }
+    if (stats) {
+      App.selection.set([]);
+      App.ui.toast(`‘${zone.name || '영역'}’에 배치했습니다: ${summary(stats)}. 한 번에 되돌리려면 Ctrl+Z.`);
+    }
+    return stats;
+  }
+
+  /** 입력 창. 돌려주는 값: 옵션(만들기) 또는 null(취소). 마지막에 만든 값(종류·인원·부스 …, 크기는 빼고)은 이 기기에 기억해 다음에 채움.
+      embed: 지금 도면의 영역에 넣을 때 { sizeFor(입구 쪽) → { w, d }(mm, 입구 쪽 변·깊이), inside(영역 안의 물건 수) } — 크기 칸·주차 칸 대신 영역 크기를 보여 줌 */
   const KEY_LAST = 'hjdm.wizard.last';
-  async function dialog(name) {
+  async function dialog(name, embed = null) {
     const saved = (App.storage && App.storage.read(KEY_LAST)) || {};
     let type = typeOf(saved.type).id, sized = false; // sized: 크기를 직접 고쳤는지 (안 고쳤으면 권장 크기를 따라감)
     const numBox = (id, label, value, unit, note = '') => `
@@ -548,7 +697,9 @@
     const r = await App.ui.dialog({
       title: '행사장 자동 배치',
       html: `
-        <p class="dialog-note">행사 종류와 부지 크기, 예상 인원을 넣으면 무대·객석·부스·화장실·의무실·소화기·발전기·펜스·동선·안전 요원까지 한 번에 놓습니다. 무대는 입구 맞은편에 둡니다. 만든 뒤 자유롭게 고치세요.</p>
+        <p class="dialog-note">${embed
+          ? `고른 영역 ‘${esc(name)}’의 크기에 맞춰 무대·객석·부스·화장실·의무실·소화기·발전기·펜스·동선·안전 요원을 한 번에 놓습니다. 무대는 입구 맞은편에 둡니다. 영역 안에 이미 있는 것은 그대로 둡니다${embed.inside ? ` (지금 물건 ${embed.inside}개 — 겹칠 수 있습니다)` : ''}.`
+          : '행사 종류와 부지 크기, 예상 인원을 넣으면 무대·객석·부스·화장실·의무실·소화기·발전기·펜스·동선·안전 요원까지 한 번에 놓습니다. 무대(체육대회는 본부석)는 입구 맞은편에 둡니다. 만든 뒤 자유롭게 고치세요.'}</p>
         <div class="tpl-list wz-types" role="radiogroup" aria-label="행사 종류">
           ${TYPES.map((t) => `<button type="button" class="tpl" role="radio" data-wz="${t.id}" aria-checked="${t.id === type}"><b>${t.name}</b><small>${t.desc}</small></button>`).join('')}
         </div>
@@ -556,13 +707,13 @@
           ${numBox('wzN', '예상 인원', digits(saved.n, 1000), '명')}
           <div class="field wz-seat"><label class="field-label" for="wzSeat">관람</label><div class="field-box"><select id="wzSeat" class="field-select"><option value="standing">스탠딩</option><option value="seated"${saved.seating === 'seated' ? ' selected' : ''}>좌석</option></select></div></div>
         </div>
-        <div class="field-grid">${numBox('wzW', '부지 가로', '', 'm')}${numBox('wzD', '부지 세로', '', 'm')}</div>
+        ${embed ? '<p class="props-meta wz-size"></p>' : `<div class="field-grid">${numBox('wzW', '부지 가로', '', 'm')}${numBox('wzD', '부지 세로', '', 'm')}</div>`}
         <div class="field-grid">${numBox('wzBooths', '부스', 0, '칸')}${numBox('wzTrucks', '푸드트럭', 2, '대')}</div>
         <div class="field-grid">
           <div class="field"><label class="field-label" for="wzEnt">입구 쪽 <small>무대는 맞은편</small></label><div class="field-box"><select id="wzEnt" class="field-select">${ENTRANCES.map(([id, t]) => `<option value="${id}"${saved.entrance === id ? ' selected' : ''}>${t}</option>`).join('')}</select></div></div>
           <div class="field"><label class="field-label" for="wzSurf">바닥</label><div class="field-box"><select id="wzSurf" class="field-select">${Object.entries(SURFACE).map(([id, s]) => `<option value="${id}">${s[0]}</option>`).join('')}</select></div></div>
         </div>
-        <div class="field-grid">${numBox('wzPark', '주차 칸', digits(saved.parking, 0), '칸', '0이면 안 만듦')}</div>
+        ${embed ? '' : `<div class="field-grid">${numBox('wzPark', '주차 칸', digits(saved.parking, 0), '칸', '0이면 안 만듦')}</div>`}
         <label class="check-row"><input type="checkbox" id="wzFence"${saved.fence === false ? '' : ' checked'}><span>둘레 펜스<small>입구와 양옆 비상구는 비워 둠</small></span></label>
         <p class="props-meta wz-hint" aria-live="polite"></p>`,
       actions: [{ id: 'cancel', label: '취소' }, { id: 'ok', label: '만들기', primary: true }],
@@ -571,21 +722,31 @@
         // 개수: 앞쪽 숫자만 (1,500 → 1500, 2000명 → 2000, 12.5 → 12). 길이(m): 1,000은 천 단위, 40,5는 소수점
         const int = (id) => { const m = $(id).value.replace(/[,\s]/g, '').match(/\d+/); return m ? m[0] : ''; };
         const metres = (id) => { const raw = $(id).value.trim(); return Number(/^\d{1,3}(,\d{3})+$/.test(raw) ? raw.replace(/,/g, '') : raw.replace(',', '.')); };
-        const read = () => ({
-          type, n: int('wzN'), seating: $('wzSeat').value, booths: int('wzBooths'), trucks: int('wzTrucks'),
-          parking: int('wzPark'), surface: $('wzSurf').value, fence: $('wzFence').checked, entrance: $('wzEnt').value, name,
-          w: sized ? metres('wzW') * 1000 : null, d: sized ? metres('wzD') * 1000 : null,
-        });
+        const read = () => {
+          const side = $('wzEnt').value, size = embed ? embed.sizeFor(side) : null;
+          return {
+            type, n: int('wzN'), seating: $('wzSeat').value, booths: int('wzBooths'), trucks: int('wzTrucks'),
+            parking: embed ? 0 : int('wzPark'), surface: $('wzSurf').value, fence: $('wzFence').checked, name,
+            // 영역에 넣을 때: 자리 셈의 크기(입구 쪽 변 × 깊이)를 그대로 — 돌리는 것은 옮겨 붙일 때 함
+            entrance: embed ? 'bottom' : side, side,
+            w: embed ? size.w : sized ? metres('wzW') * 1000 : null, d: embed ? size.d : sized ? metres('wzD') * 1000 : null,
+          };
+        };
         const sync = () => {
           const raw = read(), o = normalize(raw);
           const s = suggestSite(o);
-          if (!sized) { $('wzW').value = s.w; $('wzD').value = s.d; }
+          const m1 = (mm) => (Math.round(mm / 100) / 10).toLocaleString('ko-KR');
+          if (embed) body.querySelector('.wz-size').textContent = `영역 크기: 입구 쪽 변 ${m1(raw.w)} m × 깊이 ${m1(raw.d)} m`;
+          else if (!sized) { $('wzW').value = s.w; $('wzD').value = s.d; }
           body.querySelector('.wz-seat').hidden = type !== 'concert';
-          $('wzBooths').closest('.field').hidden = type !== 'market' && type !== 'festival';
+          const bl = BOOTH_LABEL[type];
+          $('wzBooths').closest('.field').hidden = !bl;
+          if (bl) { body.querySelector('label[for="wzBooths"]').textContent = bl[0]; $('wzBooths').parentNode.querySelector('.field-unit').textContent = bl[1]; }
           const area = (o.w / 1000) * (o.d / 1000), per = area / o.n;
-          const size = !sized ? '부지 크기는 인원·부스·푸드트럭에 맞춘 권장값입니다 (실제 크기로 바꾸세요). '
-            : fits(o) ? `권장 부지는 약 ${s.w} × ${s.d} m입니다. ` : `이 크기에는 다 들어가지 않을 수 있습니다 (권장 약 ${s.w} × ${s.d} m 이상). `;
-          body.querySelector('.wz-hint').textContent = `${size}부지 ${n0(area)}㎡ · 한 사람에 ${per >= 10 ? n0(per) : (Math.round(per * 10) / 10).toLocaleString('ko-KR')}㎡. 크기는 ${LIMIT.w[0]}~${LIMIT.w[1]} m, 비우면 권장값.`;
+          const size = embed ? (fits(o) ? '이 영역 크기에 맞춰 놓습니다. ' : `이 영역에는 다 들어가지 않을 수 있습니다 (권장 약 ${s.w} × ${s.d} m 이상) — 들어가는 만큼만 놓습니다. `)
+            : !sized ? '부지 크기는 인원·부스·푸드트럭에 맞춘 권장값입니다 (실제 크기로 바꾸세요). '
+              : fits(o) ? `권장 부지는 약 ${s.w} × ${s.d} m입니다. ` : `이 크기에는 다 들어가지 않을 수 있습니다 (권장 약 ${s.w} × ${s.d} m 이상). `;
+          body.querySelector('.wz-hint').textContent = `${size}부지 ${n0(area)}㎡ · 한 사람에 ${per >= 10 ? n0(per) : (Math.round(per * 10) / 10).toLocaleString('ko-KR')}㎡.${embed ? '' : ` 크기는 ${LIMIT.w[0]}~${LIMIT.w[1]} m, 비우면 권장값.`}`;
         };
         /** 종류를 고름: 그 종류의 기본값(부스·푸드트럭·바닥)을 채움. keep이 있으면(기억해 둔 같은 종류) 그 값으로 */
         const setType = (id, keep = null) => {
@@ -599,17 +760,17 @@
         };
         body.addEventListener('click', (e) => { const b = e.target.closest('[data-wz]'); if (b) setType(b.dataset.wz); });
         // 크기를 직접 고치면 그 값을 씀 (두 칸을 모두 비우면 다시 권장값)
-        body.addEventListener('input', (e) => { if (e.target.id === 'wzW' || e.target.id === 'wzD') sized = !!($('wzW').value.trim() || $('wzD').value.trim()); sync(); });
+        body.addEventListener('input', (e) => { if (!embed && (e.target.id === 'wzW' || e.target.id === 'wzD')) sized = !!($('wzW').value.trim() || $('wzD').value.trim()); sync(); });
         body.addEventListener('change', sync);
-        body._read = () => normalize(read());
+        body._read = () => { const raw = read(); return { ...normalize(raw), side: raw.side }; };
         setType(type, saved.type === type ? saved : null);
       },
     });
     if (r.id !== 'ok' || !r.body._read) return null;
     const o = r.body._read();
-    if (App.storage) App.storage.write(KEY_LAST, { type: o.type, n: o.n, seating: o.seating, booths: o.booths, trucks: o.trucks, parking: o.parking, surface: o.surface, fence: o.fence, entrance: o.entrance });
+    if (App.storage) App.storage.write(KEY_LAST, { type: o.type, n: o.n, seating: o.seating, booths: o.booths, trucks: o.trucks, parking: embed ? saved.parking : o.parking, surface: o.surface, fence: o.fence, entrance: o.side });
     return o;
   }
 
-  App.wizard = { TYPES, LIMIT, ENTRANCES, suggest, suggestSite, normalize, layout, fits, build, dialog, summary, get last() { return last; } };
+  App.wizard = { TYPES, LIMIT, ENTRANCES, suggest, suggestSite, normalize, layout, fits, build, dialog, summary, rectOf, placeInZone, intoZone, get last() { return last; } };
 })();

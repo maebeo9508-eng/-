@@ -1568,9 +1568,14 @@
       // 품은 영역이 있는지는 화면과 상관없이 (작아서 이름표를 안 쓴 영역, 화면 밖 영역도 셈: 확대·이동 때 자리가 바뀌지 않게)
       const nested = nest.get(z.id);
       if (nested || hit(boxAt(s))) {
-        const mid = (b.minX + b.maxX) / 2;
-        const alt = [[b.minY, 24], [b.maxY, -24]].map(([y, dy]) => { const q = plan.view.toScreen(mid, y); return { x: q.x, y: q.y + dy }; })
-          .find((q) => G.pointInPolygon(plan.view.toWorld(q.x, q.y), z.points) && !hit(boxAt(q)));
+        // 변의 가운데에서 24px 안쪽 (위쪽 변부터 — 돌아간 영역도 제 변을 따라)
+        const P = z.points.map((p) => plan.view.toScreen(p.x, p.y));
+        const alt = P.map((p, k) => {
+          const q = P[(k + 1) % P.length], L = Math.hypot(q.x - p.x, q.y - p.y) || 1, mx = (p.x + q.x) / 2, my = (p.y + q.y) / 2;
+          const nx = -(q.y - p.y) / L, ny = (q.x - p.x) / L;
+          const c = [1, -1].map((k2) => ({ x: mx + nx * 24 * k2, y: my + ny * 24 * k2, my })).find((c2) => G.pointInPolygon(plan.view.toWorld(c2.x, c2.y), z.points));
+          return c && L >= w + 16 ? c : null;
+        }).filter(Boolean).sort((p1, p2) => p1.my - p2.my).find((q) => !hit(boxAt(q)));
         if (alt) s = alt;
       }
       placed.push(boxAt(s));

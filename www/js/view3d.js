@@ -148,9 +148,13 @@
       const mid = G.interiorPoint(z.points);
       let c = mid;
       if (inner.some((p) => G.pointInPolygon(p, z.points))) {
-        // 위쪽 왼쪽 구석 (위쪽 가운데는 무대·화면 이름표에 가려짐)
-        const b = ZT.bounds(z), q = { x: b.minX + (b.maxX - b.minX) * 0.12, y: b.minY + Math.min(2000, (b.maxY - b.minY) * 0.1) };
-        if (G.pointInPolygon(q, z.points)) c = q;
+        // 가장 위쪽 변의 왼쪽 끝에서 12%, 2m 안쪽 (위쪽 가운데는 무대·화면 이름표에 가려짐 — 돌아간 영역도 제 변을 따라)
+        const P = z.points, edges = P.map((p, k) => ({ p, q: P[(k + 1) % P.length] })).sort((e1, e2) => (e1.p.y + e1.q.y) - (e2.p.y + e2.q.y));
+        const { p, q: q2 } = edges[0], [l, r] = p.x <= q2.x ? [p, q2] : [q2, p];
+        const L = Math.hypot(r.x - l.x, r.y - l.y) || 1, nx = -(r.y - l.y) / L, ny = (r.x - l.x) / L;
+        const base = { x: l.x + (r.x - l.x) * 0.12, y: l.y + (r.y - l.y) * 0.12 };
+        const q = [1, -1].map((k) => ({ x: base.x + nx * 2000 * k, y: base.y + ny * 2000 * k })).find((c2) => G.pointInPolygon(c2, z.points));
+        if (q) c = q;
       }
       inner.push(mid);
       add(z.name, X(c.x), 0.3, Z(c.y), z.color || '#2f9e44', '#ffffff');
