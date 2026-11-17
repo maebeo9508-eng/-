@@ -372,6 +372,7 @@
       (r.data.dark || []).length && lightPlan(r).length ? `<button type="button" class="btn" data-act="sf-light">조명 채우기 <small>조명 타워 ${lightPlan(r).length}개를 어두운 곳에 (대피 길부터)</small></button>` : '',
       r.data.staffShort ? `<button type="button" class="btn" data-act="sf-staff">안전 요원 세우기 <small>${r.data.staffShort}명을 비상구·입구·무대 앞·관람 구역 둘레에</small></button>` : '',
       genPlan(r).length ? `<button type="button" class="btn" data-act="sf-power">발전기 놓기 <small>${genPlan(r).map((k) => `${k}kW`).join(' + ')}를 가장자리 빈 곳에 (필요 약 ${n1(r.data.power.demand)}kW)</small></button>` : '',
+      App.safetyplan ? '<button type="button" class="btn" data-act="sf-plan">안전관리계획서 (PDF) <small>행사 개요·안전 조직·비상 연락망·배치도·대응 요령을 A4 4쪽 초안으로</small></button>' : '',
     ].join('');
   }
   /** 모자란 전기를 채울 발전기 용량들 (kW). 야외이고 3kW 넘게 모자랄 때만 */
@@ -863,6 +864,7 @@
           else if (b.dataset.act === 'sf-power') placeGenerators();
           else if (b.dataset.act === 'sf-staff') placeStaff();
           else if (b.dataset.act === 'sf-light') fillLights();
+          else if (b.dataset.act === 'sf-plan') { App.safetyplan.open(); return; } // 안전관리계획서 창으로 바뀜
           else return;
           refresh();
         });

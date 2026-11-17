@@ -146,8 +146,7 @@
       돌려주는 값: 도면 1mm가 그림 몇 px인지 */
   function drawPlan(ctx, box, rect, k = 2) {
     const real = App.plan, realSel = App.selection;
-    const view = Object.create(Object.getPrototypeOf(real.view));
-    Object.assign(view, { scale: 1, ox: 0, oy: 0 });
+    const view = fitView(box, rect, k);
     const fake = {
       canvas: ctx.canvas, ctx, view, width: ctx.canvas.width / k, height: ctx.canvas.height / k, dpr: k,
       insets: { top: 0, right: 0, bottom: 0, left: 0 }, colors: {}, requestRender() {},
@@ -161,7 +160,6 @@
     } finally {
       root.dataset.theme = theme;
     }
-    view.fitRect(rect, { x: box.x / k, y: box.y / k, width: box.width / k, height: box.height / k });
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.beginPath();
@@ -191,6 +189,20 @@
     }
     return view.scale * k;
   }
+  /** drawPlan의 보기: box(그림 px) 안에 rect(도면 mm)를 맞춘 배율·위치 (화면 1px = 그림 k px) */
+  function fitView(box, rect, k) {
+    const view = Object.create(Object.getPrototypeOf(App.plan.view));
+    Object.assign(view, { scale: 1, ox: 0, oy: 0 });
+    view.fitRect(rect, { x: box.x / k, y: box.y / k, width: box.width / k, height: box.height / k });
+    return view;
+  }
+  /** drawPlan과 같은 맞춤의 도면 → 그림 변환 (drawPlan은 배율만 돌려주므로 따로): 그린 도면 위에 번호·표시를 얹을 때.
+      돌려주는 값: { scale(도면 1mm가 그림 몇 px), toPage(p) → { x, y } (그림 px) } */
+  function planTransform(box, rect, k = 2) {
+    const v = fitView(box, rect, k);
+    return { scale: v.scale * k, toPage: (p) => ({ x: (p.x * v.scale + v.ox) * k, y: (p.y * v.scale + v.oy) * k }) };
+  }
+  exporter.planTransform = planTransform; // 안전관리계획서 배치도의 안전 요원 번호 자리
 
   /** 도면 범위(여백 포함). 그린 것이 없으면 null */
   function planRect() {
