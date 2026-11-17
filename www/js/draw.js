@@ -17,6 +17,22 @@
     const pv = App.current && App.current.phaseView;
     return (pv === 'demo' || pv === 'new') && !App.modes.is('event') && hasPhases() ? pv : '';
   }
+  /** 그릴 요소인지: 숨긴 레이어와 철거도·신설도 보기(pv = phaseView())를 따름. 화면·그림·CAD 내보내기가 같은 규칙을 씀 */
+  function shown(el, pv) {
+    const t = App.model.TYPES[el.type];
+    if (!t || t.catalog || !App.layers.visible(el)) return false; // 숨긴 레이어
+    if (pv && (el.type === 'wall' || el.type === 'door' || el.type === 'window')) {
+      const ph = App.model.phaseOf(el);
+      if (pv === 'demo' ? ph === 'new' : ph === 'demo') return false; // 철거도에는 신설이, 신설도에는 철거가 없음
+    }
+    if (pv && el.type === 'room' && (pv === 'demo' || el.issue === 'overlap')) return false; // 방은 공사 뒤 모양이라 철거도에는 없고, 신설도에는 칸막이 철거로 합쳐진(겹친) 방을 그리지 않음
+    return true;
+  }
+  /** 지금 보이는 요소 전부 (화면에 들어온 범위와 상관없이) */
+  function visibleElements() {
+    const pv = phaseView();
+    return [...App.doc.all()].filter((el) => shown(el, pv));
+  }
   const ROOM_NAME_FONT = '700 13px system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif';
   const ROOM_AREA_FONT = '12px system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif';
   const DIM_TEXT_MAX_PX = 22;
@@ -70,14 +86,8 @@
     const walls = [], rooms = [], openings = [], columns = [], zones = [], lines = [], items = [], texts = [], dims = [], underlays = [], routes = [], photos = [];
     const pv = phaseView(); // 철거도('demo')·신설도('new')·전체('')
     for (const el of App.doc.all()) {
-      const t = App.model.TYPES[el.type];
-      if (!t || t.catalog || !App.layers.visible(el)) continue; // 숨긴 레이어
-      if (pv && (el.type === 'wall' || el.type === 'door' || el.type === 'window')) {
-        const ph = App.model.phaseOf(el);
-        if (pv === 'demo' ? ph === 'new' : ph === 'demo') continue; // 철거도에는 신설이, 신설도에는 철거가 없음
-      }
-      if (pv && el.type === 'room' && (pv === 'demo' || el.issue === 'overlap')) continue; // 방은 공사 뒤 모양이라 철거도에는 없고, 신설도에는 칸막이 철거로 합쳐진(겹친) 방을 그리지 않음
-      const b = t.bounds(el);
+      if (!shown(el, pv)) continue; // 숨긴 레이어, 철거도·신설도에서 빠지는 것
+      const b = App.model.TYPES[el.type].bounds(el);
       if (!b || !G.rectsOverlap(b, vis)) continue;
       if (el.type === 'wall') walls.push(el);
       else if (el.type === 'room') rooms.push(el);
@@ -2376,5 +2386,6 @@
     scene, wallOutlines, clearanceGuides, previewWall, lengthTag, snapMarker, pointMarker, selectionBox, facePreview,
     openingPreview, columnPreview, distanceTag, worldTransform, screenTransform,
     previewLine, previewItem, previewDim, previewZone, previewRoute, itemIcon, lineIcon, textTag,
+    visibleElements, // 보이는 요소 (숨긴 레이어·철거도·신설도 규칙) — CAD 내보내기
   };
 })();
