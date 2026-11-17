@@ -56,7 +56,16 @@
       <label class="menu-check">
         <input type="checkbox" data-exclude ${App.current.excludeHiddenFromSummary ? 'checked' : ''}>
         <span>숨긴 레이어는 집계에서도 빼기</span>
-      </label>${phaseMenuHtml()}`;
+      </label>${marksMenuHtml()}${phaseMenuHtml()}`;
+  }
+  /** 창호 기호 (문·창문이 있을 때): 같은 규격끼리 D1·W1 기호를 도면에 띄움 — 집계 ‘전체’의 창호 일람표와 같은 기호 */
+  function marksMenuHtml() {
+    if (![...doc().all()].some((e) => e.type === 'door' || e.type === 'window')) return '';
+    return `
+      <label class="menu-check">
+        <input type="checkbox" data-marks ${App.current.openingMarks ? 'checked' : ''}>
+        <span>창호 기호 표시 (D1·W1)</span>
+      </label>`;
   }
   /** 리모델링 도면 (인테리어, 공사 구분이 있을 때): 전체 / 철거도(신설 빼고) / 신설도(철거 빼고) — PNG·PDF도 그대로 */
   function phaseMenuHtml() {
@@ -459,6 +468,10 @@
       if (t.dataset.layer) layers.set(t.dataset.layer, t.checked);
       else if ('exclude' in t.dataset) {
         App.current.excludeHiddenFromSummary = t.checked;
+        changedLayers();
+      }
+      else if ('marks' in t.dataset) {
+        App.current.openingMarks = t.checked || null;
         changedLayers();
       }
       else if ('pv' in t.dataset) {

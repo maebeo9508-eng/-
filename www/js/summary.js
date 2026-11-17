@@ -326,6 +326,8 @@
       }
       if (rows.length) blocks.push({ title: '철거·신설', sub: '방·면적·3D는 공사가 끝난 뒤 모습 (철거 벽 빼고) · 레이어 메뉴에서 철거도·신설도로 볼 수 있음', rows });
     }
+    const ob = event ? null : openingBlock();
+    if (ob) blocks.push(ob);
     const mat = event ? [] : materialRows(s.materials); // 조감도 모드에서는 벽 자재·마감재를 빼고 봄
     if (mat.length) blocks.push({ title: '벽 자재', sub: '본·장 수는 전체 길이·면적을 더한 뒤 올림', rows: mat });
     if (s.finishes.length && !event) blocks.push({ title: '마감재', sub: '방 속성에서 고른 벽·바닥 마감. 장 수는 면적을 더한 뒤 올림', rows: s.finishes.map((f) => finishRow(f, '', ` · 방 ${f.rooms}곳`)) });
@@ -544,12 +546,13 @@
     const blocks = cost ? [] : BUILD[view](s);
     const scroll = pane.scrollTop;
     const bar = `
-      <div class="sum-bar${cost ? ' is-two is-cost' : view === 'room' ? ' is-two' : ''}">
+      <div class="sum-bar${cost ? ' is-two is-cost' : view === 'room' || view === 'all' ? ' is-two' : ''}">
         <div class="sum-views" role="tablist" aria-label="집계 보기">
           ${views().map(([id, label]) => `<button type="button" class="seg-btn" role="tab" data-view="${id}" aria-selected="${id === view}">${label}</button>`).join('')}
         </div>
         ${cost ? '<button type="button" class="btn btn-primary" data-act="est-pdf" title="견적서를 PDF로 (A4)">견적서</button>' : ''}
         ${view === 'room' ? `<button type="button" class="btn" data-act="checklist" ${blocks.length ? '' : 'disabled'} title="${App.modes.is('event') ? '구역' : '방'}마다 품목·수량과 반입·설치·점검·철거 확인 칸을 PDF로 (A4)">체크리스트</button>` : ''}
+        ${view === 'all' ? '<button type="button" class="btn" data-act="schedule" title="물량으로 공정마다 일수·인원을 어림한 공정표 (간트 차트, PDF·CSV)">공정표</button>' : ''}
         <button type="button" class="btn" data-act="csv" ${blocks.length || cost ? '' : 'disabled'} title="엑셀에서 열 수 있는 CSV 파일로 저장">CSV</button>
       </div>`;
     widen(cost && !pane.hidden);
@@ -570,6 +573,23 @@
               : '벽과 방, 문·창문, 전기·설비 기호를 그리면 면적·수량·길이·자재가 여기에 자동으로 정리됩니다.'}</p>
         </div>`}`;
     pane.scrollTop = scroll;
+  }
+
+  /** 창호 일람표 (인테리어): 같은 종류·규격의 새로 다는 문·창문을 한 기호(D1·W1)로 묶어 수량과 방 */
+  function openingBlock() {
+    const M = App.openings.marks();
+    const ex = App.layers.excludeHidden();
+    const rows = [];
+    M.list.forEach((g) => {
+      const els = g.ids.map((id) => App.doc.get(id)).filter((e) => e && (!ex || App.layers.visible(e)));
+      if (!els.length) return;
+      const names = [];
+      els.forEach((e) => { const r = App.measure.openingRoom(e); const n = r ? r.name || '이름 없음' : ''; if (n && !names.includes(n)) names.push(n); });
+      const where = names.length > 4 ? `${names.slice(0, 4).join('·')} 외 ${names.length - 4}곳` : names.join('·');
+      rows.push(row(`${g.mark} ${App.openings.specOf(g)}`, V.count(els.length), where || '방 밖', '', g.type === 'door' ? '문' : '창문'));
+    });
+    if (!rows.length) return null;
+    return { title: '창호 일람표', sub: '같은 종류·규격(mm)끼리 한 기호 · 새로 다는 것만 · 레이어 메뉴에서 도면에 기호 표시', rows };
   }
 
   /** 지금 보기를 CSV 줄로: 구분(블록) · 분류 · 항목 · 수량 · 단위 · 비고 */
@@ -639,6 +659,7 @@
       if (e.target.closest('[data-act="checklist"]')) App.exporter.checklistPdf();
       if (e.target.closest('[data-act="est-pdf"]')) App.estimate.exportPdf();
       if (e.target.closest('[data-act="proposal"]')) App.proposal.open();
+      if (e.target.closest('#pane-summary [data-act="schedule"]')) App.schedule.open();
       if (e.target.closest('[data-act="safety-open"]')) App.safety.open();
       if (e.target.closest('[data-act="booth-csv"]')) App.booths.exportCsv();
       if (e.target.closest('#pane-summary [data-act="booth-number"]')) App.booths.numberDialog();

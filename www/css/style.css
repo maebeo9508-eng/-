@@ -1510,3 +1510,45 @@ body:has(> .view3d:not([hidden])) .toast { bottom: auto; top: 36%; }
 .v3-view { display: inline-flex; }
 .v3-view .btn:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
 .v3-view .v3-view-del { min-width: 30px; padding: 0 8px; border-left: 0; border-top-left-radius: 0; border-bottom-left-radius: 0; color: var(--fg-muted); }
+
+/* 공정표 (간트 차트 + 공정 목록) */
+.modal-dialog .modal-card:has(.sc) { max-width: 760px; }
+.sc { display: grid; gap: 10px; }
+.sc-head { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); max-width: 480px; }
+.sc-head input, .sc-head select { width: 100%; min-width: 0; }
+.sc-sum { font-weight: 700; font-variant-numeric: tabular-nums; }
+.sc-chart { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); padding: 6px 4px 2px; -webkit-overflow-scrolling: touch; }
+.sc-svg { display: block; }
+.sc-svg .sc-rest { fill: var(--line); opacity: 0.55; }
+.sc-svg .sc-grid { stroke: var(--line); stroke-width: 1; }
+.sc-svg .sc-month { font-size: 11px; font-weight: 700; fill: var(--fg-muted); }
+.sc-svg .sc-day { font-size: 11px; fill: var(--fg); font-variant-numeric: tabular-nums; }
+.sc-svg .sc-day.is-sun { fill: #e03131; }
+.sc-svg .sc-day.is-sat { fill: #1c7ed6; }
+.sc-svg .sc-bar-t { font-size: 12px; font-weight: 600; fill: var(--fg); }
+.sc-list { display: grid; }
+.sc-row {
+  display: grid; grid-template-columns: 12px minmax(0, 1fr) 76px 70px auto auto; align-items: center; gap: 6px 8px;
+  padding: 7px 0; border-bottom: 1px solid var(--line);
+}
+.sc-row.is-event { background: var(--accent-soft); border-radius: 8px; padding-left: 6px; padding-right: 6px; }
+.sc-dot { width: 12px; height: 12px; border-radius: 3px; }
+.sc-row input[type="text"] {
+  width: 100%; min-width: 0; min-height: 38px; padding: 0 8px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--surface); color: var(--fg); font: inherit;
+}
+.sc-row input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 0; border-color: var(--accent); }
+.sc-num { display: flex; align-items: center; gap: 4px; }
+.sc-num input[type="text"] { text-align: right; font-variant-numeric: tabular-nums; }
+.sc-num span, .sc-with span { color: var(--fg-muted); font-size: 13px; white-space: nowrap; }
+.sc-with { display: flex; align-items: center; gap: 4px; }
+.sc-btns { display: flex; gap: 4px; }
+.sc-mini { min-width: 34px; min-height: 34px; padding: 0 8px; }
+.sc-when { grid-column: 2 / -1; color: var(--fg-muted); font-size: 12px; line-height: 1.4; }
+.sc-when b { color: var(--fg); font-weight: 700; font-variant-numeric: tabular-nums; }
+.sc-tools .btn-primary { flex: none; }
+@media (max-width: 600px) {
+  .sc-row { grid-template-columns: 12px minmax(0, 1fr) 72px 66px; }
+  .sc-with { grid-column: 2; }
+  .sc-btns { grid-column: 3 / -1; justify-content: flex-end; }
+}

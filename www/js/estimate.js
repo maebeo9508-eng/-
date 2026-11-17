@@ -275,6 +275,7 @@
           <button type="button" class="btn" data-act="est-lib">단가표 관리 <small>${Object.keys(memory()).length}개</small></button>
           <button type="button" class="btn" data-act="est-apply" title="이 도면에서 고친 단가를 단가표 단가로 되돌림">단가표 단가로 채우기</button>
           <button type="button" class="btn" data-act="proposal" title="표지·3D 그림·평면도·물량·견적·현장 사진을 한 묶음 PDF로">제안서 만들기</button>
+          <button type="button" class="btn" data-act="schedule" title="물량으로 공정마다 일수·인원을 어림한 공정표 — 공정별 인건비를 견적에 넣을 수 있음">공정표</button>
         </div>
         ${secs.length ? '' : '<div class="empty"><div class="empty-title">값을 매길 물량이 없습니다</div><p>도면을 그리면 자재·물건 수량이 여기에 나옵니다. 아래 기타 항목은 지금도 넣을 수 있습니다.</p></div>'}
         ${secs.map((g) => `<section class="est-sec"><h3 class="sum-title">${esc(g.sec)}</h3>${g.rows.map(row).join('')}</section>`).join('')}
@@ -424,6 +425,23 @@
   }
 
   const extraKey = (x) => `기타|${String(x.name).trim()}||${String(x.unit || '').trim()}`;
+  /** 다른 화면이 만든 기타 항목을 한꺼번에 넣음 (공정표 인건비 등): 같은 출처(src)로 넣었던 줄은 바꿔 넣고,
+      같은 이름 줄에 넣어 둔 단가는 이어받음 (없으면 단가표에 기억된 단가) */
+  function putExtras(src, list) {
+    const xs = extrasW();
+    const kept = new Map(xs.filter((x) => x.src === src).map((x) => [x.name, x]));
+    for (let i = xs.length - 1; i >= 0; i--) if (xs[i].src === src) xs.splice(i, 1);
+    const stamp = Date.now().toString(36);
+    list.forEach((l, k) => {
+      const old = kept.get(l.name);
+      const nx = { id: `x${stamp}${k}`, name: l.name, qty: l.qty, unit: l.unit || '식', price: 0, src };
+      nx.price = old ? old.price : memory()[extraKey(nx)] || 0;
+      xs.push(nx);
+    });
+    save();
+    if (App.summary && App.summary.view === 'cost') App.summary.render();
+    return list.length;
+  }
 
   /* ── 단가표: 이 기기에 기억된 단가 모음. 고치기·지우기·CSV로 내보내기/불러오기 (다른 폰·PC와 같은 단가표 쓰기) ── */
   const splitKey = (k) => { const [sec = '', name = '', spec = '', unit = ''] = String(k).split('|'); return { sec, name, spec, unit }; };
@@ -748,5 +766,5 @@
     return true;
   }
 
-  App.estimate = { lines, totals, html, bind, refreshTotals, csvRows, exportCsv, exportPdf, layout, company, saveCompany: (co) => App.storage.write(KEY_COMPANY, co), warnLater, hangul, priceOf, priceSource, memory, EXTRA_PRESETS, openLibrary, libraryCsv, importLibrary, parseCsv };
+  App.estimate = { lines, totals, html, bind, refreshTotals, csvRows, exportCsv, exportPdf, layout, company, putExtras, extras, saveCompany: (co) => App.storage.write(KEY_COMPANY, co), warnLater, hangul, priceOf, priceSource, memory, EXTRA_PRESETS, openLibrary, libraryCsv, importLibrary, parseCsv };
 })();

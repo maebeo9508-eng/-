@@ -437,7 +437,7 @@
   }
 
   /* ── 표지의 핵심 숫자 ── */
-  function figures(s, t, pins) {
+  function figures(s, t, pins, sch) {
     const out = [];
     if (App.modes.is('event')) {
       const b = App.summary.blocks('all').find((x) => x.title === '행사 요약');
@@ -449,6 +449,8 @@
       }
       if (s.arch.walls && out.length < 2) out.push(['벽 길이', App.units.formatLength(s.arch.wallLength)]);
     }
+    // 공정표를 넣으면: 인테리어는 공사 기간, 조감도는 행사일
+    if (sch && sch.tasks.length) out.splice(Math.min(out.length, 2), 0, sch.eventDay ? ['행사일', App.schedule.md(sch.eventDay)] : ['공사 기간', `${sch.cal}일`]);
     if (t && t.total) out.push(['견적 합계', `${t.total.toLocaleString('ko-KR')}원`]);
     const n = pins.reduce((k, p) => k + (p.photos || []).length, 0);
     if (n && out.length < 4) out.push(['현장 사진', `${n}장`]);
@@ -530,7 +532,7 @@
   }
 
   /* ── 만들기 ── */
-  const PARTS = ['d3', 'plan', 'safety', 'summary', 'estimate', 'photos'];
+  const PARTS = ['d3', 'plan', 'safety', 'summary', 'estimate', 'schedule', 'photos'];
   let running = false;
 
   /** o: { title, intro, to, parts: { d3, plan, summary, estimate, photos }, noSave }
@@ -546,7 +548,7 @@
     }
   }
   async function buildNow(o) {
-    const parts = { d3: true, plan: true, safety: true, summary: true, estimate: true, photos: true, ...(o.parts || {}) };
+    const parts = { d3: true, plan: true, safety: true, summary: true, estimate: true, schedule: false, photos: true, ...(o.parts || {}) };
     const title = (o.title || '').trim() || defaultTitle();
     const to = o.to != null ? String(o.to).trim() : App.current.estimateTo || '';
     const step = async (msg) => { App.ui.busy(msg); await new Promise((r) => setTimeout(r, 20)); };
@@ -567,7 +569,7 @@
     const d = {
       title, to, co, logo, hero: null, sec,
       // 핵심 숫자: 넣지 않기로 한 견적서·현장 사진의 숫자는 표지에도 안 씀
-      figures: figures(s, parts.estimate ? t : null, parts.photos ? pins : []),
+      figures: figures(s, parts.estimate ? t : null, parts.photos ? pins : [], parts.schedule && App.schedule ? App.schedule.plan() : null),
       intro: o.intro != null ? String(o.intro).trim() : settings().intro || '',
       date: new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' }),
       plan: rect ? (ctx, box, k) => App.exporter.drawPlan(ctx, box, rect, k) : null,
@@ -633,6 +635,13 @@
         for (let k = 0; k < est.count; k++) jobs.push({ kind: 'estimate', W: est.W, H: est.H, draw: (ctx, no, total) => est.draw(ctx, k, { page: no, pages: total, footer: `${co.name ? `${co.name} · ` : ''}${title}` }) });
       } else skipped.push('견적서');
     }
+    if (parts.schedule) {
+      // 공정표: A4 가로 (공정표 PDF와 같은 그림)
+      const sch = App.schedule ? App.schedule.layout() : null;
+      if (sch) {
+        for (let k = 0; k < sch.count; k++) jobs.push({ kind: 'schedule', W: sch.W, H: sch.H, pw: App.schedule.PT(sch.W), ph: App.schedule.PT(sch.H), draw: (ctx, no, total) => sch.draw(ctx, k, { page: no, pages: total, footer: `${co.name ? `${co.name} · ` : ''}${title}` }) });
+      } else skipped.push('공정표');
+    }
     if (parts.photos) {
       if (pins.length) {
         nextSec('photos', '현장 사진');
@@ -651,7 +660,7 @@
       canvas.height = j.H;
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       j.draw(ctx, i + 1, jobs.length);
-      out.push({ jpeg: App.exporter.jpegBytes(canvas, j.kind === 'photos' || j.kind === '3d' || j.kind === 'cover' ? 0.88 : 0.9), w: j.W, h: j.H, pw: PT(j.W), ph: PT(j.H), kind: j.kind });
+      out.push({ jpeg: App.exporter.jpegBytes(canvas, j.kind === 'photos' || j.kind === '3d' || j.kind === 'cover' ? 0.88 : 0.9), w: j.W, h: j.H, pw: j.pw || PT(j.W), ph: j.ph || PT(j.H), kind: j.kind });
     }
     const blob = App.exporter.pdfFromPages(out, PT(PORTRAIT.W), PT(PORTRAIT.H));
     const name = `제안서_${safeName(projectName())}_${App.exporter.stamp()}.pdf`;
@@ -674,10 +683,14 @@
     const can3d = !!(App.view3d && App.view3d.stills && webgl());
     // 처음 값: 3D·평면·물량은 넣고, 견적서는 단가를 넣었을 때, 사진은 핀이 있을 때. 사람이 바꾼 것만 이 도면에 기억
     const event = App.modes.is('event');
-    const def = { d3: can3d, plan: true, safety: event, summary: true, estimate: !!(t && t.priced), photos: pins.length > 0 };
+    const sch = App.schedule ? App.schedule.plan() : null;
+    const hasSch = !!(sch && sch.tasks.length);
+    // 공정표는 공정표 창에서 날짜·공정을 정해 둔 도면이면 처음부터 넣음
+    const def = { d3: can3d, plan: true, safety: event, summary: true, estimate: !!(t && t.priced), schedule: hasSch && !!App.current.schedule, photos: pins.length > 0 };
     const parts = { ...def, ...(st.parts || {}) };
     if (!pins.length) parts.photos = false;
     if (!est) parts.estimate = false;
+    if (!hasSch) parts.schedule = false;
     if (!can3d) parts.d3 = false;
     let logo = await logoData(), logoChanged = false;
     const check = (key, label, sub, disabled = false) => `
@@ -696,6 +709,7 @@
           ${event ? check('safety', '안전 점검', '화장실·소화기·의료·밀집·대피 + 안전 계획도') : ''}
           ${check('summary', '물량 집계', '집계 ‘전체’ 보기 내용')}
           ${check('estimate', '견적서', est ? (t && t.priced ? `단가를 넣은 ${t.priced}줄 · 합계 ${t.total.toLocaleString('ko-KR')}원` : '단가가 없어 물량 내역서로 들어감') : '넣을 항목이 없습니다', !est)}
+          ${check('schedule', '공정표', hasSch ? `공정 ${sch.tasks.length}개 · ${App.schedule.md(sch.start)} ~ ${App.schedule.md(sch.end)} (작업 ${sch.work.toLocaleString('ko-KR')}일) · A4 가로` : '어림할 공정이 없습니다', !hasSch)}
           ${check('photos', '현장 사진', pins.length ? `핀 ${pins.length}곳 · 사진 ${nPhotos}장` : '사진 도구로 꽂은 핀이 없습니다', !pins.length)}
         </div>
         <details class="est-info pp-co" ${co.name ? '' : 'open'}>

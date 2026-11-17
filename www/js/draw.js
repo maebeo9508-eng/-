@@ -161,6 +161,7 @@
     screenTransform(plan);
     if (App.settings.showWallLengths) drawWallLabels(plan, walls);
     drawRoomLabels(plan, rooms);
+    if (App.openings) App.openings.draw(plan, openings); // 창호 기호 (레이어 메뉴에서 켬)
     drawZoneLabels(plan, zones);
     drawRouteLabels(plan, routes);
     if (App.modes.is('event') && App.settings.itemNames !== false) drawItemNames(plan, items);
