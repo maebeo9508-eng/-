@@ -268,7 +268,7 @@
       _n: true, type: t.id, n, booths, seating, trucks, entrance,
       w: mm(w0, LIMIT.w, s.w), d: mm(d0, LIMIT.d, s.d),
       parking: num(o.parking, LIMIT.parking, 0),
-      fence: o.fence !== false, surface: SURFACE[o.surface] ? o.surface : t.id === 'market' ? 'paver' : 'grass',
+      fence: o.fence !== false, surface: SURFACE[o.surface] ? o.surface : t.id === 'market' ? 'paver' : 'grass', night: !!o.night,
       name: String(o.name || '').trim().slice(0, 40),
     };
   }
@@ -286,8 +286,9 @@
     const o = normalize(o0), L = layout(o);
     const doc = App.doc, T = App.model.TYPES, C = App.catalog, S = App.safety;
     const { W, D, N, cx, m, eg, sg, yb, eys } = L;
-    const stats = { type: o.type, n: N, w: W, d: D, staff: 0, tents: 0, seats: 0, standing: 0, booths: 0, trucks: 0, toilets: 0, toiletNeed: L.toiletNeed, extinguishers: 0, generators: [], fences: 0, parking: 0, exits: 1 + 2 * eys.length, notes: [] };
+    const stats = { type: o.type, n: N, w: W, d: D, staff: 0, tents: 0, lights: 0, seats: 0, standing: 0, booths: 0, trucks: 0, toilets: 0, toiletNeed: L.toiletNeed, extinguishers: 0, generators: [], fences: 0, parking: 0, exits: 1 + 2 * eys.length, notes: [] };
     App.current.expected = N;
+    if (!opt.embed || o.night) App.current.night = o.night || null; // 야간 행사 (영역에 넣을 때는 켤 때만 — 도면의 설정을 끄지 않음)
     if (!opt.embed) App.current.ground = o.surface === 'grass' ? 'asphalt' : 'grass'; // 지금 도면의 영역에 넣을 때는 둘레 바닥을 건드리지 않음
 
     const put = (kind, x, y, rotation = 0, patch = {}) => {
@@ -459,6 +460,9 @@
       stats.fences = list.length;
     }
 
+    // 야간 행사: 어두운 관람 구역·동선에 조명 타워 (발전기·소화기·안전 요원보다 먼저 — 전기를 쓰고 불 쓰는 물건으로 셈)
+    if (App.current.night) stats.lights = S.fillLights({ quiet: true }).length;
+
     /* ── 발전기: 전기 쓰는 것들을 48m 안에서 맡도록 (무대 뒤·구석부터, 먼 곳이 남으면 그 가까운 가장자리에 더) ── */
     (function generators() {
       const def = C.itemDef('발전기'), gw = def.size, gd = def.depth || def.size;
@@ -590,6 +594,7 @@
     if (s.generators.length) parts.push(`발전기 ${s.generators.map((k) => `${k}kW`).join('+')}`);
     if (s.extinguishers) parts.push(`소화기 ${s.extinguishers}개`);
     if (s.staff) parts.push(`안전 요원 ${s.staff}명`);
+    if (s.lights) parts.push(`조명 타워 ${s.lights}개`);
     if (s.fences) parts.push(`펜스 ${s.fences}개`);
     if (s.parking) parts.push(`주차 ${s.parking}칸`);
     return `${parts.join(' · ')}${s.notes.length ? ` — ${s.notes.join(', ')}` : ''}`;
@@ -715,6 +720,7 @@
         </div>
         ${embed ? '' : `<div class="field-grid">${numBox('wzPark', '주차 칸', digits(saved.parking, 0), '칸', '0이면 안 만듦')}</div>`}
         <label class="check-row"><input type="checkbox" id="wzFence"${saved.fence === false ? '' : ' checked'}><span>둘레 펜스<small>입구와 양옆 비상구는 비워 둠</small></span></label>
+        <label class="check-row"><input type="checkbox" id="wzNight"${saved.night ? ' checked' : ''}><span>야간 행사<small>해진 뒤까지 하면 관람 구역·동선을 조명 타워로 밝힘</small></span></label>
         <p class="props-meta wz-hint" aria-live="polite"></p>`,
       actions: [{ id: 'cancel', label: '취소' }, { id: 'ok', label: '만들기', primary: true }],
       onOpen(body) {
@@ -726,7 +732,7 @@
           const side = $('wzEnt').value, size = embed ? embed.sizeFor(side) : null;
           return {
             type, n: int('wzN'), seating: $('wzSeat').value, booths: int('wzBooths'), trucks: int('wzTrucks'),
-            parking: embed ? 0 : int('wzPark'), surface: $('wzSurf').value, fence: $('wzFence').checked, name,
+            parking: embed ? 0 : int('wzPark'), surface: $('wzSurf').value, fence: $('wzFence').checked, night: $('wzNight').checked, name,
             // 영역에 넣을 때: 자리 셈의 크기(입구 쪽 변 × 깊이)를 그대로 — 돌리는 것은 옮겨 붙일 때 함
             entrance: embed ? 'bottom' : side, side,
             w: embed ? size.w : sized ? metres('wzW') * 1000 : null, d: embed ? size.d : sized ? metres('wzD') * 1000 : null,
@@ -768,7 +774,7 @@
     });
     if (r.id !== 'ok' || !r.body._read) return null;
     const o = r.body._read();
-    if (App.storage) App.storage.write(KEY_LAST, { type: o.type, n: o.n, seating: o.seating, booths: o.booths, trucks: o.trucks, parking: embed ? saved.parking : o.parking, surface: o.surface, fence: o.fence, entrance: o.side });
+    if (App.storage) App.storage.write(KEY_LAST, { type: o.type, n: o.n, seating: o.seating, booths: o.booths, trucks: o.trucks, parking: embed ? saved.parking : o.parking, surface: o.surface, fence: o.fence, night: o.night, entrance: o.side });
     return o;
   }
 

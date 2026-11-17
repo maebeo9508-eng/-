@@ -20,6 +20,8 @@
     powerMargin: 1.25,       // 발전기 용량은 필요 전력의 1.25배 (기동 전류·여유)
     cableMax: 50000,         // 발전기에서 50m 넘으면 전압 강하·케이블 주의 (mm)
     perStaff: 250,           // 안전 요원: 250명에 1명 (어림, 행사 성격·지자체 기준에 따라 다름)
+    lightTower: 15000,       // 야간 조명: 조명 타워가 밝히는 반경 (mm, 어림)
+    streetLight: 10000,      // 가로등이 밝히는 반경
     staffMin: 2,             // 적어도 2명
   };
   /* 전기 (kW, 어림): 물건 종류별 기본값. 물건 속성의 ‘전기’ 칸에 넣은 값이 있으면 그 값 */
@@ -129,7 +131,7 @@
   let cache = null;
   function run() {
     // 같은 도면·같은 예상 인원·같은 레이어면 다시 셈하지 않음 (겹쳐 보기는 화면을 옮길 때마다 그림)
-    const key = `${App.doc.version}|${App.current.expected || ''}|${App.current.venue || ''}|${(App.current.hiddenLayers || []).join(',')}|${App.layers.excludeHidden()}|${App.modes.get()}`;
+    const key = `${App.doc.version}|${App.current.night ? 'N' : ''}|${App.current.expected || ''}|${App.current.venue || ''}|${(App.current.hiddenLayers || []).join(',')}|${App.layers.excludeHidden()}|${App.modes.get()}`;
     if (cache && cache.key === key) return cache.r;
     const r = compute();
     cache = { key, r };
@@ -275,6 +277,23 @@
         print: staff >= need ? `안전 요원 ${n0(staff)}명 배치 · 권장 ${n0(need)}명 (${RULE.perStaff}명에 1명)` : `안전 요원 ${n0(staff)}명 · 권장 ${n0(need)}명으로 ${n0(need - staff)}명 추가 배치가 필요합니다`,
       });
     }
+    // 5-2) 야간 조명 (야간 행사, 야외): 관람 구역·동선에서 조명이 닿지 않는 곳
+    data.dark = [];
+    if (App.current.night && !c.indoor) {
+      const L = lighting(c);
+      data.dark = L.dark;
+      const evacM = L.dark.filter((q) => q.evac).length * (LIGHT_STEP_ROUTE / 1000), routeM = L.dark.filter((q) => q.route && !q.evac).length * (LIGHT_STEP_ROUTE / 1000);
+      const areaM = L.dark.filter((q) => !q.route).length * (LIGHT_STEP_AREA / 1000) ** 2;
+      const parts = [evacM ? `대피 길 ${n0(evacM)}m` : '', routeM ? `동선 ${n0(routeM)}m` : '', areaM ? `관람 구역 약 ${n0(areaM)}㎡` : ''].filter(Boolean);
+      const level = !L.dark.length ? 'ok' : evacM ? 'bad' : 'warn';
+      checks.push({
+        id: 'light', title: '야간 조명', level, value: L.dark.length ? `${parts.join(' · ')} 어두움` : `조명 ${L.lights}개 · 모두 밝음`,
+        detail: `조명 타워 반경 ${RULE.lightTower / 1000}m·가로등 ${RULE.streetLight / 1000}m·무대와 화면 둘레를 밝은 곳으로 봄 (관람·대기 구역, 동선)`,
+        advice: !L.dark.length ? '정전에 대비해 비상 조명(유도등·손전등)과 발전기 예비 연료를 준비하세요'
+          : `어두운 곳에 조명 타워를 놓으세요${evacM ? ' (비상 대피 길은 꼭 밝혀야 합니다)' : ''}. 위 ‘조명 채우기’ 버튼으로 한 번에 놓을 수 있습니다`,
+        print: !L.dark.length ? `야간 조명 ${L.lights}개 · 관람 구역과 동선이 모두 밝습니다` : `야간에 어두운 곳(${parts.join(', ')})이 있어 조명 추가가 필요합니다`,
+      });
+    }
     // 6) 전기: 놓은 물건이 쓰는 전기(어림)와 발전기 용량, 발전기에서 먼 곳
     const users = c.items.filter((it) => powerOf(it) > 0);
     const demand = kw1(users.reduce((t, it) => t + powerOf(it), 0));
@@ -350,6 +369,7 @@
       n ? `<button type="button" class="btn" data-act="sf-fill">소화기 채우기 <small>${n}개를 놓아 먼 곳 ${r.data.uncovered.length}개를 모두 20m 안에</small></button>` : '',
       t ? `<button type="button" class="btn" data-act="sf-toilets">화장실 채우기 <small>이동식 화장실 ${t}칸을 빈 곳(있는 화장실 옆이나 가장자리)에</small></button>` : '',
       r.data.medicalMissing ? '<button type="button" class="btn" data-act="sf-medical">의무실 텐트 놓기 <small>입구·가장자리 가까운 빈 곳에 (구급차가 닿기 쉽게)</small></button>' : '',
+      (r.data.dark || []).length && lightPlan(r).length ? `<button type="button" class="btn" data-act="sf-light">조명 채우기 <small>조명 타워 ${lightPlan(r).length}개를 어두운 곳에 (대피 길부터)</small></button>` : '',
       r.data.staffShort ? `<button type="button" class="btn" data-act="sf-staff">안전 요원 세우기 <small>${r.data.staffShort}명을 비상구·입구·무대 앞·관람 구역 둘레에</small></button>` : '',
       genPlan(r).length ? `<button type="button" class="btn" data-act="sf-power">발전기 놓기 <small>${genPlan(r).map((k) => `${k}kW`).join(' + ')}를 가장자리 빈 곳에 (필요 약 ${n1(r.data.power.demand)}kW)</small></button>` : '',
     ].join('');
@@ -526,6 +546,140 @@
     return ids;
   }
 
+  /* ── 야간 조명: 밝혀야 할 점(관람·대기 구역 안 5m 격자, 동선 위 3m마다)과 조명이 닿는지 ── */
+  const LIGHT_STEP_AREA = 5000, LIGHT_STEP_ROUTE = 3000;
+  /** 물건이 밝히는 곳: { x, y, r } 또는 null (조명 타워·가로등, 무대·화면은 제 둘레) */
+  function lightOf(it) {
+    if (it.kind === '조명 타워') return { x: it.x, y: it.y, r: RULE.lightTower };
+    if (it.kind === '가로등') return { x: it.x, y: it.y, r: RULE.streetLight };
+    if (it.kind === '무대') return { x: it.x, y: it.y, r: Math.max(it.size || 0, it.depth || 0) / 2 + 6000 };
+    if (it.kind === 'LED 스크린') return { x: it.x, y: it.y, r: (it.size || 0) / 2 + 4000 };
+    return null;
+  }
+  /** 돌려주는 값: { dark: [{ x, y, route, evac }], lights(조명 타워·가로등 수), points(밝혀야 할 점 수) } */
+  function lighting(c = collect()) {
+    const G = App.geom, Z = App.model.TYPES.zone;
+    const lights = c.items.map(lightOf).filter(Boolean);
+    const pts = [];
+    c.crowdZones.forEach((z) => {
+      const b = Z.bounds(z);
+      for (let y = b.minY + LIGHT_STEP_AREA / 2; y < b.maxY; y += LIGHT_STEP_AREA) for (let x = b.minX + LIGHT_STEP_AREA / 2; x < b.maxX; x += LIGHT_STEP_AREA) if (G.pointInPolygon({ x, y }, z.points)) pts.push({ x, y, route: false, evac: false });
+    });
+    c.routes.filter((r) => r.points && r.points.length >= 2).forEach((r) => {
+      const evac = r.kind === '비상 대피';
+      for (let i = 1; i < r.points.length; i++) {
+        const a = r.points[i - 1], b = r.points[i], L = Math.hypot(b.x - a.x, b.y - a.y), n = Math.max(1, Math.round(L / LIGHT_STEP_ROUTE));
+        for (let k = i === 1 ? 0 : 1; k <= n; k++) pts.push({ x: a.x + ((b.x - a.x) * k) / n, y: a.y + ((b.y - a.y) * k) / n, route: true, evac });
+      }
+    });
+    const lit = (p) => lights.some((l) => Math.hypot(l.x - p.x, l.y - p.y) <= l.r);
+    return { dark: pts.filter((p) => !lit(p)), lights: c.items.filter((it) => it.kind === '조명 타워' || it.kind === '가로등').length, points: pts.length };
+  }
+  /** 조명 채우기 계획: 어두운 점을 가장 많이 밝히는 자리부터 조명 타워를 놓음 (물건·동선·작은 관람 구역 위는 피함). 돌려주는 값: [{ x, y }] */
+  let lightCache = null;
+  function lightPlan(r = run()) {
+    const key = `${App.doc.version}|${App.current.night ? 'N' : ''}|${App.layers.excludeHidden()}|${(App.current.hiddenLayers || []).join(',')}`;
+    if (lightCache && lightCache.key === key) return lightCache.out.map((p) => ({ ...p }));
+    const dark = r.data.dark || [];
+    let out = [];
+    if (dark.length) {
+      const c = collect(), G = App.geom, T = App.model.TYPES, R = RULE.lightTower - 500;
+      const zones = c.zones.filter((z) => z.points && z.points.length >= 3);
+      const all = [...zones.flatMap((z) => z.points), ...c.items.map((it) => ({ x: it.x, y: it.y }))];
+      const box = { minX: Math.min(...all.map((p) => p.x)), maxX: Math.max(...all.map((p) => p.x)), minY: Math.min(...all.map((p) => p.y)), maxY: Math.max(...all.map((p) => p.y)) };
+      const siteArea = (box.maxX - box.minX) * (box.maxY - box.minY);
+      const small = c.crowdZones.filter((z) => T.zone.area(z) < siteArea * 0.85); // 장터처럼 부지 전체가 관람 구역이면 그 안에도 세움
+      const items = c.items.filter((it) => !(App.catalog.itemDef(it.kind) || {}).flat);
+      const routes = c.routes.filter((rt) => rt.points && rt.points.length >= 2);
+      // 부지: 놓인 범위의 30% 넘게 덮는 영역이 있으면 그 안에만 (없으면 범위 안 어디든)
+      const sites = zones.filter((z) => T.zone.area(z) >= siteArea * 0.3);
+      const free = (p) => (!sites.length || sites.some((z) => G.pointInPolygon(p, z.points)))
+        && !items.some((it) => Math.abs(it.x - p.x) < 40000 && T.item.distance(it, p) < 900)
+        && !routes.some((rt) => rt.points.some((q, i) => i && G.closestOnSegment(p, rt.points[i - 1], q).dist < (rt.width || 1200) / 2 + 700));
+      const inCrowd = (p) => small.some((z) => G.pointInPolygon(p, z.points));
+      // 어두운 점 칸 나누기 (가까운 점만 셈)
+      const cell = R, grid = new Map(), keyOf = (x, y) => `${Math.floor(x / cell)},${Math.floor(y / cell)}`;
+      dark.forEach((p, i) => { const k = keyOf(p.x, p.y); if (!grid.has(k)) grid.set(k, []); grid.get(k).push(i); });
+      const cover = (x, y) => { const out2 = []; const cx = Math.floor(x / cell), cy = Math.floor(y / cell); for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) (grid.get(`${cx + dx},${cy + dy}`) || []).forEach((i) => { if (Math.hypot(dark[i].x - x, dark[i].y - y) <= R) out2.push(i); }); return out2; };
+      const step = 3000, all2 = [];
+      for (let y = box.minY + 1500; y <= box.maxY - 1500; y += step) for (let x = box.minX + 1500; x <= box.maxX - 1500; x += step) {
+        const cv = cover(x, y);
+        if (cv.length && free({ x, y })) all2.push({ x: Math.round(x), y: Math.round(y), cv, crowd: inCrowd({ x, y }) });
+      }
+      const left = new Set(dark.map((_, i) => i));
+      // 먼저 관람 구역 밖에서, 그래도 어두운 곳이 남으면 넓은 관람 구역 안에도 (큰 공연의 가운데처럼 가장자리에서 닿지 않는 곳)
+      [all2.filter((cd) => !cd.crowd), all2].forEach((cands0) => {
+        const cands = cands0.filter((cd) => !out.some((q) => Math.hypot(cd.x - q.x, cd.y - q.y) < 6000));
+        for (let guard = 0; left.size && guard < 80 && out.length < 120; guard++) {
+          let best = null, bestN = 0;
+          cands.forEach((cd) => { let n = 0; cd.cv.forEach((i) => { if (left.has(i)) n += dark[i].evac ? 3 : 1; }); if (n > bestN) { bestN = n; best = cd; } }); // 대피 길을 먼저
+          if (!best) break;
+          out.push({ x: best.x, y: best.y });
+          best.cv.forEach((i) => left.delete(i));
+          // 서로 너무 붙지 않게 (6m 안의 후보는 뺌)
+          for (let i = cands.length - 1; i >= 0; i--) if (Math.hypot(cands[i].x - best.x, cands[i].y - best.y) < 6000) cands.splice(i, 1);
+        }
+      });
+    }
+    lightCache = { key, out };
+    return out.map((p) => ({ ...p }));
+  }
+  /** 조명 채우기: 어두운 곳에 조명 타워를 놓음 (한 번에 되돌리기) */
+  function fillLights(o = {}) {
+    const say = (t) => { if (!o.quiet) App.ui.toast(t); };
+    const r = run();
+    if (!(r.data.dark || []).length) { say(App.current.night ? '어두운 곳이 없습니다.' : '야간 행사로 표시하면 어두운 곳을 찾습니다 (안전 점검 창).'); return []; }
+    const pts = lightPlan(r);
+    if (!pts.length) { say('조명 타워를 놓을 빈 곳을 찾지 못했습니다. 직접 놓으세요 (물건 › 장비 › 조명 타워).'); return []; }
+    const def = App.catalog.itemDef('조명 타워'), T = App.model.TYPES, ids = [];
+    App.doc.transact('조명 채우기', () => pts.forEach((p) => { const it = T.item.create(p, def.category, def, 0, null); App.doc.add(it); ids.push(it.id); }));
+    if (o.quiet) return ids;
+    const left = (run().data.dark || []).length;
+    App.selection.set(ids.filter((id) => App.layers.visible(App.doc.get(id))));
+    say(`조명 타워 ${ids.length}개를 놓았습니다.${left ? ' 자리가 모자라 어두운 곳이 조금 남았습니다.' : ' 관람 구역과 동선이 모두 밝습니다.'} (되돌리기 Ctrl+Z)`);
+    return ids;
+  }
+
+  /* ── 고정 추 (바람 대비, 야외): 텐트·무대 지붕·LED 화면·아치·현수막·포토월을 고정할 추(웨이트) 어림 ──
+     텐트는 지붕 1㎡에 8kg, 무대 지붕 15kg, LED 화면 25kg을 다리(고정점)마다 나눠 5kg 단위로 올림 */
+  const kgUp = (v) => Math.max(10, Math.ceil(v / 5) * 5);
+  function ballastOf(it) {
+    const w = (it.size || 0) / 1000, d = (it.depth != null ? it.depth : it.size || 0) / 1000;
+    switch (it.kind) {
+      case '몽골텐트': { const legs = Math.max(w, d) > 6.5 ? 8 : 4; return { legs, kg: kgUp((w * d * 8) / legs) }; }
+      case '대형 텐트': case '돔 텐트': return { legs: 6, kg: kgUp((w * d * 8) / 6) };
+      case '무대': return /지붕/.test(it.variant || '') ? { legs: 4, kg: kgUp((w * d * 15) / 4) } : null;
+      case 'LED 스크린': return { legs: 2, kg: kgUp((w * (App.catalog.itemHeight3(it) / 1000) * 25) / 2) };
+      case '에어아치': return { legs: 2, kg: 25 };
+      case '풍선 아치': return { legs: 2, kg: 15 };
+      case '현수막': return { legs: 2, kg: 20 };
+      case '포토월': case '백월': return { legs: 2, kg: kgUp((w * 10) / 2) };
+      default: return null;
+    }
+  }
+  /** 고정 추 목록 (조감도·야외만). o.visibleOnly: 숨긴 레이어는 늘 뺌.
+      돌려주는 값: { rows: [{ name, kg(다리마다), legs(추 수), items(물건 수) }], legs, kg } */
+  function ballast(o = {}) {
+    const empty = { rows: [], legs: 0, kg: 0 };
+    if (!App.modes.is('event')) return empty;
+    const c = collect();
+    if (c.indoor) return empty;
+    const ex = o.visibleOnly || App.layers.excludeHidden();
+    const m1 = (mm) => String(Math.round(mm / 100) / 10);
+    const map = new Map();
+    c.items.filter((it) => !ex || App.layers.visible(it)).forEach((it) => {
+      const b = ballastOf(it);
+      if (!b) return;
+      const name = it.kind === 'LED 스크린' || it.kind === '에어아치' || it.kind === '풍선 아치' || it.kind === '현수막' || it.kind === '포토월' || it.kind === '백월'
+        ? `${it.kind} ${m1(it.size)}m` : `${it.kind} ${m1(it.size)}×${m1(it.depth != null ? it.depth : it.size)}${it.kind === '무대' ? ' 지붕' : ''}`;
+      const k = `${name}|${b.kg}`, cur = map.get(k) || { name, kg: b.kg, legs: 0, items: 0 };
+      cur.legs += b.legs; cur.items++;
+      map.set(k, cur);
+    });
+    const rows = [...map.values()];
+    return { rows, legs: rows.reduce((t, r) => t + r.legs, 0), kg: rows.reduce((t, r) => t + r.legs * r.kg, 0) };
+  }
+
   /** 안전 요원 세우기: 모자란 수만큼 스태프(한 명씩)를 비상구 안쪽 양옆 → 입구 → 무대 앞 양옆 → 관람 구역 둘레 → 현장 가장자리 순서로 세움.
       물건 위·동선 가운데는 피하고 현장 안쪽을 보게 함 */
   function placeStaff(o = {}) {
@@ -685,6 +839,7 @@
             <option value="outdoor"${r0.venue === 'outdoor' ? ' selected' : ''}>야외</option>
             <option value="indoor"${r0.venue === 'indoor' ? ' selected' : ''}>실내 (건물 화장실을 씀)</option>
           </select></div></div>
+        <label class="check-row"><input type="checkbox" id="sfNight" ${App.current.night ? 'checked' : ''}><span>야간 행사<small>해진 뒤까지 하면 관람 구역·동선에 조명이 닿는지 봄 (조명 타워 반경 15m)</small></span></label>
         <label class="check-row"><input type="checkbox" id="sfView" ${App.current.safetyView ? 'checked' : ''}><span>도면에 겹쳐 보기<small>소화기 닿는 거리(20m)·먼 물건·관람 구역 밀집도·비상구 (화면에서만, 내보낼 때는 빠짐)</small></span></label>
         <div class="sf-tools">${toolsHtml(r0)}</div>
         <div class="sf-list" aria-live="polite">${listHtml(r0)}</div>
@@ -707,6 +862,7 @@
           else if (b.dataset.act === 'sf-medical') placeMedical();
           else if (b.dataset.act === 'sf-power') placeGenerators();
           else if (b.dataset.act === 'sf-staff') placeStaff();
+          else if (b.dataset.act === 'sf-light') fillLights();
           else return;
           refresh();
         });
@@ -717,6 +873,10 @@
         });
         body.querySelector('#sfVenue').addEventListener('change', (e) => {
           App.current.venue = e.target.value === 'auto' ? null : e.target.value;
+          refresh();
+        });
+        body.querySelector('#sfNight').addEventListener('change', (e) => {
+          App.current.night = e.target.checked || null;
           refresh();
         });
         body.querySelector('#sfView').addEventListener('change', (e) => {
@@ -801,6 +961,22 @@
       ctx.stroke();
       ctx.setLineDash([]);
     });
+    // 야간 조명: 조명이 닿는 범위(노란 점선)와 어두운 곳(짙은 점)
+    if (App.current.night && !r.indoor) {
+      [...App.doc.all()].filter((e) => e.type === 'item' && vis(e) && (e.kind === '조명 타워' || e.kind === '가로등')).forEach((e) => {
+        const L = lightOf(e);
+        if (!seen({ minX: L.x - L.r, maxX: L.x + L.r, minY: L.y - L.r, maxY: L.y + L.r })) return;
+        ctx.beginPath();
+        ctx.arc(L.x, L.y, L.r, 0, Math.PI * 2);
+        dash(Math.PI * 2 * L.r, 8, 6);
+        ctx.lineWidth = 1.5 * k;
+        ctx.strokeStyle = 'rgba(245,159,0,0.75)';
+        ctx.stroke();
+        ctx.setLineDash([]);
+      });
+      ctx.fillStyle = 'rgba(33,37,41,0.55)';
+      (r.data.dark || []).forEach((q) => { if (!seen({ minX: q.x - 600, maxX: q.x + 600, minY: q.y - 600, maxY: q.y + 600 })) return; ctx.beginPath(); ctx.arc(q.x, q.y, Math.max(450, 3 * k), 0, Math.PI * 2); ctx.fill(); });
+    }
     r.data.uncovered.forEach((it) => {
       if (!vis(it)) return;
       const b = App.model.TYPES.item.bounds(it);
@@ -871,5 +1047,5 @@
     try { return fn(); } finally { forced = false; }
   }
 
-  App.safety = { RULE, LV, run, block, open, expected, fillPlan, fillExtinguishers, fillToilets, placeMedical, placeGenerators, placeStaff, genPlan, powerOf, powerDefault, GEN_SIZES, freeSpot, drawUnder, drawOverlay, drawLabels, withOverlay, densityText, get showing() { return showing(); } };
+  App.safety = { RULE, LV, run, block, open, expected, fillPlan, fillExtinguishers, fillToilets, placeMedical, placeGenerators, placeStaff, fillLights, lightPlan, ballast, genPlan, powerOf, powerDefault, GEN_SIZES, freeSpot, drawUnder, drawOverlay, drawLabels, withOverlay, densityText, get showing() { return showing(); } };
 })();

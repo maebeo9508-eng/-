@@ -246,6 +246,18 @@
     return rows.length ? { title: '행사 요약', rows } : null;
   }
 
+  /** 고정 추 (바람 대비, 조감도·야외): 텐트·무대 지붕·LED 화면·아치·현수막을 고정할 추 수와 무게 (어림) */
+  function ballastBlock() {
+    const b = App.safety && App.safety.ballast ? App.safety.ballast() : null;
+    if (!b || !b.rows.length) return null;
+    const kg = (v) => `${v.toLocaleString('ko-KR')}kg`;
+    return {
+      title: '고정 추 (바람 대비)', sub: '어림 · 무게는 렌탈사 기준 확인 · 초속 10m 넘는 바람이면 옆막을 걷고, 15m 넘으면 접기',
+      rows: [...b.rows.map((r) => row(`${r.name} ×${r.items}`, V.count(r.legs, '개'), `다리마다 ${kg(r.kg)} · ${kg(r.legs * r.kg)}`, '', '고정 추')),
+        row('고정 추 총계', V.count(b.legs, '개'), `약 ${kg(b.kg)}`, 'total')],
+    };
+  }
+
   /** 전체: 도면 전체 합계 */
   function viewAll(s) {
     const blocks = [];
@@ -257,6 +269,8 @@
       if (sb) blocks.push(sb);
       const bb = App.booths && App.booths.block(); // 부스 배정 (번호·업체)
       if (bb) blocks.push(bb);
+      const wb = ballastBlock(); // 고정 추 (바람 대비)
+      if (wb) blocks.push(wb);
       const rb = routeBlock(s);
       if (rb) blocks.push(rb);
     }
@@ -421,6 +435,9 @@
     if (event) s.zones.forEach((z) => groups.push({ title: z.name, sub: [App.units.formatArea(z.area), z.surface].filter(Boolean).join(' · '), rows: rowsOf((r) => r.zone === z.id) }));
     s.rooms.forEach((r) => groups.push({ title: r.name, sub: `방 · ${App.units.formatArea(r.q.floor)}`, rows: rowsOf((x) => x.zone == null && x.room === r.id) }));
     groups.push({ title: event ? NO_ZONE : OUTSIDE, sub: '', rows: rowsOf((x) => x.zone == null && x.room == null) });
+    // 고정 추 (조감도·야외): 반입·설치할 웨이트
+    const b = event && App.safety && App.safety.ballast ? App.safety.ballast(o) : null;
+    if (b && b.rows.length) groups.push({ title: '고정 추 (바람 대비)', sub: `어림 · 모두 약 ${b.kg.toLocaleString('ko-KR')}kg`, rows: b.rows.map((r) => ({ label: `${r.name} ×${r.items} — 다리마다 ${r.kg}kg`, text: `${r.legs}개` })) });
     return groups.filter((g) => g.rows.length);
   }
 
