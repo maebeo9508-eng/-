@@ -225,9 +225,12 @@
     if (!stored()) App.current.schedule = {};
     return App.current.schedule;
   }
+  // 저장한 값은 가장 잘게(0.25일 = 2시간) 맞춤: 도면 모드를 바꿔 열고 다른 줄을 고쳐도 2시간 단위 값이 반나절로 깎이지 않게.
+  // 모드 단위(인테리어 0.5일·조감도 2시간)는 사람이 칸에 칠 때만 적용
+  const quarter = (v) => Math.max(0.25, Math.ceil(v * 4 - 1e-9) / 4);
   const clean = (t) => ({
     key: String(t.key || 'custom'), name: String(t.name || '').trim() || '공정',
-    days: Math.min(365, t.kind === 'event' ? Math.max(0.5, Math.ceil((Number(t.days) || 0) * 2 - 1e-9) / 2) : roundD(Number(t.days) || 0)), crew: Math.max(0, Math.min(999, Math.round(Number(t.crew) || 0))),
+    days: Math.min(365, t.kind === 'event' ? Math.max(0.5, Math.ceil((Number(t.days) || 0) * 2 - 1e-9) / 2) : quarter(Number(t.days) || 0)), crew: Math.max(0, Math.min(999, Math.round(Number(t.crew) || 0))),
     with: !!t.with, kind: t.kind === 'event' ? 'event' : 'work', note: String(t.note || ''),
   });
   /** 지금 공정: 고친 것이 있으면 그것, 없으면 물량으로 어림 */
@@ -263,43 +266,72 @@
     return x;
   }
 
-  /** 공정 배치: 작업일(0.5·0.25일 단위)로 앞에서부터 놓고(‘같이’는 앞 공정과 같은 때 시작), 작업일을 날짜로.
-      돌려주는 값 { tasks: [{ ...공정, start, end(작업일), from, to(Date) }], start, end, work, cal, manDays, rest, days, eventDay, edited, moved } */
+  /** 공정 배치: 작업(설치·공사)은 작업일(쉬는 날 건너뜀, 0.5·0.25일 단위)로 앞에서부터 놓고(‘같이’는 앞 공정과 같은 때 시작),
+      행사는 달력 날짜 그대로(쉬는 날에도 함) — 다음 공정은 행사가 끝난 다음 작업일부터.
+      돌려주는 값 { tasks: [{ ...공정, start, end(작업일), from, to(Date), bar(행사 막대: 달력 칸) }], start, end, work, cal, manDays, rest, days, eventDay, eventSet, edited } */
   function plan(list = tasks()) {
     const rest = restOf();
-    let cursor = 0, prevStart = 0;
+    const sc = stored() || {};
+    const evIdx = isEvent() ? list.findIndex((t) => t.kind === 'event') : -1;
+    const sameAfternoon = (s) => (s - Math.floor(s + 1e-9) > 0.5 + 1e-9 ? Math.ceil(s - 1e-9) : s); // 설치가 정오 전에 끝나면 그날 오후부터, 아니면 다음 날
+    // 1) 행사 앞 설치가 작업일로 얼마나 걸리는지 (행사 시작 자리)
+    let cursor = 0, prevStart = 0, evStart = 0;
+    for (let i = 0; i <= evIdx; i++) {
+      const t = list[i];
+      const s = t.with && i > 0 ? prevStart : cursor;
+      if (i === evIdx) { evStart = sameAfternoon(s); break; }
+      prevStart = s;
+      cursor = Math.max(cursor, s + t.days);
+    }
+    // 2) 시작일: 행사일을 정했으면 거꾸로 (행사일이 쉬는 날이면 설치는 그 앞 작업일까지 끝냄)
+    const evDay = evIdx >= 0 ? parse(sc.eventDay) : null;
+    const evRest = !!evDay && isRest(evDay, rest);
+    const start = evDay ? back(evDay, evRest ? Math.ceil(evStart - 1e-9) : Math.floor(evStart + 1e-9), rest) : firstWork(parse(sc.start) || today(), rest);
+    // 작업일 번호 → 날짜 (필요한 만큼 늘림), 날짜 → 그 날 다음 첫 작업일 번호
+    const days = [];
+    const dayOf = (k) => {
+      for (let d = days.length ? addDays(days[days.length - 1], 1) : start; days.length <= k; d = addDays(d, 1)) if (!isRest(d, rest)) days.push(d);
+      return days[Math.max(0, k)];
+    };
+    const after = (date) => { let k = 0; while (dayOf(k) <= date) k++; return k; };
+    // 3) 다시 앞에서부터 놓으며 날짜를 붙임
+    cursor = 0;
+    prevStart = 0;
     const laid = list.map((t, i) => {
-      let start = t.with && i > 0 ? prevStart : cursor, end;
+      let s = t.with && i > 0 ? prevStart : cursor, e, from, to, bar = null;
       if (t.kind === 'event') {
-        // 행사: 설치가 정오 전에 끝나면 그날 오후부터, 아니면 다음 날 아침부터. 하루 넘게 하는 행사는 그날 끝까지를 하루로 셈
-        if (start - Math.floor(start + 1e-9) > 0.5 + 1e-9) start = Math.ceil(start - 1e-9);
-        end = t.days >= 1 ? Math.floor(start + 1e-9) + t.days : start + t.days;
-      } else end = start + t.days;
-      prevStart = start;
-      cursor = Math.max(cursor, end);
-      return { ...t, start, end };
+        s = sameAfternoon(s);
+        let frac = s - Math.floor(s + 1e-9);
+        if (i === evIdx && evDay) {
+          from = evDay;
+          if (evRest) { s = Math.ceil(s - 1e-9); frac = 0; }
+        } else from = dayOf(Math.floor(s + 1e-9));
+        const x0 = dayDiff(start, from) + frac;
+        if (t.days >= 1) {
+          to = addDays(from, Math.ceil(t.days - 1e-9) - 1); // 이어진 달력 날짜 (첫날 오후에 시작해도 그날을 하루로 셈)
+          e = Math.max(s, after(to));
+          bar = [x0, dayDiff(start, to) + 1];
+        } else {
+          to = from;
+          e = s + t.days;
+          bar = [x0, x0 + t.days];
+        }
+      } else {
+        e = s + t.days;
+        from = dayOf(Math.floor(s + 1e-9));
+        to = dayOf(Math.max(Math.floor(s + 1e-9), Math.ceil(e - 1e-9) - 1));
+      }
+      prevStart = s;
+      cursor = Math.max(cursor, e);
+      return { ...t, start: s, end: e, from, to, bar };
     });
     const work = cursor;
-    const sc = stored() || {};
-    const ev = isEvent() ? laid.find((t) => t.kind === 'event') : null;
-    let start, moved = false;
-    if (ev && parse(sc.eventDay)) {
-      const day = parse(sc.eventDay);
-      start = back(day, Math.floor(ev.start + 1e-9), rest); // 행사가 놓이는 작업일(설치가 정오 전에 끝나면 그날)이 행사일
-      moved = isRest(day, rest); // 행사일이 쉬는 날이면 다음 작업일로 밀림
-    } else start = firstWork(parse(sc.start) || today(), rest);
-    const days = [];
-    for (let d = start, need = Math.ceil(work - 1e-9) + 1; days.length < need; d = addDays(d, 1)) if (!isRest(d, rest)) days.push(d);
-    const dayOf = (k) => days[Math.max(0, Math.min(days.length - 1, k))];
-    laid.forEach((t) => {
-      t.from = dayOf(Math.floor(t.start + 1e-9));
-      t.to = dayOf(Math.max(Math.floor(t.start + 1e-9), Math.ceil(t.end - 1e-9) - 1));
-    });
-    const end = laid.length ? dayOf(Math.ceil(work - 1e-9) - 1) : start;
+    dayOf(Math.ceil(work - 1e-9) + 1); // 막대 자리 계산용
+    const end = laid.reduce((m, t) => (t.to > m ? t.to : m), start);
     return {
       tasks: laid, start, end, work, cal: dayDiff(start, end) + 1, rest, days,
       manDays: laid.filter((t) => t.kind !== 'event').reduce((n, t) => n + t.days * t.crew, 0),
-      eventDay: ev ? ev.from : null, edited: Array.isArray(sc.tasks), moved,
+      eventDay: evIdx >= 0 ? laid[evIdx].from : null, eventSet: !!evDay, edited: Array.isArray(sc.tasks),
     };
   }
   /** 막대 자리: 달력 첫날부터 며칠째(소수: 반나절)에서 며칠째까지 */
@@ -308,11 +340,26 @@
     const at = (k) => ci[Math.max(0, Math.min(ci.length - 1, k))];
     const xs = (v) => { const f = Math.floor(v + 1e-9); return at(f) + (v - f); };
     const xe = (v) => { const f = Math.floor(v + 1e-9); return v - f < 1e-9 ? at(f - 1) + 1 : at(f) + (v - f); };
-    return p.tasks.map((t) => [xs(t.start), Math.max(xs(t.start) + 0.25, xe(t.end))]);
+    return p.tasks.map((t) => (t.bar ? [t.bar[0], Math.max(t.bar[0] + 0.25, t.bar[1])] : [xs(t.start), Math.max(xs(t.start) + 0.25, xe(t.end))]));
   }
   const restName = (r) => ({ sun: '일요일', weekend: '토·일요일', none: '없음' })[r];
-  const periodText = (p) => `${md(p.start)} ~ ${md(p.end)} · 달력 ${p.cal}일 (작업 ${fmt(p.work)}일)${p.manDays ? ` · 연인원 ${fmt(r1(p.manDays))}인` : ''}`;
+  const man = (v) => Math.round(v * 100) / 100; // 연인원은 0.25인 단위까지 그대로 (줄마다 반올림하면 합이 어긋남)
+  const periodText = (p) => `${md(p.start)} ~ ${md(p.end)} · 달력 ${p.cal}일 (작업 ${fmt(p.work)}일)${p.manDays ? ` · 연인원 ${fmt(man(p.manDays))}인` : ''}`;
   const whenText = (t) => `${mdShort(t.from)}${dayDiff(t.from, t.to) > 0 ? ` ~ ${mdShort(t.to)}` : ''}`;
+
+  /** 달 이름표: 첫 칸과 매달 1일. 첫 칸 달이 며칠 안 남아 다음 달 이름표와 겹치면 첫 칸 것을 뺌 (charW: 글자 하나 폭) */
+  function monthLabels(p, n, dw, charW) {
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const d = addDays(p.start, i);
+      if (i && d.getDate() !== 1) continue;
+      const text = `${i === 0 || d.getMonth() === 0 ? `${d.getFullYear()}년 ` : ''}${d.getMonth() + 1}월`;
+      const prev = out[out.length - 1];
+      if (prev && i * dw - prev.x < prev.text.length * charW + 6) out.pop();
+      out.push({ x: i * dw, text });
+    }
+    return out;
+  }
 
   /* ── 창: 간트 차트 + 공정 목록 (바로 고침) ── */
   function chartSvg(p) {
@@ -321,10 +368,10 @@
     const Wd = n * DW + PADR, H = HEAD + p.tasks.length * RH + 6;
     const sp = spans(p);
     let svg = `<svg class="sc-svg" width="${Wd}" height="${H}" viewBox="0 0 ${Wd} ${H}" role="img" aria-label="공정표 간트 차트">`;
+    monthLabels(p, n, DW, 7).forEach((m) => { svg += `<text x="${m.x + 2}" y="12" class="sc-month">${m.text}</text>`; });
     for (let i = 0; i < n; i++) {
       const d = addDays(p.start, i), x = i * DW;
       if (isRest(d, p.rest)) svg += `<rect x="${x}" y="${HEAD - 16}" width="${DW}" height="${H - HEAD + 16}" class="sc-rest"/>`;
-      if (i === 0 || d.getDate() === 1) svg += `<text x="${x + 2}" y="12" class="sc-month">${d.getFullYear() !== p.start.getFullYear() || i === 0 ? `${d.getFullYear()}년 ` : ''}${d.getMonth() + 1}월</text>`;
       if (DW >= 20 || d.getDay() === 1 || i === 0) svg += `<text x="${x + DW / 2}" y="${HEAD - 4}" text-anchor="middle" class="sc-day${d.getDay() === 0 ? ' is-sun' : d.getDay() === 6 ? ' is-sat' : ''}">${d.getDate()}</text>`;
       svg += `<line x1="${x + 0.5}" y1="${HEAD}" x2="${x + 0.5}" y2="${H}" class="sc-grid"/>`;
     }
@@ -354,24 +401,43 @@
         <small class="sc-when"><b data-when="${i}">${whenText(t)}</b>${t.note ? ` · ${esc(t.note)}` : ''}</small>
       </div>`;
   }
+  const EDITED_NOTE = '<b>직접 고친 공정표</b> — 도면을 바꿔도 그대로입니다.';
+  const AUTO_NOTE = '도면 물량으로 어림한 공정표 — 도면을 바꾸면 따라 바뀝니다. 고치면 이 도면에 저장됩니다.';
+  const AUTO_BTN = '<button type="button" class="btn" data-act="sc-auto" title="고친 것을 버리고 지금 도면 물량으로 다시 어림">물량대로 다시 어림</button>';
+  const evAnchored = () => isEvent() && tasks().some((t) => t.kind === 'event');
+  /** 날짜 칸: 정해 둔 날짜(행사일·착공일) 그대로, 없으면 지금 계획의 날짜 */
+  function dateValue(p) {
+    const sc = stored() || {};
+    const ev = isEvent() && p.tasks.some((t) => t.kind === 'event');
+    const set = parse(ev ? sc.eventDay : sc.start);
+    return iso(set || (ev ? p.eventDay || p.start : p.start));
+  }
+  /** 처음 저장할 때 보이던 날짜도 함께 저장 (안 그러면 날짜를 고르지 않은 공정표가 날마다 오늘부터로 바뀜) */
+  function persistDate() {
+    const sc = storedW();
+    const k = evAnchored() ? 'eventDay' : 'start';
+    if (parse(sc[k])) return;
+    const p = plan();
+    const d = k === 'eventDay' ? p.eventDay : p.start;
+    if (d) sc[k] = iso(d);
+  }
   function bodyHtml() {
     const p = plan();
     const evAnchor = isEvent() && p.tasks.some((t) => t.kind === 'event');
-    const date = iso(evAnchor ? p.eventDay || p.start : p.start);
+    const date = dateValue(p);
     return `
       <div class="field-grid sc-head">
         <div class="field"><label class="field-label" for="scDate">${evAnchor ? '행사일 <small>첫날 · 설치는 그 앞</small>' : isEvent() ? '시작일' : '착공일'}</label><div class="field-box"><input id="scDate" type="date" value="${date}" required></div></div>
         <div class="field"><label class="field-label" for="scRest">쉬는 날</label><div class="field-box"><select id="scRest" class="field-select">${[['sun', '일요일'], ['weekend', '토·일요일'], ['none', '없음 (매일 작업)']].map(([v, l]) => `<option value="${v}"${p.rest === v ? ' selected' : ''}>${l}</option>`).join('')}</select></div></div>
       </div>
       <p class="sc-sum" id="scSum">${p.tasks.length ? periodText(p) : ''}</p>
-      <p class="dialog-note is-warn" id="scMoved" ${p.moved ? '' : 'hidden'}>행사일이 쉬는 날이라 다음 작업일로 밀렸습니다. 쉬는 날을 바꾸세요.</p>
       ${p.tasks.length ? `<div class="sc-chart" id="scChart">${chartSvg(p)}</div>` : `
         <div class="empty"><div class="empty-title">어림할 공정이 없습니다</div><p>${isEvent() ? '무대·텐트·좌석 같은 물건을 놓으면' : '벽·문·창문·전기·설비를 그리고 방 마감을 고르면'} 물량으로 공정을 어림합니다. 아래 ‘+ 공정 추가’로 직접 넣을 수도 있습니다.</p></div>`}
-      <p class="dialog-note sc-state">${p.edited ? '<b>직접 고친 공정표</b> — 도면을 바꿔도 그대로입니다.' : '도면 물량으로 어림한 공정표 — 도면을 바꾸면 따라 바뀝니다. 고치면 이 도면에 저장됩니다.'}</p>
+      <p class="dialog-note sc-state">${p.edited ? EDITED_NOTE : AUTO_NOTE}</p>
       <div class="sc-list" id="scList" data-keys="local">${p.tasks.map((t, i) => rowHtml(t, i, p.tasks.length)).join('')}</div>
       <div class="btn-row sc-add">
         <button type="button" class="btn" data-act="sc-add">+ 공정 추가</button>
-        ${p.edited ? '<button type="button" class="btn" data-act="sc-auto" title="고친 것을 버리고 지금 도면 물량으로 다시 어림">물량대로 다시 어림</button>' : ''}
+        ${p.edited ? AUTO_BTN : ''}
       </div>
       <div class="btn-row sc-tools">
         <button type="button" class="btn btn-primary" data-act="sc-pdf" ${p.tasks.length ? '' : 'disabled'}>공정표 PDF</button>
@@ -388,8 +454,8 @@
     const chart = body.querySelector('#scChart');
     if (chart) chart.innerHTML = chartSvg(p);
     p.tasks.forEach((t, i) => { const w = body.querySelector(`[data-when="${i}"]`); if (w) w.textContent = whenText(t); });
-    const mv = body.querySelector('#scMoved');
-    if (mv) mv.hidden = !p.moved;
+    const dt = body.querySelector('#scDate');
+    if (dt && document.activeElement !== dt) dt.value = dateValue(p);
     const est = body.querySelector('[data-act="sc-est"]');
     if (est) est.disabled = !p.manDays;
   }
@@ -397,29 +463,59 @@
     const scroll = body.scrollTop;
     body.innerHTML = `<div class="sc">${bodyHtml()}</div>`;
     body.scrollTop = scroll;
-    if (focus) { const el = body.querySelector(focus); if (el) { el.focus(); if (el.select) el.select(); } }
+    if (focus) {
+      let el = body.querySelector(focus);
+      // 맨 위·맨 아래로 옮겨 그 화살표가 꺼졌으면 그 줄의 이름 칸, 지운 뒤 줄이 없으면 ‘공정 추가’
+      if (el && el.disabled) el = el.closest('.sc-row').querySelector('.sc-name');
+      if (!el) el = body.querySelector('[data-act="sc-add"]');
+      if (el) { el.focus(); if (el.select && el.tagName === 'INPUT') el.select(); }
+    }
   }
   /** 공정 목록을 고침: 지금 목록(어림이면 어림값)을 저장한 뒤 바꿈 */
   function edit(fn) {
     const list = tasks();
     fn(list);
     storedW().tasks = list.map(clean);
+    persistDate();
     save();
   }
+  /** 처음 고쳤을 때: 창을 다시 그리지 않고 안내와 ‘다시 어림’ 버튼만 바꿈 (누르던 단추·커서가 그대로) */
+  function markEdited(body) {
+    const st = body.querySelector('.sc-state');
+    if (st) st.innerHTML = EDITED_NOTE;
+    const add = body.querySelector('.sc-add');
+    if (add && !add.querySelector('[data-act="sc-auto"]')) add.insertAdjacentHTML('beforeend', AUTO_BTN);
+  }
   const numIn = (s) => parseFloat(String(s == null ? '' : s).replace(/,/g, '.').replace(/[^\d.]/g, ''));
+  /* 칸을 고친 채 바로 단추를 누르면 (누름 → 칸 벗어남 → 고침 반영 → 뗌 → 클릭) 그 사이 화면이 바뀌어 단추가 밀리면 클릭이 사라짐.
+     누르고 있는 동안에는 화면 고침을 미뤘다가 손을 뗀 뒤(클릭 처리 다음)에 함 */
+  let pointerIsDown = false, pending = null, pointerHooked = false;
+  function hookPointer() {
+    if (pointerHooked) return;
+    pointerHooked = true;
+    document.addEventListener('pointerdown', () => { pointerIsDown = true; }, true);
+    const up = () => {
+      pointerIsDown = false;
+      if (pending) { const f = pending; pending = null; setTimeout(f, 0); }
+    };
+    document.addEventListener('pointerup', up, true);
+    document.addEventListener('pointercancel', up, true);
+  }
+  const afterPointer = (fn) => { if (pointerIsDown) pending = fn; else fn(); };
   function bind(body) {
+    hookPointer();
     body.addEventListener('change', (e) => {
       const el = e.target;
       if (el.id === 'scDate') {
         if (!parse(el.value)) return;
-        const evAnchor = isEvent() && tasks().some((t) => t.kind === 'event');
-        storedW()[evAnchor ? 'eventDay' : 'start'] = el.value;
+        storedW()[evAnchored() ? 'eventDay' : 'start'] = el.value;
         save();
         refresh(body);
         return;
       }
       if (el.id === 'scRest') {
         storedW().rest = el.value;
+        persistDate();
         save();
         refresh(body);
         return;
@@ -427,19 +523,21 @@
       const row = el.closest('[data-i]');
       if (!row || !el.dataset.f) return;
       const i = +row.dataset.i, f = el.dataset.f;
-      const wasEdited = Array.isArray((stored() || {}).tasks);
       edit((list) => {
         const t = list[i];
         if (!t) return;
         if (f === 'name') t.name = el.value.trim() || t.name;
-        else if (f === 'days') { const v = numIn(el.value); if (v > 0) t.days = inHours(t) ? v / HOURS : v; }
+        else if (f === 'days') { const v = numIn(el.value); if (v > 0) t.days = t.kind === 'event' ? v : roundD(inHours(t) ? v / HOURS : v); } // 칠 때는 모드 단위로
         else if (f === 'crew') { const v = numIn(el.value); if (v >= 0) t.crew = v; }
         else if (f === 'with') t.with = el.checked;
       });
       const t = tasks()[i];
       if (t && f !== 'with') el.value = f === 'name' ? t.name : f === 'days' ? daysValue(t) : String(t.crew);
-      if (!wasEdited) redraw(body); // ‘직접 고친 공정표’ 안내와 ‘다시 어림’ 버튼이 생김
-      else refresh(body);
+      afterPointer(() => {
+        if (!body.isConnected) return;
+        if (Array.isArray((stored() || {}).tasks)) markEdited(body); // ‘직접 고친 공정표’ 안내와 ‘다시 어림’ 버튼
+        refresh(body);
+      });
     });
     body.addEventListener('keydown', (e) => {
       // 공정 칸의 Enter는 창을 닫지 않고 고친 값을 확정 (목록은 data-keys="local"이라 창의 Enter·Esc 처리를 받지 않음)
@@ -452,7 +550,12 @@
       switch (b.dataset.act) {
         case 'sc-up': if (i > 0) { edit((l) => { [l[i - 1], l[i]] = [l[i], l[i - 1]]; }); redraw(body, `[data-i="${i - 1}"] [data-act="sc-up"]`); } break;
         case 'sc-down': edit((l) => { if (i < l.length - 1) [l[i + 1], l[i]] = [l[i], l[i + 1]]; }); redraw(body, `[data-i="${i + 1}"] [data-act="sc-down"]`); break;
-        case 'sc-del': edit((l) => { l.splice(i, 1); }); redraw(body); break;
+        case 'sc-del': {
+          let n = 0;
+          edit((l) => { l.splice(i, 1); n = l.length; });
+          redraw(body, n ? `[data-i="${Math.min(i, n - 1)}"] .sc-name` : '[data-act="sc-add"]');
+          break;
+        }
         case 'sc-add': {
           let n = 0;
           edit((l) => { l.push({ key: 'custom', name: '새 공정', days: 1, crew: 2, with: false, kind: 'work', note: '' }); n = l.length; });
@@ -487,13 +590,13 @@
     const p = plan();
     // 공종별 견적에서 그 공정의 공종으로 묶이게 (직접 넣은 공정은 이름으로 짐작)
     const tradeOf = (t) => (App.estimate.taskTrade && t.key !== 'custom' ? App.estimate.taskTrade(t.key) : null);
-    const list = p.tasks.filter((t) => t.kind !== 'event' && t.crew > 0).map((t) => ({ name: `${t.name} 인건비`, qty: r1(t.days * t.crew), unit: '인', ...(tradeOf(t) && tradeOf(t) !== '기타' ? { trade: tradeOf(t) } : {}) }));
+    const list = p.tasks.filter((t) => t.kind !== 'event' && t.crew > 0).map((t) => ({ name: `${t.name} 인건비`, qty: man(t.days * t.crew), unit: '인', ...(tradeOf(t) && tradeOf(t) !== '기타' ? { trade: tradeOf(t) } : {}) }));
     if (!list.length) {
       App.ui.toast('인원을 넣은 공정이 없습니다.');
       return false;
     }
     App.estimate.putExtras('schedule', list);
-    App.ui.toast(`견적 기타 항목에 공정별 인건비 ${list.length}줄 (연인원 ${fmt(r1(p.manDays))}인)을 넣었습니다. 1인 하루 단가를 넣으세요.`, 5500);
+    App.ui.toast(`견적 기타 항목에 공정별 인건비 ${list.length}줄 (연인원 ${fmt(man(p.manDays))}인)을 넣었습니다. 1인 하루 단가를 넣으세요.`, 5500);
     return true;
   }
 
@@ -502,9 +605,9 @@
     const rows = [['순서', '공정', '시작일', '끝일', '일수', '시간', '인원', '연인원', '같이 시작', '근거']];
     p.tasks.forEach((t, i) => {
       const ev = t.kind === 'event';
-      rows.push([i + 1, t.name, iso(t.from), iso(t.to), t.days, ev ? '' : t.days * HOURS, ev ? '' : t.crew, ev ? '' : r1(t.days * t.crew), t.with ? '예' : '', t.note]);
+      rows.push([i + 1, t.name, iso(t.from), iso(t.to), t.days, ev ? '' : t.days * HOURS, ev ? '' : t.crew, ev ? '' : man(t.days * t.crew), t.with ? '예' : '', t.note]);
     });
-    rows.push(['', '합계', iso(p.start), iso(p.end), p.work, '', '', r1(p.manDays), '', `달력 ${p.cal}일 · 쉬는 날 ${restName(p.rest)}`]);
+    rows.push(['', '합계', iso(p.start), iso(p.end), p.work, '', '', man(p.manDays), '', `달력 ${p.cal}일 · 쉬는 날 ${restName(p.rest)}`]);
     return rows;
   }
   function exportCsv() {
@@ -529,12 +632,16 @@
   /** 쪽 나누기. 공정이 없으면 null, 있으면 { W, H, count, p, draw(ctx, k, o) } — o: { page, pages, footer } (제안서에 끼울 때) */
   function layout(p = plan()) {
     if (!p.tasks.length) return null;
-    const per = Math.floor((PAGE.H - TOP - FOOT - 70) / ROW);
-    const chunks = [];
-    for (let i = 0; i < p.tasks.length; i += per) chunks.push(i);
-    return { W: PAGE.W, H: PAGE.H, count: chunks.length, p, draw: (ctx, k, o = {}) => drawPage(ctx, p, chunks[k], per, { page: o.page || k + 1, pages: o.pages || chunks.length, footer: o.footer }) };
+    const per = Math.floor((PAGE.H - TOP - FOOT - 70) / ROW), n = p.tasks.length;
+    const ranges = [];
+    for (let i = 0; i < n; i += per) ranges.push([i, Math.min(n, i + per)]);
+    // 마지막 쪽이 꽉 차면 합계·안내 글이 바닥글과 겹치므로 끝 줄을 다음 쪽으로
+    const last = ranges[ranges.length - 1];
+    if (last[1] - last[0] >= per) { ranges.push([last[1] - 1, last[1]]); last[1] -= 1; }
+    return { W: PAGE.W, H: PAGE.H, count: ranges.length, p, draw: (ctx, k, o = {}) => drawPage(ctx, p, ranges[k], { page: o.page || k + 1, pages: o.pages || ranges.length, footer: o.footer }) };
   }
-  function drawPage(ctx, p, from, per, o) {
+  function drawPage(ctx, p, range, o) {
+    const [from, upto] = range;
     const { W: PW, H: PH } = PAGE, f = FONT(), ink = '#1f2937', mute = '#6b7280', faint = '#9ca3af', line = '#d1d5db';
     const text = (s, x, y, size, weight = 400, color = ink, align = 'left', maxW = 0) => {
       ctx.font = `${weight} ${size}px ${f}`;
@@ -558,7 +665,7 @@
     // 표 + 간트
     const tw = COLS.reduce((t, c) => t + c[1], 0), cx0 = PM + tw + 24, cx1 = PW - PM, cw = cx1 - cx0;
     const n = Math.max(1, p.cal), dw = cw / n;
-    const y0 = TOP, head = 70, rows = p.tasks.slice(from, from + per);
+    const y0 = TOP, head = 70, rows = p.tasks.slice(from, upto);
     // 표 머리
     ctx.fillStyle = '#f3f4f6';
     ctx.fillRect(PM, y0, PW - 2 * PM, head);
@@ -569,11 +676,11 @@
     });
     // 날짜 머리: 위 줄 월, 아래 줄 날 (칸이 좁으면 몇 칸마다)
     const every = Math.max(1, Math.ceil(30 / dw));
+    monthLabels(p, n, dw, 13).forEach((m) => text(m.text, cx0 + m.x + 4, y0 + 18, 20, 700, mute));
     const yB = y0 + head + rows.length * ROW;
     for (let i = 0; i < n; i++) {
       const d = addDays(p.start, i), xx = cx0 + i * dw;
       if (isRest(d, p.rest)) { ctx.fillStyle = '#eceff3'; ctx.fillRect(xx, y0 + head, dw, yB - y0 - head); }
-      if (i === 0 || d.getDate() === 1) text(`${d.getMonth() + 1}월`, xx + 4, y0 + 18, 20, 700, mute);
       if (i % every === 0) text(String(d.getDate()), xx + dw / 2, y0 + 50, dw >= 26 ? 20 : 17, 600, d.getDay() === 0 ? '#e03131' : d.getDay() === 6 ? '#1c7ed6' : ink, 'center');
       ctx.fillStyle = i % every === 0 ? line : '#eef0f3';
       ctx.fillRect(xx, y0 + head, 1.5, yB - y0 - head);
@@ -618,8 +725,8 @@
     ctx.fillStyle = ink;
     ctx.fillRect(PM, yB, PW - 2 * PM, 2.5);
     // 합계·안내
-    if (from + per >= p.tasks.length) {
-      text(`합계: 작업 ${fmt(p.work)}일 · 달력 ${p.cal}일${p.manDays ? ` · 연인원 ${fmt(r1(p.manDays))}인` : ''}`, PM, yB + 44, 26, 800);
+    if (upto >= p.tasks.length) {
+      text(`합계: 작업 ${fmt(p.work)}일 · 달력 ${p.cal}일${p.manDays ? ` · 연인원 ${fmt(man(p.manDays))}인` : ''}`, PM, yB + 44, 26, 800);
       text('※ 물량으로 어림한 일정입니다. 날씨·자재 수급·현장 여건에 따라 달라질 수 있습니다.', PM, yB + 86, 21, 400, mute, 'left', PW - 2 * PM);
     }
     const co = App.estimate && App.estimate.company ? App.estimate.company() : {};

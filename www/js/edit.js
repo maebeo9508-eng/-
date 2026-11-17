@@ -60,7 +60,7 @@
   }
   /** 창호 기호 (문·창문이 있을 때): 같은 규격끼리 D1·W1 기호를 도면에 띄움 — 집계 ‘전체’의 창호 일람표와 같은 기호 */
   function marksMenuHtml() {
-    if (![...doc().all()].some((e) => e.type === 'door' || e.type === 'window')) return '';
+    if (App.modes.is('event') || ![...doc().all()].some((e) => e.type === 'door' || e.type === 'window')) return '';
     return `
       <label class="menu-check">
         <input type="checkbox" data-marks ${App.current.openingMarks ? 'checked' : ''}>

@@ -570,7 +570,7 @@
         ${stat(single ? '면적' : '면적 합계', App.units.formatArea(area), '벽 면적에서 뺌')}
         ${type === 'window' && single ? stat('창 위 높이', App.units.formatLength(els[0].sill + els[0].height)) : ''}
         ${g ? stat('붙은 벽', wallType ? wallType.name : '벽', App.units.formatLength(g.L)) : ''}
-        ${single && App.openings && App.openings.groupOf(els[0]) ? stat('창호 기호', App.openings.markOf(els[0]), `같은 규격 ${App.openings.groupOf(els[0]).ids.length}개 · 집계 ‘전체’의 창호 일람표`) : ''}
+        ${single && App.openings && !App.modes.is('event') && App.openings.groupOf(els[0]) ? stat('창호 기호', App.openings.markOf(els[0]), `같은 규격 ${App.openings.groupOf(els[0]).ids.length}개 · 집계 ‘전체’의 창호 일람표`) : ''}
       </div>
       ${commonFields(single)}
       ${deleteButton(T.label)}`;

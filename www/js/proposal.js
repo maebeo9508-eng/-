@@ -441,7 +441,8 @@
     const out = [];
     if (App.modes.is('event')) {
       const b = App.summary.blocks('all').find((x) => x.title === '행사 요약');
-      if (b) b.rows.filter((r) => r.value).slice(0, 3).forEach((r) => out.push([r.label.replace(/\s*\(어림\)/, ''), r.value.text]));
+      // 공정표 칸이 들어가면 행사 요약은 두 줄만 (견적 합계 칸이 밀려나지 않게)
+      if (b) b.rows.filter((r) => r.value).slice(0, sch && sch.tasks.length ? 2 : 3).forEach((r) => out.push([r.label.replace(/\s*\(어림\)/, ''), r.value.text]));
     } else {
       if (s.rooms.length) {
         out.push(['바닥 면적', App.units.formatArea(s.arch.floor)]);
@@ -450,7 +451,8 @@
       if (s.arch.walls && out.length < 2) out.push(['벽 길이', App.units.formatLength(s.arch.wallLength)]);
     }
     // 공정표를 넣으면: 인테리어는 공사 기간, 조감도는 행사일
-    if (sch && sch.tasks.length) out.splice(Math.min(out.length, 2), 0, sch.eventDay ? ['행사일', App.schedule.md(sch.eventDay)] : ['공사 기간', `${sch.cal}일`]);
+    // 행사일은 공정표에서 정했을 때만 (정하지 않았으면 오늘부터 어림한 날짜라 쓰지 않음)
+    if (sch && sch.tasks.length) out.splice(Math.min(out.length, 2), 0, sch.eventDay && sch.eventSet ? ['행사일', App.schedule.md(sch.eventDay)] : [App.modes.is('event') ? '설치~철수' : '공사 기간', `${sch.cal}일`]);
     if (t && t.total) out.push(['견적 합계', `${t.total.toLocaleString('ko-KR')}원`]);
     const n = pins.reduce((k, p) => k + (p.photos || []).length, 0);
     if (n && out.length < 4) out.push(['현장 사진', `${n}장`]);
@@ -772,5 +774,5 @@
     return !!res;
   }
 
-  App.proposal = { open, build, pickLogo, saveLogo, LOGO_KEY };
+  App.proposal = { open, build, pickLogo, saveLogo, LOGO_KEY, figures };
 })();

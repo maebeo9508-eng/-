@@ -41,7 +41,7 @@
   /** 규격 글자: ‘여닫이 900×2100’, 창문은 ‘미서기 1500×1200 · 창대 900’ */
   const specOf = (g) => `${g.kind ? `${g.kind} ` : ''}${g.width}×${g.height}${g.type === 'window' && g.sill ? ` · 창대 ${g.sill}` : ''}`;
   /** 도면에 기호를 띄우는지 (문·창문이 있을 때 레이어 메뉴에서 켬) */
-  const showing = () => !!App.current.openingMarks;
+  const showing = () => !!App.current.openingMarks && !App.modes.is('event'); // 창호 일람표는 인테리어에서만
 
   /** 기호 꼬리표 (화면 좌표에서, 확대해도 같은 크기). 여닫이문은 열리는 반대쪽, 나머지는 속한 방의 반대쪽에 */
   function draw(plan, list) {
@@ -67,7 +67,26 @@
       const s0 = plan.view.toScreen(g.center.x, g.center.y);
       const s1 = plan.view.toScreen(g.center.x + g.n.x * side * 1000, g.center.y + g.n.y * side * 1000);
       const len = Math.hypot(s1.x - s0.x, s1.y - s0.y) || 1;
-      const off = (g.th / 2) * scale + 13;
+      let off = (g.th / 2) * scale + 13;
+      // 벽 길이 글자(설정)가 같은 쪽 같은 자리에 있으면 그 바깥으로 비킴 (draw.js drawWallLabels와 같은 자리 계산)
+      if (App.settings.showWallLengths) {
+        const w = g.wall, a = plan.view.toScreen(w.start.x, w.start.y), b = plan.view.toScreen(w.end.x, w.end.y);
+        const lenPx = Math.hypot(b.x - a.x, b.y - a.y);
+        ctx.save();
+        ctx.font = '11px system-ui, sans-serif';
+        const lw = ctx.measureText(App.units.formatLength(App.geom.dist(w.start, w.end))).width;
+        ctx.restore();
+        if (lenPx >= 56 && lenPx >= lw + 24) {
+          let ang = Math.atan2(b.y - a.y, b.x - a.x);
+          if (ang >= Math.PI / 2 - 1e-6) ang -= Math.PI;
+          else if (ang < -Math.PI / 2 - 1e-6) ang += Math.PI;
+          const ux = (s1.x - s0.x) / len, uy = (s1.y - s0.y) / len; // 꼬리표 쪽
+          const same = Math.sin(ang) * ux - Math.cos(ang) * uy > 0;   // 글자 위쪽(sin, -cos)과 같은 쪽
+          const along = Math.abs((s0.x - (a.x + b.x) / 2) * Math.cos(ang) + (s0.y - (a.y + b.y) / 2) * Math.sin(ang));
+          const tagW = ctx.measureText(mark).width + 10;
+          if (same && along < (lw + tagW) / 2 + 6) off += 16;
+        }
+      }
       const x = s0.x + ((s1.x - s0.x) / len) * off, y = s0.y + ((s1.y - s0.y) / len) * off;
       const w = ctx.measureText(mark).width + 10, h = 17;
       ctx.beginPath();

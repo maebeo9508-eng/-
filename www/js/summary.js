@@ -584,9 +584,9 @@
       const els = g.ids.map((id) => App.doc.get(id)).filter((e) => e && (!ex || App.layers.visible(e)));
       if (!els.length) return;
       const names = [];
-      els.forEach((e) => { const r = App.measure.openingRoom(e); const n = r ? r.name || '이름 없음' : ''; if (n && !names.includes(n)) names.push(n); });
+      els.forEach((e) => { const r = App.measure.openingRoom(e); const n = r ? r.name || '이름 없음' : '방 밖'; if (!names.includes(n)) names.push(n); });
       const where = names.length > 4 ? `${names.slice(0, 4).join('·')} 외 ${names.length - 4}곳` : names.join('·');
-      rows.push(row(`${g.mark} ${App.openings.specOf(g)}`, V.count(els.length), where || '방 밖', '', g.type === 'door' ? '문' : '창문'));
+      rows.push(row(`${g.mark} ${App.openings.specOf(g)}`, V.count(els.length), where, '', g.type === 'door' ? '문' : '창문'));
     });
     if (!rows.length) return null;
     return { title: '창호 일람표', sub: '같은 종류·규격(mm)끼리 한 기호 · 새로 다는 것만 · 레이어 메뉴에서 도면에 기호 표시', rows };
