@@ -485,7 +485,9 @@
   /* ── 견적: 공정마다 연인원을 기타 항목 ‘○○ 인건비’로 (다시 넣으면 바꿔 넣고 단가는 이어받음) ── */
   function toEstimate() {
     const p = plan();
-    const list = p.tasks.filter((t) => t.kind !== 'event' && t.crew > 0).map((t) => ({ name: `${t.name} 인건비`, qty: r1(t.days * t.crew), unit: '인' }));
+    // 공종별 견적에서 그 공정의 공종으로 묶이게 (직접 넣은 공정은 이름으로 짐작)
+    const tradeOf = (t) => (App.estimate.taskTrade && t.key !== 'custom' ? App.estimate.taskTrade(t.key) : null);
+    const list = p.tasks.filter((t) => t.kind !== 'event' && t.crew > 0).map((t) => ({ name: `${t.name} 인건비`, qty: r1(t.days * t.crew), unit: '인', ...(tradeOf(t) && tradeOf(t) !== '기타' ? { trade: tradeOf(t) } : {}) }));
     if (!list.length) {
       App.ui.toast('인원을 넣은 공정이 없습니다.');
       return false;

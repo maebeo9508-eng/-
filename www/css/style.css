@@ -1359,9 +1359,9 @@ body:has(> .view3d:not([hidden])) .toast { bottom: auto; top: 36%; }
 .est-vat { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
 .est-vat input { width: 20px; height: 20px; accent-color: var(--accent); }
 .est-words { margin: 0; color: var(--fg-muted); font-size: 12.5px; text-align: right; }
-.est-info { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; }
-.est-info summary { cursor: pointer; font-weight: 700; min-height: 32px; display: flex; align-items: center; }
-.est-info .field { margin-top: 8px; }
+.est-info, .est-adj { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; }
+.est-info summary, .est-adj summary { cursor: pointer; font-weight: 700; min-height: 32px; display: flex; align-items: center; }
+.est-info .field, .est-adj .field { margin-top: 8px; }
 @media (min-width: 769px) { body.est-wide { --panel-w: min(420px, 50vw); } } /* 견적은 칸이 많아 넓게 (태블릿 세로 포함) */
 
 /* ── 2.2: 처음 안내 ── */
@@ -1552,3 +1552,16 @@ body:has(> .view3d:not([hidden])) .toast { bottom: auto; top: 36%; }
   .sc-with { grid-column: 2; }
   .sc-btns { grid-column: 3 / -1; justify-content: flex-end; }
 }
+
+/* 견적: 공종별 묶기·공과잡비·이윤·단수 정리·평당 금액 */
+.est-style { display: grid; gap: 4px; margin: 2px 0 6px; }
+.est-style .field-label { margin: 0; }
+.est-trade {
+  display: block; margin-top: 4px; min-height: 30px; max-width: 140px; padding: 0 6px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--surface); color: var(--fg-muted); font: inherit; font-size: 12.5px;
+}
+.est-sec .sum-title .est-subtotal { margin-left: 6px; font-weight: 700; color: var(--fg); font-variant-numeric: tabular-nums; }
+.est-total > .is-sub { color: var(--fg-muted); font-size: 13.5px; }
+.est-total > .is-sub b { font-weight: 600; color: var(--fg); }
+.est-py:empty { display: none; }
+.est-adj .field-box input { text-align: right; font-variant-numeric: tabular-nums; }
