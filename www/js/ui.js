@@ -512,10 +512,11 @@
             text: (c) => c.name, sub: (c) => (c.id === '' ? '영역 색으로만 칠함 (구역 표시)' : c.id === 'carpet' ? '영역 색의 카펫' : ''), swatch: (c) => c.color,
           };
         }
+        // 인테리어 모드: 처음에는 ‘투명 (선만)’ — 방 위에 구역을 그려도 바닥이 가려지지 않게 (조감도와 따로 기억)
         return {
-          label: '영역 색', key: 'zoneColor',
-          list: () => App.catalog.COLORS.map(([id, name]) => ({ id, name })),
-          text: (c) => c.name, sub: () => '', swatch: (c) => c.id,
+          label: '영역 색', key: 'zoneColorIn',
+          list: () => [{ id: 'clear', name: '투명 (선만)' }, ...App.catalog.COLORS.map(([id, name]) => ({ id, name }))],
+          text: (c) => c.name, sub: (c) => (c.id === 'clear' ? '칠하지 않고 테두리만 (면적은 그대로 셈)' : ''), swatch: (c) => (c.id === 'clear' ? 'transparent' : c.id),
         };
       case 'route':
         return {

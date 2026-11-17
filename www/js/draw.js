@@ -6,6 +6,7 @@
 
   const LABEL_FONT = '11px system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif';
   const TAG_FONT = '600 13px system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif';
+  const WALL_KEEP = '#adb5bd', WALL_DEMO = '#e03131'; // 리모델링: 기존 벽(회색)·철거할 벽(빨강)
   const ROOM_NAME_FONT = '700 13px system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif';
   const ROOM_AREA_FONT = '12px system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif';
   const DIM_TEXT_MAX_PX = 22;
@@ -84,7 +85,10 @@
 
     // 벽: 확대했으면 층을 나눠 그리고, 멀리서는 한 색으로
     const solid = [];
+    // 리모델링: 기존 벽(그대로 둠)은 회색, 철거할 벽은 옅은 빨강 + 빨간 점선 (층을 나눠 그리지 않음)
+    const keepWalls = walls.filter((w) => w.phase === 'keep'), demoWalls = walls.filter((w) => w.phase === 'demo');
     walls.forEach((w) => {
+      if (w.phase === 'keep' || w.phase === 'demo') return;
       const t = App.catalog.typeOf(w);
       if (w.thickness * scale >= DETAIL_PX) drawWallLayers(plan, w, outlines.get(w.id), t);
       else solid.push(w);
@@ -99,7 +103,19 @@
       ctx.globalAlpha = 1;
     };
     fillWalls(solid, c.wall);
-    walls.filter((w) => w.color).forEach((w) => fillWalls([w], w.color, 0.85)); // 색을 정한 벽
+    fillWalls(keepWalls, WALL_KEEP, 0.9);
+    walls.filter((w) => w.color && w.phase !== 'demo').forEach((w) => fillWalls([w], w.color, 0.85)); // 색을 정한 벽
+    if (demoWalls.length) {
+      fillWalls(demoWalls, WALL_DEMO, 0.16);
+      ctx.save();
+      ctx.beginPath();
+      demoWalls.forEach((w) => polygon(ctx, outlines.get(w.id).pts));
+      ctx.setLineDash([6 / scale, 4 / scale]);
+      ctx.lineWidth = 1.6 / scale;
+      ctx.strokeStyle = WALL_DEMO;
+      ctx.stroke();
+      ctx.restore();
+    }
     const selectedWalls = walls.filter((w) => sel.has(w.id));
     fillWalls(selectedWalls, c.accent, 0.4);
     if (marks && marks.ids.size) fillWalls(walls.filter((w) => marks.ids.has(w.id)), c[marks.color], 0.45);
@@ -1523,10 +1539,11 @@
       polygon(ctx, z.points);
       // 바닥 종류(잔디·아스팔트 등)를 정한 영역은 그 색으로 더 진하게
       const color = App.catalog.surfaceColor(z);
-      const base = z.surface ? 0.3 : 0.1;
+      const clear = z.clear && !z.surface; // 투명: 테두리만 (고르면 옅게 표시)
+      const base = z.surface ? 0.3 : clear ? 0 : 0.1;
       ctx.fillStyle = marked ? plan.colors[marks.color] : color;
-      ctx.globalAlpha = selected ? base + 0.12 : marked ? base + 0.08 : base;
-      ctx.fill();
+      ctx.globalAlpha = selected ? base + (clear ? 0.08 : 0.12) : marked ? base + 0.08 : base;
+      if (ctx.globalAlpha > 0) ctx.fill();
       ctx.globalAlpha = 1;
       ctx.setLineDash([8 * px, 5 * px]);
       ctx.lineWidth = (selected ? 2.4 : 1.6) * px;

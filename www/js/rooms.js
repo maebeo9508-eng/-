@@ -17,7 +17,8 @@
   /** 닫힌 면 목록 { points, area(mm²), wallIds }. 도면이 바뀔 때만 다시 계산 */
   function faces() {
     if (cache.version === App.doc.wallVersion) return cache.faces; // 면은 벽으로만 정해짐
-    const walls = [...App.doc.all()].filter((e) => e.type === 'wall' && G.dist(e.start, e.end) > TOL);
+    // 철거할 벽(phase: 'demo')은 방을 나누지 않음 — 방은 공사가 끝난 뒤의 모양
+    const walls = [...App.doc.all()].filter((e) => e.type === 'wall' && e.phase !== 'demo' && G.dist(e.start, e.end) > TOL);
 
     // 1) 벽마다 나눌 위치(0~1)
     const cuts = walls.map(() => [0, 1]);

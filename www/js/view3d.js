@@ -279,7 +279,7 @@
     };
 
     /* 영역: 바닥 재질, 잔디·흙·물은 둘레에 경계석. 방 바닥(decals[0]) 위에 그려야 방 안의 영역도 보임 (평면과 같게) */
-    els.filter((e) => e.type === 'zone').forEach((z) => {
+    els.filter((e) => e.type === 'zone' && !(e.clear && !e.surface)).forEach((z) => { // 투명 영역은 칠하지 않음
       const pts = z.points.map(P);
       const s = SURFACE[z.surface];
       if (s) L.decals[1].poly(pts, 0.011, hex(s[1]), s[0]);
@@ -315,7 +315,7 @@
 
     /* 벽: 문·창문 자리를 뚫고, 끝은 이음 모양(외곽선)대로 */
     const wallH = (w) => (o.low ? Math.min(w.height / 1000, LOW_WALL) : w.height / 1000);
-    els.filter((e) => e.type === 'wall').forEach((w) => {
+    els.filter((e) => e.type === 'wall' && e.phase !== 'demo').forEach((w) => { // 철거할 벽은 공사 뒤 모습에 없음
       const len = G.dist(w.start, w.end);
       if (len < 1) return;
       const H = wallH(w), h = w.thickness / 2;

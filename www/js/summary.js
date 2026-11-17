@@ -93,8 +93,11 @@
     };
     zones.forEach((z) => { z.holds = zones.some((o) => o !== z && o.area < z.area && inZone(o.mid, z)); }); // 다른 영역을 품은 영역
 
-    of('door').forEach((d) => add('door', d.kind, `${d.kind} ${num(d.width)}×${num(d.height)}`, (M.openingRoom(d) || {}).id, 1));
-    of('window').forEach((w) => add('window', w.kind, `${w.kind} ${num(w.width)}×${num(w.height)}`, (M.openingRoom(w) || {}).id, 1));
+    // 철거할 벽에 달린 문·창문은 함께 철거 — 개수에 넣지 않고 따로 셈
+    const demoIds = new Set(of('wall').filter((w) => w.phase === 'demo').map((w) => w.id));
+    const onDemo = (o) => demoIds.has(o.wallId);
+    of('door').filter((d) => !onDemo(d)).forEach((d) => add('door', d.kind, `${d.kind} ${num(d.width)}×${num(d.height)}`, (M.openingRoom(d) || {}).id, 1));
+    of('window').filter((w) => !onDemo(w)).forEach((w) => add('window', w.kind, `${w.kind} ${num(w.width)}×${num(w.height)}`, (M.openingRoom(w) || {}).id, 1));
     of('column').forEach((c) => {
       const shape = App.catalog.SHAPE_NAMES[c.shape];
       add('column', shape, c.shape === 'circle' ? `원형 Ø${num(c.width)}` : `사각 ${num(c.width)}×${num(c.depth)}`, c.room, 1, zoneAt(c));
@@ -122,8 +125,15 @@
       add(sec, name, name, mid && mid.id, q.extra, lz);
     });
 
-    const walls = of('wall');
+    // 벽: 공사 뒤에 남는 벽(신설·기존)으로 합계, 자재는 새로 세우는 벽만, 철거할 벽은 따로
+    const allWalls = of('wall');
+    const walls = allWalls.filter((w) => w.phase !== 'demo'), newWalls = walls.filter((w) => w.phase !== 'keep');
     const wallQ = walls.map((w) => M.wall(w));
+    const sumQ = (list) => list.reduce((t, w) => { const q = M.wall(w); t.n++; t.length += q.length; t.area += q.area; return t; }, { n: 0, length: 0, area: 0 });
+    const phases = allWalls.some((w) => w.phase === 'keep' || w.phase === 'demo') ? {
+      new: sumQ(newWalls), keep: sumQ(walls.filter((w) => w.phase === 'keep')), demo: sumQ(allWalls.filter((w) => w.phase === 'demo')),
+      demoDoors: of('door').filter(onDemo).length, demoWindows: of('window').filter(onDemo).length,
+    } : null;
     // 다른 방과 같은 면을 차지한 방(겹침)은 같은 바닥을 두 번 세므로 합계·견적에서 뺌
     const counted = rooms.filter((r) => r.issue !== 'overlap');
     return {
@@ -145,7 +155,8 @@
         issues: rooms.filter((r) => r.issue).length,
         overlaps: rooms.length - counted.length,
       },
-      materials: M.materials(walls),
+      materials: M.materials(newWalls),
+      phases,
       finishes: finishTotals(counted),
       // 마감 자재: 바닥 모양·벽 마감·천장 마감으로 센 벽지 롤·페인트·마루·타일 (면적을 더한 뒤 올림)
       matLines: App.materials.lines(counted.map((r) => ({ ...r.el, q: r.q }))),
@@ -288,6 +299,20 @@
       arch.push(row('천장 몰딩 합계', V.length(a.molding), '안목 둘레'));
     }
     if (arch.length) blocks.push({ title: '건축', rows: arch });
+    // 리모델링: 신설·기존·철거 벽 (벽 상태를 하나라도 정했을 때)
+    if (s.phases) {
+      const P = s.phases, rows = [];
+      if (P.new.n) rows.push(row('신설 벽', V.length(P.new.length), `${P.new.n}개 · 한 면 ${App.units.formatArea(P.new.area)} · 벽 자재는 신설 벽만 셈`, '', '신설'));
+      if (P.keep.n) rows.push(row('기존 벽 (그대로 둠)', V.length(P.keep.length), `${P.keep.n}개 · 한 면 ${App.units.formatArea(P.keep.area)}`, '', '기존'));
+      if (P.demo.n) {
+        rows.push(row('철거 벽', V.area(P.demo.area), `${P.demo.n}개 · 길이 ${App.units.formatLength(P.demo.length)} · 한 면 (문·창문 뺌)`, '', '철거'));
+        if (P.demoDoors || P.demoWindows) rows.push(row('철거 벽의 문·창문', V.count(P.demoDoors + P.demoWindows, '개'), `문 ${P.demoDoors} · 창문 ${P.demoWindows} — 벽과 함께 철거, 문·창문 개수에서 뺌`, '', '철거'));
+        // 칸막이를 철거해 다른 방과 한 공간이 된 방 (겹친 방으로 남음: 면적은 한 번만 셈)
+        const merged = s.rooms.filter((r) => r.issue === 'overlap').map((r) => r.name);
+        if (merged.length) rows.push(row('합쳐진 방', V.count(merged.length, '곳'), `${merged.join(', ')} — 철거로 다른 방과 한 공간이 됨 (면적은 한 번만 셈, 필요 없으면 지우세요)`, '', '철거'));
+      }
+      blocks.push({ title: '철거·신설', sub: '방·면적·3D는 공사가 끝난 뒤 모습 (철거 벽 빼고)', rows });
+    }
     const mat = event ? [] : materialRows(s.materials); // 조감도 모드에서는 벽 자재·마감재를 빼고 봄
     if (mat.length) blocks.push({ title: '벽 자재', sub: '본·장 수는 전체 길이·면적을 더한 뒤 올림', rows: mat });
     if (s.finishes.length && !event) blocks.push({ title: '마감재', sub: '방 속성에서 고른 벽·바닥 마감. 장 수는 면적을 더한 뒤 올림', rows: s.finishes.map((f) => finishRow(f, '', ` · 방 ${f.rooms}곳`)) });

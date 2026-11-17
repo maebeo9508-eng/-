@@ -3,6 +3,7 @@
    ev = { x, y (화면 px), world (mm), shift, alt, ctrl, touch } */
 (function () {
   'use strict';
+  const CLEAR_ZONE = '#868e96'; // 투명 영역의 테두리·이름 색 (회색)
   const App = (window.App = window.App || {});
   const G = App.geom;
 
@@ -1149,9 +1150,13 @@
     isChaining() {
       return !!this.points;
     }
+    /** 인테리어 모드에서 ‘투명 (선만)’을 골랐는지 (처음 값) */
+    clear() {
+      return !App.modes.is('event') && (App.current.zoneColorIn || 'clear') === 'clear';
+    }
     color() {
-      const surface = App.modes.is('event') ? App.current.zoneSurface || '' : '';
-      return App.catalog.surfaceColor({ surface, color: App.current.zoneColor });
+      if (!App.modes.is('event')) return this.clear() ? CLEAR_ZONE : App.current.zoneColorIn;
+      return App.catalog.surfaceColor({ surface: App.current.zoneSurface || '', color: App.current.zoneColor });
     }
     snapAt(ev, from) {
       return App.snap.point(ev.world, {
@@ -1214,6 +1219,7 @@
       const surface = App.modes.is('event') ? App.current.zoneSurface || '' : '';
       const sdef = surface && App.catalog.SURFACES.find((s) => s[0] === surface);
       const z = App.model.TYPES.zone.create(points, sdef ? `${sdef[1]} ${n + 1}` : `구역 ${n + 1}`, this.color(), surface);
+      if (this.clear()) z.clear = true; // 투명: 칠하지 않고 테두리만
       App.doc.transact('영역 만들기', () => App.doc.add(z));
       App.selection.set([z.id]);
       App.ui.toast(`${z.name}: ${App.units.formatArea(App.model.TYPES.zone.area(z))}`);

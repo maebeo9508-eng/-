@@ -384,6 +384,7 @@
       ${selectField('f-wallType', '벽 종류', types.map((t) => [t.id, `${t.name} · ${App.units.formatLength(C.thickness(t))}`]), typeId,
         '<button type="button" class="btn" data-act="edit-type">편집</button>')}
       ${typeId && C.typeOf(els[0]) ? `<p class="props-meta">${esc(C.describe(C.typeOf(els[0])))}</p>` : ''}
+      ${selectField('f-wallPhase', '공사 <small>리모델링: 기존 벽은 회색, 철거 벽은 빨간 점선</small>', [['', '신설 (새로 세움)'], ['keep', '기존 (그대로 둠)'], ['demo', '철거']], common((w) => w.phase || ''))}
       ${oneSided ? '<button type="button" class="btn" data-act="flip">마감 면 뒤집기 (석고·틀이 붙는 쪽)</button>' : ''}
       <div class="field-grid">
         ${single ? numberField('length') : ''}
@@ -878,7 +879,7 @@
           <div class="field-box"><input id="f-zoneName" type="text" maxlength="${NAME_MAX}" enterkeyhint="done" autocomplete="off" value="${esc(els[0].name)}"></div>
         </div>` : ''}
       ${selectField('f-zoneSurface', '바닥 (3D 조감도에서 보이는 재질)', App.catalog.SURFACES.map(([id, name]) => [id, name]), commonText((z) => z.surface || ''))}
-      ${els.every((z) => !z.surface || z.surface === 'carpet') ? selectField('f-zoneColor', '색', App.catalog.COLORS.map(([hex, name]) => [hex, name]), commonText((z) => z.color)) : ''}
+      ${els.every((z) => !z.surface || z.surface === 'carpet') ? selectField('f-zoneColor', '색', [...(els.every((z) => !z.surface) ? [['clear', '투명 (선만)']] : []), ...App.catalog.COLORS.map(([hex, name]) => [hex, name])], commonText((z) => (z.clear && !z.surface ? 'clear' : z.color))) : ''}
       <div class="stats">
         ${stat(single ? '면적' : '면적 합계', App.units.formatArea(area))}
         ${single ? stat('둘레', App.units.formatLength(G.perimeter(els[0].points))) : ''}
@@ -1235,6 +1236,10 @@
         if (t.value) apply('벽 종류 변경', () => ({ typeId: t.value }));
         return;
       }
+      if (id === 'f-wallPhase') {
+        if (t.value !== '__mixed') apply(t.value === 'demo' ? '철거 벽으로' : t.value === 'keep' ? '기존 벽으로' : '신설 벽으로', () => ({ phase: t.value || null }));
+        return;
+      }
       if (id === 'f-kind') {
         if (t.value) apply('종류 변경', () => ({ kind: t.value }));
         return;
@@ -1373,7 +1378,8 @@
         return;
       }
       if (id === 'f-zoneColor') {
-        if (t.value) apply('영역 색 변경', () => ({ color: t.value }));
+        if (t.value === 'clear') apply('영역 투명', () => ({ clear: true }));
+        else if (t.value) apply('영역 색 변경', () => ({ color: t.value, clear: false }));
         return;
       }
       if (id === 'f-zoneSurface') {

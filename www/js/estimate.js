@@ -147,6 +147,10 @@
         else push('마감재', f.name, f.target === 'wall' ? '벽' : '바닥', area(f.area), areaU);
       });
     }
+    if (!event && s.phases && s.phases.demo.n) {
+      push('철거', '벽 철거', '한 면', area(s.phases.demo.area), areaU, `길이 ${App.measure.meters(s.phases.demo.length)} · 문·창문 뺌`);
+      push('철거', '문·창문 철거', '', s.phases.demoDoors + s.phases.demoWindows, '개', '철거 벽에 달린 것');
+    }
     (s.matLines || []).forEach((l) => push('마감 자재', l.name, l.spec, l.qty, l.unit, l.note));
     if (s.rooms.length) {
       const a = s.arch;
