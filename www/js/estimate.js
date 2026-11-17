@@ -276,6 +276,7 @@
           <button type="button" class="btn" data-act="est-apply" title="이 도면에서 고친 단가를 단가표 단가로 되돌림">단가표 단가로 채우기</button>
           <button type="button" class="btn" data-act="proposal" title="표지·3D 그림·평면도·물량·견적·현장 사진을 한 묶음 PDF로">제안서 만들기</button>
           <button type="button" class="btn" data-act="schedule" title="물량으로 공정마다 일수·인원을 어림한 공정표 — 공정별 인건비를 견적에 넣을 수 있음">공정표</button>
+          ${App.modes.is('event') ? '' : '<button type="button" class="btn" data-act="orders" title="공종·거래처마다 자재 주문 수량·납품일을 정해 카톡·문자로 보내는 발주서">발주서</button>'}
         </div>
         ${secs.length ? '' : '<div class="empty"><div class="empty-title">값을 매길 물량이 없습니다</div><p>도면을 그리면 자재·물건 수량이 여기에 나옵니다. 아래 기타 항목은 지금도 넣을 수 있습니다.</p></div>'}
         ${secs.map((g) => `<section class="est-sec"><h3 class="sum-title">${esc(g.sec)}</h3>${g.rows.map(row).join('')}</section>`).join('')}

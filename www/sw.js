@@ -13,6 +13,7 @@ const FILES = [
   'js/input.js', 'js/tools.js', 'js/modes.js', 'js/ui.js', 'js/props.js', 'js/catalog-ui.js', 'js/export.js',
   'js/summary.js', 'js/estimate.js', 'js/proposal.js', 'js/schedule.js', 'js/safety.js', 'js/booths.js', 'js/fences.js', 'js/wizard.js', 'js/materials.js', 'js/edit.js', 'js/settings.js', 'js/projects.js', 'js/gl3d.js', 'js/models3d.js', 'js/view3d.js', 'js/sprites.js', 'js/keys.js', 'js/main.js',
   'js/dwg-worker.js',
+  'js/orders.js',
   'lib/libredwg/libredwg.js', 'lib/libredwg/libredwg.wasm', 'lib/libredwg/LICENSE',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png', 'icons/apple-touch-icon.png', 'icons/favicon-32.png',
 ];
