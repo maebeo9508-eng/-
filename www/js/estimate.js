@@ -25,6 +25,28 @@
   // 조감도에서 값을 매기지 않는 배경 물건 (사람·건물·나무·차 등)
   const SCENERY = ['사람', '건물', '나무', '바위', '생울타리', '주차 구획', '횡단보도', '바닥 화살표', '승용차', '버스', '자전거', '가로등', '버스 정류장'];
   let shown = []; // 지금 화면에 보이는 줄 (단가를 치는 동안 도면을 다시 세지 않게)
+  let shownFloor = 0; // 그때의 바닥 면적 (평당 금액 — 단가를 칠 때마다 도면을 다시 세지 않게)
+  /* 칸을 고친 채 바로 다른 단추·칸을 누르면 (누름 → 칸 벗어남 → 고침 반영 → 뗌 → 클릭) 그 사이 화면을 다시 그리면 누른 것이 사라짐.
+     누르고 있는 동안에는 다시 그리기를 미뤘다가 손을 뗀 뒤(클릭 처리 다음)에 함 */
+  // 휴대폰(터치)은 손을 뗀 뒤에 마우스 흉내(mousedown → 칸 벗어남 → mouseup → click)가 오므로 click까지 기다림
+  let pointerIsDown = false, pendingRender = false, pointerHooked = false, upTimer = 0;
+  function hookPointer() {
+    if (pointerHooked) return;
+    pointerHooked = true;
+    const flush = () => {
+      clearTimeout(upTimer);
+      pointerIsDown = false;
+      if (pendingRender) { pendingRender = false; setTimeout(() => App.summary.render(), 0); }
+    };
+    const down = () => { clearTimeout(upTimer); pointerIsDown = true; };
+    document.addEventListener('pointerdown', down, true);
+    document.addEventListener('mousedown', down, true);
+    document.addEventListener('click', flush, true);
+    const up = () => { clearTimeout(upTimer); upTimer = setTimeout(flush, 600); };
+    document.addEventListener('pointerup', up, true);
+    document.addEventListener('pointercancel', flush, true);
+  }
+  const renderSoon = () => { if (pointerIsDown) pendingRender = true; else App.summary.render(); };
   /** 자주 넣는 기타 항목: [이름, 단위] */
   const EXTRA_PRESETS = {
     interior: [['인건비', '인'], ['자재 운반비', '식'], ['폐기물 처리', '식'], ['철거', '식'], ['공구·소모품', '식'], ['할인', '식']],
@@ -175,8 +197,8 @@
   /** 평형: 넣은 값, 없으면 바닥 면적(벽 중심)을 평으로 */
   function pyeongOf(A = adj(), s = null) {
     if (A.pyeong) return A.pyeong;
-    s = s || App.summary.compute();
-    const v = s.arch.floor / 1e6 / 3.305785;
+    const floor = s === 'shown' ? shownFloor : (s || App.summary.compute()).arch.floor;
+    const v = floor / 1e6 / 3.305785;
     return v >= 1 ? Math.round(v * 10) / 10 : 0;
   }
   /** 합계 칸 줄: 공종별이거나 공과잡비·이윤·단수 정리를 넣었으면 직접공사비부터 나눠 보임 */
@@ -315,11 +337,13 @@
   }
 
   /* ── 집계 탭의 '견적' 보기 ── */
+  const subRowsHtml = (t) => totalRows(t).map(([k, v], i) => `<div class="is-sub"><span>${esc(k)}</span><b data-trow="${i}">${signedWon(v)}</b></div>`).join('');
   const priceText = (v) => (v > 0 ? Math.round(v).toLocaleString('ko-KR') : '');
   const signedText = (v) => (v ? Math.round(v).toLocaleString('ko-KR') : '');
   function html(s) {
     const ls = lines(s);
     shown = ls;
+    shownFloor = s.arch ? s.arch.floor : 0;
     const t = totals(ls);
     const secs = [];
     ls.forEach((l) => {
@@ -373,7 +397,7 @@
           </div>
         </section>
         <section class="est-total" aria-live="polite">
-          ${totalRows(t).map(([k, v], i) => `<div class="is-sub"><span>${esc(k)}</span><b data-trow="${i}">${signedWon(v)}</b></div>`).join('')}
+          ${subRowsHtml(t)}
           <div><span>공급가액</span><b id="estSupply">${won(t.supply)}</b></div>
           <div><label class="est-vat"><input type="checkbox" id="estVatOn" ${t.vatOn ? 'checked' : ''}> 부가세 10%</label><b id="estVat">${won(t.vat)}</b></div>
           <div class="is-grand"><span>합계</span><b id="estTotal">${won(t.total)}</b></div>
@@ -417,9 +441,14 @@
       if (el) el.textContent = x.amount ? won(x.amount) : '–';
     });
     const set = (id, v) => { const el = pane.querySelector(`#${id}`); if (el) el.textContent = v; };
-    totalRows(t).forEach(([, v], i) => { const el = pane.querySelector(`[data-trow="${i}"]`); if (el) el.textContent = signedWon(v); });
+    // 나눔 줄(직접공사비·공과잡비·기업이윤·할인·단수 정리)은 할인이 생기거나 없어지면 줄이 바뀌므로 통째로 다시 씀 (입력 칸은 그대로)
+    const box = pane.querySelector('.est-total');
+    if (box) {
+      box.querySelectorAll(':scope > .is-sub').forEach((el) => el.remove());
+      box.insertAdjacentHTML('afterbegin', subRowsHtml(t));
+    }
     if (t.trade) groupsOf(ls).forEach((g) => { const el = pane.querySelector(`[data-sub="${CSS.escape(g.t)}"]`); if (el) el.textContent = `소계 ${won(g.amount)}`; });
-    if (!App.modes.is('event')) set('estPy', perPyeong(t, pyeongOf(t.adj)));
+    if (!App.modes.is('event')) set('estPy', perPyeong(t, pyeongOf(t.adj, 'shown')));
     set('estSupply', won(t.supply));
     set('estVat', won(t.vat));
     set('estTotal', won(t.total));
@@ -427,6 +456,7 @@
   }
 
   function bind(pane) {
+    hookPointer();
     const digits = (input) => {
       const v = numIn(input.value);
       return Math.round(v);
@@ -465,6 +495,12 @@
         const x = extras().find((v) => v.id === t.closest('[data-extra]').dataset.extra);
         if (x && x.name && extraPrice(x) > 0) remember(extraKey(x), Math.round(numIn(x.price)));
         save();
+        // 공종별: 이름·단가를 고쳐 공종이 바뀌거나 할인(-)이 되면 그 줄이 있을 자리로 다시 그림
+        if (x && tradeMode()) {
+          const sec = t.closest('[data-trade-sec]');
+          const want = isNeg(x) ? null : extraTrade(x);
+          if ((sec ? sec.dataset.tradeSec : null) !== want) renderSoon();
+        }
       } else if (t.dataset.trade != null || t.dataset.xtrade != null) {
         // 공종 바꾸기: 처음 판정과 같으면 바꾼 기록을 지움
         if (t.dataset.trade != null) {
@@ -477,7 +513,7 @@
           if (x) x.trade = t.value;
         }
         save();
-        App.summary.render();
+        renderSoon();
       } else if (t.dataset.adj) {
         const k = t.dataset.adj;
         if (!isObj(App.current.estimateAdj)) App.current.estimateAdj = {};
@@ -487,7 +523,7 @@
         else delete a[k];
         if (!Object.keys(a).length) delete App.current.estimateAdj;
         save();
-        App.summary.render();
+        renderSoon();
       } else if (t.id === 'estVatOn') {
         App.current.vat = t.checked;
         refreshTotals(pane);
@@ -568,7 +604,8 @@
     const stamp = Date.now().toString(36);
     list.forEach((l, k) => {
       const old = kept.get(l.name);
-      const nx = { id: `x${stamp}${k}`, name: l.name, qty: l.qty, unit: l.unit || '식', price: 0, src, ...(l.trade ? { trade: l.trade } : {}) };
+      const trade = old && TRADES.includes(old.trade) ? old.trade : l.trade; // 사람이 바꿔 둔 공종은 이어받음
+      const nx = { id: `x${stamp}${k}`, name: l.name, qty: l.qty, unit: l.unit || '식', price: 0, src, ...(trade ? { trade } : {}) };
       nx.price = old ? old.price : memory()[extraKey(nx)] || 0;
       xs.push(nx);
     });
@@ -749,11 +786,12 @@
     const items = [];
     if (t.trade) {
       // 공종별: 공종 머리줄 → 줄들(그 공종으로 묶인 기타 항목 포함) → ‘○○ 소계’. 1쪽은 총괄표 (layout)
-      const groups = groupsOf(ls);
-      groups.forEach((g) => {
+      const groups = [];
+      groupsOf(ls).forEach((g) => {
         const rows = g.rows.filter((l) => pick.includes(l));
         const xs = g.xs.filter((x) => x.name || x.amount);
         if (!rows.length && !xs.length) return;
+        groups.push({ t: g.t, amount: g.amount, n: rows.length + xs.length }); // 총괄표는 내역서에 실제로 나오는 것만
         items.push({ head: g.t });
         rows.forEach((l) => items.push(l));
         xs.forEach((x) => items.push({ name: x.name || '기타', spec: '', qty: numIn(x.qty), unit: x.unit, price: extraPrice(x), amount: x.amount, note: '' }));
@@ -871,7 +909,7 @@
       hline(y, ink, 2);
       const base = o.groups.reduce((n, g) => n + g.amount, 0);
       o.groups.forEach((g, i) => {
-        const cells = [String(i + 1), g.t === '기타' ? '기타' : `${g.t} 공사`, g.amount ? g.amount.toLocaleString('ko-KR') : '', base > 0 ? `${((g.amount / base) * 100).toFixed(1)}%` : '', `${g.rows.length + g.xs.length}개 항목`];
+        const cells = [String(i + 1), g.t === '기타' ? '기타' : `${g.t} 공사`, g.amount ? g.amount.toLocaleString('ko-KR') : '', base > 0 ? `${((g.amount / base) * 100).toFixed(1)}%` : '', `${g.n}개 항목`];
         cells.forEach((v, c) => { const [, k, al] = cols2[c]; text(v, at(c, al, k), y + RH / 2, c === 4 ? 21 : 25, c === 2 ? 700 : 400, c === 4 ? mute : ink, al, k * tw2 - 24); });
         y += RH;
         hline(y, '#d1d5db', 1.2);
@@ -948,7 +986,15 @@
     if (P.trade) {
       // 공종별: 1쪽 총괄표(합계 칸 포함), 2쪽부터 내역서 (공종 소계·직접공사비 합계)
       const parts = [];
-      for (let k = 0; k < numbered.length; k += nextRows) parts.push(numbered.slice(k, k + nextRows));
+      for (let k = 0; k < numbered.length;) {
+        let end = Math.min(numbered.length, k + nextRows);
+        if (end < numbered.length) {
+          if (numbered[end - 1].head) end--; // 공종 머리줄만 쪽 끝에 남지 않게
+          else if (numbered[end].sub && !numbered[end - 1].sub && end - 1 > k) end--; // 소계만 다음 쪽 맨 위에 가지 않게 (한 줄을 같이 넘김)
+        }
+        parts.push(numbered.slice(k, end));
+        k = end;
+      }
       const count = parts.length + 1;
       return {
         W, H, count, t,
@@ -1002,5 +1048,5 @@
     return true;
   }
 
-  App.estimate = { lines, totals, html, bind, refreshTotals, csvRows, exportCsv, exportPdf, layout, company, putExtras, extras, TRADES, taskTrade, tradeOf, extraTrade, groupsOf, adj, saveCompany: (co) => App.storage.write(KEY_COMPANY, co), warnLater, hangul, priceOf, priceSource, memory, EXTRA_PRESETS, openLibrary, libraryCsv, importLibrary, parseCsv };
+  App.estimate = { lines, totals, html, bind, refreshTotals, csvRows, exportCsv, exportPdf, layout, pages, company, putExtras, extras, TRADES, taskTrade, tradeOf, extraTrade, groupsOf, adj, saveCompany: (co) => App.storage.write(KEY_COMPANY, co), warnLater, hangul, priceOf, priceSource, memory, EXTRA_PRESETS, openLibrary, libraryCsv, importLibrary, parseCsv };
 })();

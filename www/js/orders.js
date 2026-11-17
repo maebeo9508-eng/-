@@ -29,6 +29,7 @@
   const FLOOR = ['plank', 'wide', 'chevron', 'vinyl', 'deco', 'carpet', 'concrete', 'epoxy'];
   const STATE_NAME = { todo: '주문 전', ordered: '주문함', received: '받음' };
   const r1 = (v) => Math.round(v * 10) / 10;
+  const r2 = (v) => Math.round(v * 100) / 100;
   const fmt = (v) => Number(v).toLocaleString('ko-KR', { maximumFractionDigits: 1 });
   const num = (v) => String(r1(Number(v) || 0)); // 입력 칸 값 (쉼표 없이)
   /** 수량 입력: 쉼표는 천 단위로 보고 뺌. 비었거나 숫자가 아니면 null */
@@ -108,7 +109,7 @@
   const phoneOf = (name) => (name ? (vendors().find((x) => x.name === name) || {}).phone || '' : '');
 
   /* ── 발주할 줄: { trade, key, name, spec, mark, sub, label, qty, unit, note } ── */
-  function lines(s = App.summary.compute()) {
+  function lines(s = App.summary.compute(), o = {}) {
     const out = [];
     /** o.mark: 창호 기호, o.sub: 화면·문자에 품명 뒤에 붙일 글자 (없으면 규격) */
     const push = (trade, name, spec, qty, unit, o = {}) => {
@@ -130,14 +131,14 @@
       else push(trade, f.name, f.target === 'wall' ? '벽' : '바닥', Math.ceil((f.area * (1 + (p.loss || 0) / 100)) / 1e5 - 1e-9) / 10, '㎡', { note });
     };
     // 1) 목재·석고: 새로 세우는 벽의 다루끼·스터드·런너(본)와 석고보드(장), 벽 마감재(아트보드 등)
-    s.materials.frames.forEach((f) => push('wood', f.name, `${r1(f.piece / 1000)}m`, f.pieces, '본', { note: `${App.measure.meters(f.length)}${loss(f.loss)}` }));
+    s.materials.frames.forEach((f) => push('wood', f.name, `${r2(f.piece / 1000)}m`, f.pieces, '본', { note: `${App.measure.meters(f.length)}${loss(f.loss)}` })); // 1본 길이 그대로 (2.44m 등)
     s.materials.boards.forEach((b) => {
       const m = /^(\S+)\s+(.+)$/.exec(b.spec); // ‘석고보드 9.5T 900×1800’ → 품명 · 규격
       push('wood', m ? m[1] : b.spec, m ? m[2] : '', b.sheets, '장', { note: `${area(b.area)}${loss(b.loss)}` });
     });
     s.finishes.filter((f) => f.target === 'wall').forEach((f) => finish('wood', f));
     // 2) 문·창호: 창호 일람표 기호(D1·W1)마다 개수와 다는 방 (숨긴 레이어를 집계에서 빼면 여기서도 뺌)
-    const hide = App.layers.excludeHidden();
+    const hide = !o.includeHidden && App.layers.excludeHidden();
     App.openings.marks().list.forEach((g) => {
       const els = g.ids.map((id) => App.doc.get(id)).filter((e) => e && (!hide || App.layers.visible(e)));
       if (!els.length) return;
@@ -194,7 +195,10 @@
     if (state !== 'todo') qty = prev;
     else if (typeof rec.qty === 'number' && Number.isFinite(rec.qty)) qty = rec.qty;
     else qty = prev > 0 ? Math.max(0, r1(l.qty - prev)) : l.qty;
-    const more = state !== 'todo' && l.qty > prev + 1e-9 ? r1(l.qty - prev) : 0; // 추가 필요
+    // 추가 필요: 주문할 때의 계산 수량보다 지금 계산이 많을 때만 (일부러 적게 주문한 것은 아님). 예전 기록은 주문한 양과 비교
+    // (계산보다 많이 주문했으면 주문한 양을 넘어설 때부터)
+    const base = typeof rec.calc === 'number' ? Math.max(rec.calc, prev) : prev;
+    const more = state !== 'todo' && l.qty > base + 1e-9 ? r1(l.qty - base) : 0;
     return { state, prev, qty, more, product: typeof rec.product === 'string' ? rec.product : '', at: rec.at || '', gotAt: rec.gotAt || '' };
   }
   function counts(ls) {
@@ -222,6 +226,8 @@
     const s = App.summary.compute();
     cur = lines(s);
     byKey = new Map(cur.map((l) => [l.key, l]));
+    hiddenKeys = new Set();
+    if (App.layers.excludeHidden()) lines(App.summary.compute({ includeHidden: true }), { includeHidden: true }).forEach((l) => { if (!byKey.has(l.key)) hiddenKeys.add(l.key); });
     starts = taskStarts(s);
   }
   const tradeOf = (id) => TRADES.find((t) => t.id === id);
@@ -277,7 +283,8 @@
       </section>`;
   }
   /** 도면에서 사라진 주문: 저장된 줄 가운데 지금 물량에 없는 것 */
-  const goneKeys = () => Object.keys(part('lines')).filter((k) => !byKey.has(k));
+  let hiddenKeys = new Set(); // 숨긴 레이어라 지금 목록에는 없지만 도면에는 있는 줄
+  const goneKeys = () => Object.keys(part('lines')).filter((k) => !byKey.has(k) && !hiddenKeys.has(k));
   function goneRow(k) {
     const p = k.split('|'), r = recOf(k) || {};
     const unit = p.length > 3 ? p[p.length - 1] : '';
@@ -304,6 +311,7 @@
     const groups = TRADES.map((t) => ({ t, ls: cur.filter((l) => l.trade === t.id) })).filter((x) => x.ls.length);
     const field = (id, k, label, ph, max, type = 'text') => `<div class="field"><label class="field-label" for="${id}">${label}</label><div class="field-box"><input id="${id}" type="${type}" data-site="${k}" value="${esc(part('site')[k] || '')}" maxlength="${max}" placeholder="${esc(ph)}" autocomplete="off"></div></div>`;
     return `
+      ${App.layers.excludeHidden() ? `<p class="dialog-note is-warn">숨긴 레이어(${esc(App.layers.hidden().map((id) => (App.layers.list().find((x) => x.id === id) || {}).label).filter(Boolean).join(', '))})의 자재는 빠져 있습니다 (설정 ‘숨긴 레이어는 집계에서도 빼기’). 주문 기록은 그대로 남습니다.</p>` : ''}
       <p class="dialog-note">공종마다 거래처와 납품일을 정하고 <b>문자로 보내기</b>를 누르면 카톡·문자로 보낼 주문 글이 만들어집니다. 보낸 줄은 ‘주문함’이 되고, 자재를 받으면 상태를 눌러 ‘받음’으로 바꾸세요.</p>
       <details class="est-info od-site" ${siteVal('addr') || siteVal('to') ? '' : 'open'}>
         <summary>현장 정보 <small data-site-sum>${esc(siteSum())}</small></summary>
@@ -318,7 +326,7 @@
         <div class="empty"><div class="empty-title">발주할 자재가 없습니다</div><p>벽·문·창문·전기·설비를 그리고 방마다 바닥·벽·천장 마감을 고르면 공종별로 주문할 양이 여기에 나옵니다.</p></div>`}
       ${goneHtml(goneKeys())}
       <div class="btn-row od-tools">
-        <button type="button" class="btn" data-act="od-csv" ${cur.length ? '' : 'disabled'}>CSV 저장</button>
+        <button type="button" class="btn" data-act="od-csv" ${cur.length || goneKeys().length ? '' : 'disabled'}>CSV 저장</button>
         <button type="button" class="btn" data-act="od-reset" ${Object.keys(part('lines')).some((k) => (recOf(k) || {}).state) ? '' : 'disabled'}>모두 주문 전으로</button>
       </div>
       <p class="dialog-note">수량은 도면 물량으로 어림한 값(로스 포함)입니다. 주문 수량·제품을 고치면 이 도면에 저장됩니다. 주문한 뒤 도면을 고쳐 모자라면 ‘추가 필요’가 뜨고, 누르면 모자란 만큼을 다시 보낼 수 있습니다. 거래처 목록은 이 기기에 저장됩니다.</p>`;
@@ -384,6 +392,7 @@
     items.forEach(({ l, v }) => {
       const r = recW(l.key);
       r.orderedQty = r1((v.state === 'todo' ? v.prev : 0) + v.qty);
+      r.calc = l.qty; // 주문할 때의 계산 수량 (뒤에 도면이 바뀌어 늘었는지 볼 기준)
       r.state = 'ordered';
       r.at = d;
       delete r.qty;
@@ -399,7 +408,7 @@
     else {
       const r = recW(key);
       if (v.state === 'ordered') { r.state = 'received'; r.gotAt = today(); }
-      else ['state', 'at', 'gotAt', 'orderedQty'].forEach((k) => delete r[k]);
+      else ['state', 'at', 'gotAt', 'orderedQty', 'calc'].forEach((k) => delete r[k]);
       tidy(key);
     }
     save();
@@ -410,8 +419,10 @@
   function more(body, el) {
     const key = el.dataset.key;
     if (!byKey.has(key)) return;
+    const need = view(byKey.get(key)).more; // ‘추가 필요 +N’의 N을 주문 수량으로
     const r = recW(key);
     ['state', 'gotAt', 'qty'].forEach((k) => delete r[k]);
+    if (need > 0) r.qty = need;
     tidy(key);
     save();
     paintLine(el);
@@ -477,13 +488,16 @@
       App.ui.toast(got ? '이 공종은 모두 받았습니다. 다시 주문하려면 상태를 눌러 ‘주문 전’으로 돌리세요.' : '보낼 수량이 없습니다. 주문 수량을 넣으세요.');
       return;
     }
-    const text = orderText(t, items);
+    const g = groupOf(t.id);
+    // 다시 보내기: 마지막에 보낸 글 그대로 (추가분을 보낸 뒤 누적 수량을 새 주문처럼 보내지 않게)
+    const text = again ? `[재발송]\n${typeof g.lastText === 'string' && g.lastText ? g.lastText : orderText(t, items)}` : orderText(t, items);
     const out = sec.querySelector('[data-out]');
     out.hidden = true;
     out.innerHTML = '';
     const how = await share(text);
-    if (how === 'cancel') return;
-    if (how === 'fail') {
+    // 공유 창을 닫음: 휴대폰은 그대로, PC(공유 창에 카톡이 없음)는 글을 보여 줘 복사하게 (주문함으로 바꾸지는 않음)
+    if (how === 'cancel' && window.matchMedia('(pointer: coarse)').matches) return;
+    if (how === 'fail' || how === 'cancel') {
       out.innerHTML = `<p class="props-meta">이 기기에서는 바로 보낼 수 없습니다. 아래 글을 길게 눌러 모두 고른 뒤 복사해서 카톡·문자에 붙여 넣으세요.</p>
         <textarea class="field-text od-text" rows="8" readonly aria-label="${esc(t.name)} 주문 글">${esc(text)}</textarea>
         ${again ? '' : '<button type="button" class="btn btn-primary" data-act="od-mark">보냈으면 누르세요 · 주문함으로</button>'}`;
@@ -497,11 +511,16 @@
       if (how === 'share') App.ui.toast('주문한 내용을 다시 보냈습니다.');
       return;
     }
-    sent(body, sec, items, how === 'share');
+    sent(body, sec, items, how === 'share', text);
   }
   /** 보낸 줄을 주문함으로 */
-  function sent(body, sec, items, tell) {
+  function sent(body, sec, items, tell, text) {
     markOrdered(items);
+    // 보낸 납품일·시간을 고정하고 보낸 글을 기억 (공정표가 바뀌거나 날이 지나도 보낸 그대로)
+    const t = tradeOf(sec.dataset.trade), g = groupW(t.id);
+    if (typeof g.date !== 'string') g.date = dateOf(t);
+    if (!g.ampm) g.ampm = groupOf(t.id).ampm === 'pm' ? 'pm' : 'am';
+    g.lastText = text || orderText(t, items);
     save();
     items.forEach(({ l }) => paintLine(lineEl(body, l.key)));
     paintTools(body);
@@ -567,7 +586,12 @@
     }
     const L = part('lines');
     Object.keys(L).forEach((k) => {
-      if (isObj(L[k])) ['state', 'at', 'gotAt', 'orderedQty'].forEach((f) => delete L[k][f]);
+      const r = L[k], l = byKey.get(k);
+      if (isObj(r)) {
+        // 계산과 다르게 주문한 양은 주문 수량으로 남김 (안내대로 ‘주문 수량은 그대로’)
+        if (typeof r.orderedQty === 'number' && (!l || Math.abs(r.orderedQty - l.qty) > 1e-9) && typeof r.qty !== 'number') r.qty = r.orderedQty;
+        ['state', 'at', 'gotAt', 'orderedQty', 'calc'].forEach((f) => delete r[f]);
+      }
       tidy(k);
     });
     save();
@@ -642,7 +666,8 @@
         case 'od-send': send(body, sec); break;
         case 'od-mark': {
           const { items, again } = toSend(sec.dataset.trade);
-          if (!again && items.length) sent(body, sec, items, true);
+          const ta = sec.querySelector('[data-out] textarea');
+          if (!again && items.length) sent(body, sec, items, true, ta ? ta.value : '');
           b.remove();
           break;
         }
@@ -685,11 +710,19 @@
           parse(date) ? `${date} ${ampmName(g)}` : '', `${st.trim()}${v.more ? ` · 추가 필요 +${fmt(v.more)}${l.unit}` : ''}`]);
       });
     });
+    // 도면에서 사라진 주문도 기록으로 (이미 주문했을 수 있음)
+    goneKeys().forEach((k) => {
+      const p = k.split('|'), r = recOf(k) || {};
+      const t = tradeOf(p[0]) || { name: p[0] }, g = groupOf(p[0]);
+      const qty = r.orderedQty != null ? r.orderedQty : r.qty != null ? r.qty : '';
+      rows.push([t.name, g.vendor || '', p[1] || '', p.slice(2, -1).join('|'), '', qty, p.length > 3 ? p[p.length - 1] : '', r.product || '', '',
+        `${STATE_NAME[r.state] || '주문 전'}${r.at ? ` ${r.at}` : ''} · 도면에서 사라짐`]);
+    });
     return rows;
   }
   function exportCsv() {
     load();
-    if (!cur.length) {
+    if (!cur.length && !goneKeys().length) {
       App.ui.toast('발주할 자재가 없습니다. 먼저 도면을 그리세요.');
       return false;
     }
@@ -704,6 +737,7 @@
     const ls = lines(s || App.summary.compute());
     const c = counts(ls);
     const keys = new Set(ls.map((l) => l.key));
+    if (App.layers.excludeHidden()) lines(App.summary.compute({ includeHidden: true }), { includeHidden: true }).forEach((l) => keys.add(l.key)); // 숨긴 레이어 것은 사라진 게 아님
     const gone = Object.keys(part('lines')).filter((k) => !keys.has(k)).length;
     const row = (label, n, note = '', cls = '') => ({ label, value: { text: `${n.toLocaleString('ko-KR')}줄`, num: n, unit: '줄' }, note, cls, cat: '발주' });
     const rows = [row('주문 전', c.todo), row('주문함', c.ordered)];

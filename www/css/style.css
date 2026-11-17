@@ -1666,3 +1666,6 @@ body:has(> .view3d:not([hidden])) .toast { bottom: auto; top: 36%; }
   .od-ins { grid-column: 2; grid-row: 1; }
   .od-chip { grid-column: 3; grid-row: 1; }
 }
+.est-adj .field-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+/* 발주서: 긴 현장 주소가 창을 넓히지 않게 (휴대폰) */
+.od { grid-template-columns: minmax(0, 1fr); min-width: 0; }

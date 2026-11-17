@@ -66,7 +66,7 @@
   /** 도면 전체를 세어 기록 목록으로: { sec, group, key, room(id 또는 null), qty } */
   function compute(o = {}) {
     // 설정에 따라 숨긴 레이어의 것은 집계에서 뺌 (o.visibleOnly: 설정과 상관없이 보이는 것만 — 도면과 같이 인쇄하는 목록)
-    const exclude = !!o.visibleOnly || App.layers.excludeHidden();
+    const exclude = !o.includeHidden && (!!o.visibleOnly || App.layers.excludeHidden()); // o.includeHidden: 설정과 상관없이 모두 (발주서의 ‘사라진 주문’ 판정)
     const all = [...App.doc.all()].filter((e) => !exclude || App.layers.visible(e));
     const of = (t) => all.filter((e) => e.type === t);
     const M = App.measure;

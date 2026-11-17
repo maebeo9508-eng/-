@@ -286,7 +286,8 @@
     // 2) 시작일: 행사일을 정했으면 거꾸로 (행사일이 쉬는 날이면 설치는 그 앞 작업일까지 끝냄)
     const evDay = evIdx >= 0 ? parse(sc.eventDay) : null;
     const evRest = !!evDay && isRest(evDay, rest);
-    const start = evDay ? back(evDay, evRest ? Math.ceil(evStart - 1e-9) : Math.floor(evStart + 1e-9), rest) : firstWork(parse(sc.start) || today(), rest);
+    let start = evDay ? back(evDay, evRest ? Math.ceil(evStart - 1e-9) : Math.floor(evStart + 1e-9), rest) : firstWork(parse(sc.start) || today(), rest);
+    if (evDay && start > evDay) start = evDay; // 앞에 설치가 없는 쉬는 날 행사: 그날부터
     // 작업일 번호 → 날짜 (필요한 만큼 늘림), 날짜 → 그 날 다음 첫 작업일 번호
     const days = [];
     const dayOf = (k) => {
@@ -307,13 +308,19 @@
           if (evRest) { s = Math.ceil(s - 1e-9); frac = 0; }
         } else from = dayOf(Math.floor(s + 1e-9));
         const x0 = dayDiff(start, from) + frac;
+        const halfEnd = frac === 0 && t.days % 1 > 1e-9; // 아침에 시작한 1.5일·2.5일 행사: 마지막 날은 정오까지
         if (t.days >= 1) {
           to = addDays(from, Math.ceil(t.days - 1e-9) - 1); // 이어진 달력 날짜 (첫날 오후에 시작해도 그날을 하루로 셈)
-          e = Math.max(s, after(to));
-          bar = [x0, dayDiff(start, to) + 1];
+          if (halfEnd && !isRest(to, rest)) {
+            e = Math.max(s, after(addDays(to, -1)) + 0.5); // 마지막 날 오후부터 다음 공정
+            bar = [x0, dayDiff(start, to) + 0.5];
+          } else {
+            e = Math.max(s, after(to));
+            bar = [x0, dayDiff(start, to) + (halfEnd ? 0.5 : 1)];
+          }
         } else {
           to = from;
-          e = s + t.days;
+          e = isRest(from, rest) ? s : s + t.days; // 쉬는 날 반나절 행사는 작업일을 쓰지 않음
           bar = [x0, x0 + t.days];
         }
       } else {
@@ -415,11 +422,9 @@
   /** 처음 저장할 때 보이던 날짜도 함께 저장 (안 그러면 날짜를 고르지 않은 공정표가 날마다 오늘부터로 바뀜) */
   function persistDate() {
     const sc = storedW();
-    const k = evAnchored() ? 'eventDay' : 'start';
-    if (parse(sc[k])) return;
-    const p = plan();
-    const d = k === 'eventDay' ? p.eventDay : p.start;
-    if (d) sc[k] = iso(d);
+    if (parse(sc.start) || (evAnchored() && parse(sc.eventDay))) return;
+    // 시작일로만 고정 (행사일은 사람이 고를 때만 저장 — 고르지 않은 행사일을 제안서 표지에 쓰지 않게)
+    sc.start = iso(plan().start);
   }
   function bodyHtml() {
     const p = plan();
@@ -489,17 +494,24 @@
   const numIn = (s) => parseFloat(String(s == null ? '' : s).replace(/,/g, '.').replace(/[^\d.]/g, ''));
   /* 칸을 고친 채 바로 단추를 누르면 (누름 → 칸 벗어남 → 고침 반영 → 뗌 → 클릭) 그 사이 화면이 바뀌어 단추가 밀리면 클릭이 사라짐.
      누르고 있는 동안에는 화면 고침을 미뤘다가 손을 뗀 뒤(클릭 처리 다음)에 함 */
-  let pointerIsDown = false, pending = null, pointerHooked = false;
+  // 휴대폰(터치)은 손을 뗀(pointerup) 뒤에 마우스 흉내(mousedown → 칸 벗어남 → mouseup → click)가 오므로 click까지 기다림.
+  // click이 오지 않으면(끌어서 스크롤 등) 잠시 뒤에 함
+  let pointerIsDown = false, pending = null, pointerHooked = false, upTimer = 0;
   function hookPointer() {
     if (pointerHooked) return;
     pointerHooked = true;
-    document.addEventListener('pointerdown', () => { pointerIsDown = true; }, true);
-    const up = () => {
+    const flush = () => {
+      clearTimeout(upTimer);
       pointerIsDown = false;
       if (pending) { const f = pending; pending = null; setTimeout(f, 0); }
     };
+    const down = () => { clearTimeout(upTimer); pointerIsDown = true; };
+    document.addEventListener('pointerdown', down, true);
+    document.addEventListener('mousedown', down, true);
+    document.addEventListener('click', flush, true);
+    const up = () => { clearTimeout(upTimer); upTimer = setTimeout(flush, 600); };
     document.addEventListener('pointerup', up, true);
-    document.addEventListener('pointercancel', up, true);
+    document.addEventListener('pointercancel', flush, true);
   }
   const afterPointer = (fn) => { if (pointerIsDown) pending = fn; else fn(); };
   function bind(body) {
