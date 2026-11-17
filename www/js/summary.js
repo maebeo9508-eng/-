@@ -293,6 +293,8 @@
       const rb = routeBlock(s);
       if (rb) blocks.push(rb);
     }
+    const odb = !event && App.orders ? App.orders.block(s) : null; // 발주 (화면에서만: 주문 전·주문함·추가 필요 줄 수)
+    if (odb) blocks.push(odb);
     const a = s.arch;
     const arch = [];
     if (a.walls) {
@@ -553,6 +555,7 @@
         ${cost ? '<button type="button" class="btn btn-primary" data-act="est-pdf" title="견적서를 PDF로 (A4)">견적서</button>' : ''}
         ${view === 'room' ? `<button type="button" class="btn" data-act="checklist" ${blocks.length ? '' : 'disabled'} title="${App.modes.is('event') ? '구역' : '방'}마다 품목·수량과 반입·설치·점검·철거 확인 칸을 PDF로 (A4)">체크리스트</button>` : ''}
         ${view === 'all' ? '<button type="button" class="btn" data-act="schedule" title="물량으로 공정마다 일수·인원을 어림한 공정표 (간트 차트, PDF·CSV)">공정표</button>' : ''}
+        ${view === 'all' && !App.modes.is('event') ? '<button type="button" class="btn" data-act="orders" title="공종·거래처마다 자재 주문 수량·납품일을 정해 카톡·문자로 보내는 발주서">발주</button>' : ''}
         <button type="button" class="btn" data-act="csv" ${blocks.length || cost ? '' : 'disabled'} title="엑셀에서 열 수 있는 CSV 파일로 저장">CSV</button>
       </div>`;
     widen(cost && !pane.hidden);
@@ -660,6 +663,7 @@
       if (e.target.closest('[data-act="est-pdf"]')) App.estimate.exportPdf();
       if (e.target.closest('[data-act="proposal"]')) App.proposal.open();
       if (e.target.closest('#pane-summary [data-act="schedule"]')) App.schedule.open();
+      if (e.target.closest('#pane-summary [data-act="orders"]')) App.orders.open(); // 전체 보기·견적 보기·발주 묶음의 버튼
       if (e.target.closest('[data-act="safety-open"]')) App.safety.open();
       if (e.target.closest('[data-act="booth-csv"]')) App.booths.exportCsv();
       if (e.target.closest('#pane-summary [data-act="booth-number"]')) App.booths.numberDialog();
