@@ -164,7 +164,7 @@
       다른 창과 내용이 엇갈려 저장하지 못했으면 false */
   function flush() {
     const a = document.activeElement;
-    if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && a.closest('#panel, .est, #view3d')) a.blur(); // 'change'가 나며 값이 들어감
+    if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && a.closest('#panel, .est, #view3d, .sc')) a.blur(); // 'change'가 나며 값이 들어감 (.sc: 공정표 창은 칸을 벗어날 때 저장)
     if (!current) return true;
     // 저장하지 않은 고친 내용이 있을 때만 막음 (엇갈림이면 다시 물어봄). 잃을 게 없으면 언제나 다른 도면으로 바꿔도 됨
     if (timer || dirty()) return saveNow() || !conflicted;

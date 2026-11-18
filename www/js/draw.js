@@ -13,9 +13,15 @@
     if (phasedCache.v !== App.doc.version) phasedCache = { v: App.doc.version, on: [...App.doc.all()].some((e) => (e.type === 'wall' || e.type === 'door' || e.type === 'window') && (e.phase === 'keep' || e.phase === 'demo')) };
     return phasedCache.on;
   }
+  let fullDepth = 0; // fullView() 안: 철거도·신설도를 잠시 끄고 전체로 그림
   function phaseView() {
     const pv = App.current && App.current.phaseView;
-    return (pv === 'demo' || pv === 'new') && !App.modes.is('event') && hasPhases() ? pv : '';
+    return !fullDepth && (pv === 'demo' || pv === 'new') && !App.modes.is('event') && hasPhases() ? pv : '';
+  }
+  /** fn을 철거도·신설도 없이 전체 보기로 (레이어 메뉴 설정은 그대로) — 제안서처럼 공사 뒤 모습을 그릴 때 */
+  function fullView(fn) {
+    fullDepth++;
+    try { return fn(); } finally { fullDepth--; }
   }
   /** 그릴 요소인지: 숨긴 레이어와 철거도·신설도 보기(pv = phaseView())를 따름. 화면·그림·CAD 내보내기가 같은 규칙을 씀 */
   function shown(el, pv) {
@@ -2387,5 +2393,6 @@
     openingPreview, columnPreview, distanceTag, worldTransform, screenTransform,
     previewLine, previewItem, previewDim, previewZone, previewRoute, itemIcon, lineIcon, textTag,
     visibleElements, // 보이는 요소 (숨긴 레이어·철거도·신설도 규칙) — CAD 내보내기
+    fullView, // 잠시 전체 보기로 그리기 (제안서 평면도)
   };
 })();

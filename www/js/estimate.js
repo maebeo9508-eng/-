@@ -393,7 +393,7 @@
       </div>`;
     return `
       <div class="est">
-        ${s.excluded && s.excluded.length ? `<p class="dialog-note is-warn est-warn est-hidden">숨긴 레이어(${esc(s.excluded.join(', '))})는 집계와 견적에서 빠져 있습니다. 견적서에 넣으려면 레이어를 보이게 하거나 설정에서 ‘숨긴 레이어는 집계에서도 빼기’를 끄세요.</p>` : ''}
+        ${s.excluded && s.excluded.length ? `<p class="dialog-note is-warn est-warn est-hidden">숨긴 레이어(${esc(s.excluded.join(', '))})는 집계와 견적에서 빠져 있습니다. 견적서에 넣으려면 레이어를 보이게 하거나 위쪽 ‘레이어’ 메뉴에서 ‘숨긴 레이어는 집계에서도 빼기’를 끄세요.</p>` : ''}
         ${s.arch && s.arch.issues ? `<p class="dialog-note is-warn est-warn">경계 확인이 필요한 방이 ${s.arch.issues}개 있습니다. 방이 벽과 맞지 않으면 바닥·벽 물량이 실제와 다를 수 있으니 도면에서 빨간 점선 방을 먼저 고치세요.${s.arch.overlaps ? ` (겹친 방 ${s.arch.overlaps}개는 물량에서 뺐습니다)` : ''}</p>` : ''}
         <p class="dialog-note">단가를 넣으면 금액이 바로 계산됩니다. 넣은 단가는 이 도면에 저장되고 <b>단가표</b>(이 기기)에도 기억되어 다음 도면에 자동으로 들어갑니다.</p>
         ${mode === 'interior' ? `<div class="est-style"><span class="field-label">묶기</span><div class="seg-inline" role="radiogroup" aria-label="견적 묶기">${[['item', '항목별'], ['trade', '공종별 (총괄표)']].map(([v, l]) => `<button type="button" class="seg-btn" role="radio" data-est-style="${v}" aria-checked="${(v === 'trade') === trade}">${l}</button>`).join('')}</div></div>` : ''}

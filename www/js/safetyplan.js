@@ -46,6 +46,8 @@
   const projectName = () => (App.projects && App.projects.current ? App.projects.current.name : '도면');
   const safeName = (s) => s.replace(/[\\/:*?"<>|]+/g, '_').trim() || '도면';
   const save = () => { if (App.projects && App.projects.saveNow) App.projects.saveNow(); };
+  /** 창을 닫거나 PDF·복사할 때: 고친 게 있을 때만 저장 (열어 보기만 한 도면이 도면 목록 맨 위로 올라가지 않게) */
+  const settle = () => { if (App.projects && App.projects.flush) App.projects.flush(); };
 
   /* ── 저장한 값 ── */
   function stored() {
@@ -545,12 +547,31 @@
     const w = ctx.measureText('비상구').width + 12 * k, y = q.y - 16 * k;
     return { x0: q.x - w / 2 - 2 * k, x1: q.x + w / 2 + 2 * k, y0: y - 12 * k, y1: y + 12 * k, cy: y };
   }
+  /** 비상구 번호 동그라미(반지름 17) 자리: ‘비상구’ 글자 오른쪽. 도면 칸을 넘으면 왼쪽, 거기도 안 되면 아래 — 번호가 잘리지 않게 칸 안으로 */
+  const BADGE_R = 20; // 반지름 + 흰 테두리
+  function badgeAt(b, clip) {
+    let cx = b.x1 + 20, cy = b.cy;
+    if (clip && cx + BADGE_R > clip.x + clip.width) {
+      if (b.x0 - 20 - BADGE_R >= clip.x) cx = b.x0 - 20;
+      else { cx = (b.x0 + b.x1) / 2; cy = b.y1 + 22; }
+    }
+    if (clip) {
+      cx = Math.min(Math.max(cx, clip.x + BADGE_R), clip.x + clip.width - BADGE_R);
+      cy = Math.min(Math.max(cy, clip.y + BADGE_R), clip.y + clip.height - BADGE_R);
+    }
+    return { cx, cy };
+  }
   /** 도면 위 글자(비상구·밀집도·영역 이름) 자리: 안전 요원 번호가 그 위에 겹치지 않게 (밀집도·영역 이름은 어림 크기) */
-  function labelBoxes(ctx, d, T, ex) {
+  function labelBoxes(ctx, d, T, ex, clip) {
     const out = [];
     const k = curK;
     const box = (p, dy, w, h) => { const q = T.toPage(p); out.push({ x0: q.x - (w / 2) * k, x1: q.x + (w / 2) * k, y0: q.y + (dy - h / 2) * k, y1: q.y + (dy + h / 2) * k }); };
-    ex.forEach((x) => { const b = exitTag(ctx, T, x.x); out.push(x.badge ? { ...b, x1: b.x1 + 40 } : b); });
+    ex.forEach((x) => {
+      const b = exitTag(ctx, T, x.x);
+      if (!x.badge) { out.push(b); return; }
+      const c = badgeAt(b, clip); // 번호 동그라미까지 한 상자로
+      out.push({ x0: Math.min(b.x0, c.cx - BADGE_R), x1: Math.max(b.x1, c.cx + BADGE_R), y0: Math.min(b.y0, c.cy - BADGE_R), y1: Math.max(b.y1, c.cy + BADGE_R) });
+    });
     (d.r.data.crowdZones || []).filter((z) => App.layers.visible(z)).forEach((z) => box(App.geom.interiorPoint(z.points), 34, 130, 24));
     d.L.zones.forEach((z) => box(App.geom.interiorPoint(z.points), 0, 90, 36));
     return out;
@@ -571,7 +592,7 @@
   }
   /** 안전 요원 번호 꼬리표 S1…: 자리에 점을 찍고 겹치지 않는 쪽(위·아래·옆)에 꼬리표. 돌려주는 값: 그린 꼬리표 수 */
   function staffTags(ctx, P, d, T, clip, ex, extra = []) {
-    const placed = [...labelBoxes(ctx, d, T, ex), ...extra];
+    const placed = [...labelBoxes(ctx, d, T, ex, clip), ...extra];
     const inside = (b) => b.x0 >= clip.x && b.x1 <= clip.x + clip.width && b.y0 >= clip.y && b.y1 <= clip.y + clip.height;
     const hit = (b) => placed.some((q) => q.x0 < b.x1 && b.x0 < q.x1 && q.y0 < b.y1 && b.y0 < q.y1);
     let n = 0;
@@ -687,21 +708,21 @@
       const scale = App.safety.withOverlay(() => App.exporter.drawPlan(ctx, inner, d.rect, curK));
       const T = App.exporter.planTransform(inner, d.rect, curK);
       if (showEx) {
-        // 비상구 번호: 겹쳐 보기의 ‘비상구’ 글자 오른쪽에 초록 동그라미
+        // 비상구 번호: 겹쳐 보기의 ‘비상구’ 글자 옆에 초록 동그라미 (칸 끝이면 왼쪽·아래로)
         ctx.save();
         ctx.beginPath();
         ctx.rect(inner.x, inner.y, inner.width, inner.height);
         ctx.clip();
         ex.forEach((x) => {
-          const b = exitTag(ctx, T, x.x), cx = b.x1 + 20;
+          const { cx, cy } = badgeAt(exitTag(ctx, T, x.x), inner);
           ctx.beginPath();
-          ctx.arc(cx, b.cy, 17, 0, Math.PI * 2);
+          ctx.arc(cx, cy, 17, 0, Math.PI * 2);
           ctx.fillStyle = '#2b8a3e';
           ctx.fill();
           ctx.lineWidth = 3;
           ctx.strokeStyle = '#ffffff';
           ctx.stroke();
-          P.text(String(x.no), cx, b.cy + 1, 20, 800, '#ffffff', 'center');
+          P.text(String(x.no), cx, cy + 1, 20, 800, '#ffffff', 'center');
         });
         ctx.restore();
       }
@@ -1042,10 +1063,10 @@
         const left = rowsOf(kind).length;
         redrawList(root, kind, left ? `[data-i="${Math.min(i, left - 1)}"] [data-act="spp-del"]` : null);
       } else if (b.dataset.act === 'spp-pdf') {
-        save();
+        settle();
         build().catch((err) => { console.warn('안전관리계획서 PDF 실패', err); App.ui.toast('PDF를 만들지 못했습니다. 다시 눌러 보세요.'); });
       } else if (b.dataset.act === 'spp-copy') {
-        save();
+        settle();
         copy(root);
       }
     });
@@ -1072,7 +1093,7 @@
       actions: [{ id: 'close', label: '닫기', primary: true }],
       onOpen: bind,
     });
-    save();
+    settle();
     if (App.summary && App.summary.render) App.summary.render(); // 예상 인원을 고쳤으면 안전 점검 묶음도
     return true;
   }

@@ -480,6 +480,7 @@
       }
     });
     App.ui.on('project', updateLayerButton);
+    App.ui.on('mode', updateLayerButton); // 철거도·신설도는 인테리어 모드에서만 → 모드를 바꾸면 버튼 표시도
     App.doc.onChange(updateLayerButton);
     updateLayerButton();
     $('#btnSearch').addEventListener('click', search);

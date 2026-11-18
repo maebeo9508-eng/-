@@ -311,7 +311,7 @@
     const groups = TRADES.map((t) => ({ t, ls: cur.filter((l) => l.trade === t.id) })).filter((x) => x.ls.length);
     const field = (id, k, label, ph, max, type = 'text') => `<div class="field"><label class="field-label" for="${id}">${label}</label><div class="field-box"><input id="${id}" type="${type}" data-site="${k}" value="${esc(part('site')[k] || '')}" maxlength="${max}" placeholder="${esc(ph)}" autocomplete="off"></div></div>`;
     return `
-      ${App.layers.excludeHidden() ? `<p class="dialog-note is-warn">숨긴 레이어(${esc(App.layers.hidden().map((id) => (App.layers.list().find((x) => x.id === id) || {}).label).filter(Boolean).join(', '))})의 자재는 빠져 있습니다 (설정 ‘숨긴 레이어는 집계에서도 빼기’). 주문 기록은 그대로 남습니다.</p>` : ''}
+      ${App.layers.excludeHidden() ? `<p class="dialog-note is-warn">숨긴 레이어(${esc(App.layers.hidden().map((id) => (App.layers.list().find((x) => x.id === id) || {}).label).filter(Boolean).join(', '))})의 자재는 빠져 있습니다 (위쪽 ‘레이어’ 메뉴의 ‘숨긴 레이어는 집계에서도 빼기’). 주문 기록은 그대로 남습니다.</p>` : ''}
       <p class="dialog-note">공종마다 거래처와 납품일을 정하고 <b>문자로 보내기</b>를 누르면 카톡·문자로 보낼 주문 글이 만들어집니다. 보낸 줄은 ‘주문함’이 되고, 자재를 받으면 상태를 눌러 ‘받음’으로 바꾸세요.</p>
       <details class="est-info od-site" ${siteVal('addr') || siteVal('to') ? '' : 'open'}>
         <summary>현장 정보 <small data-site-sum>${esc(siteSum())}</small></summary>

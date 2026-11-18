@@ -237,7 +237,9 @@
   }
 
   const FONT = () => getComputedStyle(document.documentElement).getPropertyValue('--font-ui') || 'sans-serif';
-  const projectName = () => { const n = App.projects && App.projects.current ? App.projects.current.name : '도면'; const pv = App.phaseView ? App.phaseView() : ''; return pv ? `${n} (${pv === 'demo' ? '철거도' : '신설도'})` : n; };
+  const baseName = () => (App.projects && App.projects.current ? App.projects.current.name : '도면');
+  /** 도면을 그리는 내보내기의 이름: 철거도·신설도로 보고 있으면 붙임 (체크리스트처럼 도면을 그리지 않는 것은 baseName) */
+  const projectName = () => { const n = baseName(); const pv = App.phaseView ? App.phaseView() : ''; return pv ? `${n} (${pv === 'demo' ? '철거도' : '신설도'})` : n; };
   const safeName = (s) => s.replace(/[\\/:*?"<>|]+/g, '_').trim() || '도면';
   const dateText = () => new Date().toLocaleString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
@@ -631,7 +633,7 @@
         ctx.fillText('설치 체크리스트', m, m + 22);
         ctx.fillStyle = '#212529';
         ctx.font = `800 54px ${f}`;
-        ctx.fillText(fit(projectName(), x1 - x0), m, m + 62);
+        ctx.fillText(fit(baseName(), x1 - x0), m, m + 62);
         const r = event && App.safety ? App.safety.run() : null;
         ctx.fillStyle = '#495057';
         ctx.font = `500 24px ${f}`;
@@ -642,7 +644,7 @@
         ctx.fillText('설치 체크리스트', m, m + 22);
         ctx.fillStyle = '#495057';
         ctx.font = `500 24px ${f}`;
-        ctx.fillText(fit(projectName(), x1 - x0 - 260), m + 230, m + 23);
+        ctx.fillText(fit(baseName(), x1 - x0 - 260), m + 230, m + 23);
         y = m + 86;
       }
       pages.push(canvas);
@@ -757,7 +759,7 @@
     const pages = checklistPages();
     if (!pages.length) { App.ui.toast('체크리스트에 넣을 물건이 없습니다. 먼저 물건을 놓으세요.'); return false; }
     const blob = pdfFromPages(pages, pages[0].pw, pages[0].ph);
-    const name = `${safeName(projectName())}_설치체크리스트_${exporter.stamp()}.pdf`;
+    const name = `${safeName(baseName())}_설치체크리스트_${exporter.stamp()}.pdf`;
     exporter.saved(exporter.download(name, blob, 'application/pdf'), `‘${name}’을 저장했습니다. (A4 세로 ${pages.length}쪽 · ${App.modes.is('event') ? '구역' : '방'}마다 반입·설치·점검·철거 확인 칸)`);
     return { name, pages: pages.length, blob, groups: App.summary.checklist() };
   }

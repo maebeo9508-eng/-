@@ -18,6 +18,8 @@
 
   const FONT = () => getComputedStyle(document.documentElement).getPropertyValue('--font-ui') || 'sans-serif';
   const projectName = () => (App.projects && App.projects.current ? App.projects.current.name : '도면');
+  /** 제안서는 공사 뒤 모습을 보여 주므로, 레이어 메뉴가 철거도여도 평면도는 전체 보기로 그림 (신설도는 그대로 따르고 ‘(신설도)’라고 적음) */
+  const finished = (fn) => (App.phaseView && App.phaseView() === 'demo' && App.draw && App.draw.fullView ? App.draw.fullView(fn) : fn());
   const safeName = (s) => s.replace(/[\\/:*?"<>|]+/g, '_').trim() || '도면';
   const defaultTitle = () => (App.modes.is('event') ? '행사 제안서' : '인테리어 공사 제안서');
   const settings = () => {
@@ -231,7 +233,7 @@
     ctx.lineWidth = 3;
     ctx.strokeRect(box.x, box.y, box.width, box.height);
     const inner = { x: box.x + 24, y: box.y + 24, width: box.width - 48, height: box.height - 110 };
-    const scale = App.exporter.drawPlan(ctx, inner, rect, 2.5);
+    const scale = finished(() => App.exporter.drawPlan(ctx, inner, rect, 2.5));
     App.exporter.scaleBar(ctx, box.x + 36, box.y + box.height - 34, scale, Math.round(Math.min(W, H) * 0.12), `600 26px ${f}`);
     P.text(`단위 ${App.settings.lengthUnit}, ${App.settings.areaUnit}`, box.x + box.width - 30, box.y + box.height - 44, 24, 500, MUTE, 'right');
   }
@@ -564,7 +566,7 @@
     const skipped = [];
     const co = App.estimate.company();
     const logo = await loadImage(await logoData());
-    const rect = App.exporter.planRect();
+    const rect = finished(() => App.exporter.planRect());
     const n = { no: 1 };
     const sec = {};
     const nextSec = (key, label) => { sec[key] = { no: String(++n.no).padStart(2, '0'), title: label }; };
@@ -574,7 +576,7 @@
       figures: figures(s, parts.estimate ? t : null, parts.photos ? pins : [], parts.schedule && App.schedule ? App.schedule.plan() : null),
       intro: o.intro != null ? String(o.intro).trim() : settings().intro || '',
       date: new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' }),
-      plan: rect ? (ctx, box, k) => App.exporter.drawPlan(ctx, box, rect, k) : null,
+      plan: rect ? (ctx, box, k) => finished(() => App.exporter.drawPlan(ctx, box, rect, k)) : null,
     };
     // 3D 그림 (표지 큰 그림은 표지 자리에 맞는 높이로)
     let shots = null;
@@ -607,7 +609,7 @@
     }
     if (parts.plan) {
       if (rect) {
-        nextSec('plan', '평면도');
+        nextSec('plan', App.phaseView && App.phaseView() === 'new' ? '평면도 (신설도)' : '평면도');
         // 도면이 더 크게 들어가는 쪽 방향으로 (도면 칸: 쪽 − 여백 − 머리글·바닥글 − 축척 줄)
         const rw = rect.maxX - rect.minX, rh = rect.maxY - rect.minY;
         const fit = (S) => Math.min((S.W - 2 * M - 48) / rw, (S.H - TOP - 20 - FOOT - 110) / rh);
