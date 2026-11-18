@@ -333,6 +333,25 @@
   }
 
   /** 줄의 입력 칸은 그대로 두고 상태·안내·추가 필요만 다시 씀 (다른 칸으로 옮겨 가며 치는 중에도 끊기지 않게) */
+  /* 칸을 고치고 바로 같은 줄의 단추를 누를 때: blur→change의 다시 그리기를 누르기(click)가 끝난 뒤로 미룸 (공정표·견적과 같은 방식).
+     터치는 pointerup이 mousedown보다 먼저 오므로 click이 오면 바로, 안 오면 0.6초 뒤에 */
+  let pointerIsDown = false, pending = [], pointerHooked = false, upTimer = 0;
+  function hookPointer() {
+    if (pointerHooked) return;
+    pointerHooked = true;
+    const flush = () => {
+      clearTimeout(upTimer);
+      pointerIsDown = false;
+      if (pending.length) { const fs = pending; pending = []; setTimeout(() => fs.forEach((f) => f()), 0); }
+    };
+    const down = () => { clearTimeout(upTimer); pointerIsDown = true; };
+    document.addEventListener('pointerdown', down, true);
+    document.addEventListener('mousedown', down, true);
+    document.addEventListener('click', flush, true);
+    document.addEventListener('pointerup', () => { clearTimeout(upTimer); upTimer = setTimeout(flush, 600); }, true);
+    document.addEventListener('pointercancel', flush, true);
+  }
+  const afterPointer = (fn) => { if (pointerIsDown) pending.push(fn); else fn(); };
   function paintLine(el) {
     const l = el && byKey.get(el.dataset.key);
     if (!l) return;
@@ -635,6 +654,7 @@
       setField(line.dataset.key, el.dataset.f, el.value); // 바로 보내기를 눌러도 친 값이 들어가게
       saveLater();
     });
+    hookPointer();
     body.addEventListener('change', (e) => {
       const el = e.target;
       if (el.dataset.site) {
@@ -655,7 +675,7 @@
       if (!line || !el.dataset.f) return;
       setField(line.dataset.key, el.dataset.f, el.value);
       if (el.dataset.f === 'product') el.value = view(byKey.get(line.dataset.key)).product;
-      paintLine(line);
+      afterPointer(() => { if (line.isConnected) paintLine(line); }); // 칸을 벗어나며 누른 ‘추가 필요’ 단추가 다시 그리기로 사라지지 않게
       save();
     });
     body.addEventListener('keydown', (e) => {

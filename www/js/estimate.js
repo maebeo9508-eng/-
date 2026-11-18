@@ -64,6 +64,10 @@
     if (b) {
       b.focus({ preventScroll: true });
       if (caret != null && typeof b.setSelectionRange === 'function') try { b.setSelectionRange(caret, caret); } catch (e) { /* 숫자 칸 등 */ }
+      // 이름을 바꿔 줄이 다른 공종으로 옮겨 갔으면 그 칸이 화면 밖에 있음 → 보이게 (그대로 보이면 움직이지 않음)
+      const r = b.getBoundingClientRect(), box = pane.getBoundingClientRect();
+      const top = Math.max(box.top, 0) + 60, bottom = Math.min(box.bottom, window.innerHeight) - 20; // 위쪽 탭·보기 단추 막대만큼 빼고
+      if (r.bottom > bottom || r.top < top) b.scrollIntoView({ block: 'center' });
     }
   }
   const renderSoon = () => { if (pointerIsDown) pendingRender = true; else renderKeep(); };

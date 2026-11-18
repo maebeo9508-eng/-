@@ -466,7 +466,7 @@
   }
   function redraw(body, focus) {
     const scroll = body.scrollTop;
-    body.innerHTML = `<div class="sc">${bodyHtml()}</div>`;
+    body.innerHTML = `<div class="sc" data-keys="local">${bodyHtml()}</div>`;
     body.scrollTop = scroll;
     if (focus) {
       let el = body.querySelector(focus);
@@ -552,8 +552,12 @@
       });
     });
     body.addEventListener('keydown', (e) => {
-      // 공정 칸의 Enter는 창을 닫지 않고 고친 값을 확정 (목록은 data-keys="local"이라 창의 Enter·Esc 처리를 받지 않음)
-      if (e.key === 'Enter' && e.target.matches('.sc-row input[type="text"]')) { e.preventDefault(); e.target.blur(); }
+      // 창 전체가 data-keys="local"(창의 Enter·Esc 처리를 받지 않음): 공정 칸·날짜 칸의 Enter는 창을 닫지 않고 고친 값을 확정, Esc는 닫기
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        const close = document.querySelector('#dialogFoot [data-id="close"]');
+        if (close) close.click();
+      } else if (e.key === 'Enter' && e.target.matches('.sc-row input[type="text"], #scDate')) { e.preventDefault(); e.target.blur(); }
     });
     body.addEventListener('click', (e) => {
       const b = e.target.closest('[data-act]');
@@ -591,7 +595,7 @@
   async function open() {
     await App.ui.dialog({
       title: '공정표',
-      html: `<div class="sc">${bodyHtml()}</div>`,
+      html: `<div class="sc" data-keys="local">${bodyHtml()}</div>`,
       actions: [{ id: 'close', label: '닫기', primary: true }],
       onOpen: bind,
     });

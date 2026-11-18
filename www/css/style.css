@@ -1221,6 +1221,8 @@ body:has(> .view3d:not([hidden])) .toast { bottom: auto; top: 36%; }
   .tabs { padding: 0 8px; }
 
   .toast { bottom: calc(var(--toolbar-h) + env(safe-area-inset-bottom, 0px) + var(--sheet-h) + 12px); }
+  /* 서랍을 화면 절반 넘게 연 동안: 서랍 위에 두면 알림이 화면 위로 밀려 잘리므로 위쪽 막대 바로 밑에 */
+  .sheet-tall .toast { bottom: auto; top: calc(var(--topbar-h) + env(safe-area-inset-top, 0px) + 10px); }
 }
 
 @media (prefers-reduced-motion: reduce) {

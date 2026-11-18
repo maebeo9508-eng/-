@@ -929,8 +929,12 @@
     const tab = $('#tab-summary');
     if (tab.getAttribute('aria-selected') !== 'true') tab.click();
     App.summary.setView('cost');
-    if (ui.mobile.matches) sheet.set(sheet.max());
-    hint('단가를 넣고 위쪽 ‘견적서’ 버튼을 누르면 PDF로 저장됩니다', 4000);
+    const tip = '단가를 넣고 위쪽 ‘견적서’ 버튼을 누르면 PDF로 저장됩니다';
+    if (ui.mobile.matches) {
+      sheet.set(sheet.max());
+      // 휴대폰은 도구 안내가 서랍 밑에 가려지므로 알림으로 (방금 뜬 다른 알림 — 예: 공정표 인건비를 넣었다는 알림 — 은 덮지 않음)
+      if (!$('#toast').classList.contains('is-show')) toast(tip, 4000);
+    } else hint(tip, 4000);
   }
 
   /* ── 속성·집계 탭 ─────────────────────── */
@@ -970,6 +974,7 @@
     set(h) {
       this.h = clamp(h, this.peek(), this.max());
       document.documentElement.style.setProperty('--sheet-h', this.h + 'px'); // 앱 칸 밖으로 옮긴 알림도 서랍 위에 뜨게
+      document.documentElement.classList.toggle('sheet-tall', this.h > window.innerHeight * 0.5); // 크게 열면 알림은 위쪽에 (style.css)
       ui.emit('sheet', this.h);
     },
     isOpen() {
@@ -1027,6 +1032,7 @@
         sheet.set(sheet.h || sheet.peek());
       } else {
         document.documentElement.style.removeProperty('--sheet-h');
+        document.documentElement.classList.remove('sheet-tall');
         sheet.h = 0;
         ui.emit('sheet', 0);
       }

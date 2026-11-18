@@ -493,27 +493,31 @@
     for (let i = 0; i < cons.length; i += 2) pairs.push([cons[i], cons[i + 1] || null]);
     const y0 = M + 266, bottom = H - FOOT - 10;
     const ovH = table(P, M, 0, OV, ovRows, { size: 24, rowH: 60, dry: true });
-    const ORG = [{ w: 300, head: '역할' }, { w: 300, head: '이름' }, { w: 470, head: '연락처' }, { w: 324, head: '무전 채널' }];
-    const orgRows = org.map((o) => [{ t: o.role, weight: 700 }, o.name, o.phone, o.radio]);
+    // 칸 너비: 역할·이름은 30자까지 두 줄에 들어가게 넓게, 연락처·무전 채널은 그만큼 좁게 (합계는 그대로)
+    const ORG = [{ w: 380, head: '역할' }, { w: 430, head: '이름' }, { w: 330, head: '연락처' }, { w: 254, head: '무전 채널' }];
+    const orgRows = (n) => org.map((o) => [{ t: o.role, weight: 700, lines: n }, { t: o.name, lines: n }, { t: o.phone, lines: n }, { t: o.radio, lines: n }]);
     const CON = [{ w: 420, head: '기관' }, { w: 277, head: '전화' }, { w: 420, head: '기관' }, { w: 277, head: '전화' }];
-    const conRows = pairs.map(([a, b]) => [{ t: a.org, weight: 700, lines: 2 }, { t: a.phone, weight: 700, lines: 2 }, { t: b ? b.org : '', weight: 700, lines: 2 }, { t: b ? b.phone : '', weight: 700, lines: 2 }]);
-    // 안전 조직·비상 연락망: 실제로 재어 남은 자리에 들어가는 가장 넉넉한 줄 높이·글자 (빈칸은 손으로 적기 좋게 넉넉히)
+    const conRows = (n) => pairs.map(([a, b]) => [{ t: a.org, weight: 700, lines: n }, { t: a.phone, weight: 700, lines: n }, { t: b ? b.org : '', weight: 700, lines: n }, { t: b ? b.phone : '', weight: 700, lines: n }]);
+    // 안전 조직·비상 연락망: 실제로 재어 남은 자리에 들어가는 가장 넉넉한 줄 높이·글자 (빈칸은 손으로 적기 좋게 넉넉히).
+    // 긴 글은 두 줄까지 — 줄이 아주 많아 두 줄로는 가장 작은 글자로도 1쪽에 안 들어갈 때만 한 줄(…)로
     const room = bottom - y0 - (3 * 64 + 2 * 34) - ovH;
-    let fit = { size: 18, rowH: 33, vpad: 8 };
-    search: for (const size of [24, 22, 20, 18]) {
-      const lh = Math.round(size * 1.4);
-      for (let rowH = 76; rowH >= lh + 8; rowH -= 2) {
-        const o = { size, rowH, vpad: Math.min(22, rowH - lh), dry: true };
-        if (table(P, M, 0, ORG, orgRows, o) + table(P, M, 0, CON, conRows, o) <= room) { fit = o; break search; }
+    let fit = { size: 18, rowH: 33, vpad: 8, n: 1 };
+    search: for (const n of [2, 1]) {
+      for (const size of [24, 22, 20, 18]) {
+        const lh = Math.round(size * 1.4);
+        for (let rowH = 76; rowH >= lh + 8; rowH -= 2) {
+          const o = { size, rowH, vpad: Math.min(22, rowH - lh), dry: true };
+          if (table(P, M, 0, ORG, orgRows(n), o) + table(P, M, 0, CON, conRows(n), o) <= room) { fit = { ...o, n }; break search; }
+        }
       }
     }
     const opt = { size: fit.size, rowH: fit.rowH, vpad: fit.vpad };
     let y = heading(P, '행사 개요', y0);
     y = table(P, M, y, OV, ovRows, { size: 24, rowH: 60 }) + 34;
     y = heading(P, '안전 조직', y, '역할·이름·연락처·무전 채널');
-    y = table(P, M, y, ORG, orgRows, opt) + 34;
+    y = table(P, M, y, ORG, orgRows(fit.n), opt) + 34;
     y = heading(P, '비상 연락망', y);
-    table(P, M, y, CON, conRows, opt);
+    table(P, M, y, CON, conRows(fit.n), opt);
   }
 
   /* ── 2쪽: 배치도·대피 경로도 ── */
