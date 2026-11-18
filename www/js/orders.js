@@ -194,7 +194,7 @@
     let qty;
     if (state !== 'todo') qty = prev;
     else if (typeof rec.qty === 'number' && Number.isFinite(rec.qty)) qty = rec.qty;
-    else qty = prev > 0 ? Math.max(0, r1(l.qty - prev)) : l.qty;
+    else qty = prev > 0 ? Math.max(0, r1(l.qty - (typeof rec.calc === 'number' ? Math.max(rec.calc, prev) : prev))) : l.qty; // 추가분: 지금 모자란 만큼 (도면이 더 바뀌어도 따라감)
     // 추가 필요: 주문할 때의 계산 수량보다 지금 계산이 많을 때만 (일부러 적게 주문한 것은 아님). 예전 기록은 주문한 양과 비교
     // (계산보다 많이 주문했으면 주문한 양을 넘어설 때부터)
     const base = typeof rec.calc === 'number' ? Math.max(rec.calc, prev) : prev;
@@ -419,10 +419,8 @@
   function more(body, el) {
     const key = el.dataset.key;
     if (!byKey.has(key)) return;
-    const need = view(byKey.get(key)).more; // ‘추가 필요 +N’의 N을 주문 수량으로
     const r = recW(key);
-    ['state', 'gotAt', 'qty'].forEach((k) => delete r[k]);
-    if (need > 0) r.qty = need;
+    ['state', 'gotAt', 'qty'].forEach((k) => delete r[k]); // 주문 수량은 비워 둠 → 지금 모자란 만큼 (view)
     tidy(key);
     save();
     paintLine(el);
@@ -436,6 +434,12 @@
     const todo = ls.filter((x) => x.v.state === 'todo' && x.v.qty > 0);
     if (todo.length) return { items: todo, again: false };
     return { items: ls.filter((x) => x.v.state === 'ordered' && x.v.qty > 0), again: true, got: ls.some((x) => x.v.state === 'received') };
+  }
+
+  /** 주문 글에 들어가는 것의 서명: 같으면 마지막 글을 그대로 다시 보내고, 바뀌었으면(납품일·시간·현장·수량·제품) 바뀐 글로 */
+  function orderSig(t, items) {
+    const g = groupOf(t.id);
+    return JSON.stringify([dateOf(t), g.ampm === 'pm' ? 'pm' : 'am', ['addr', 'to', 'phone', 'memo'].map(siteVal), items.map(({ l, v }) => [l.key, v.qty, v.product])]);
   }
 
   /* ── 주문 글 ── */
@@ -489,8 +493,12 @@
       return;
     }
     const g = groupOf(t.id);
-    // 다시 보내기: 마지막에 보낸 글 그대로 (추가분을 보낸 뒤 누적 수량을 새 주문처럼 보내지 않게)
-    const text = again ? `[재발송]\n${typeof g.lastText === 'string' && g.lastText ? g.lastText : orderText(t, items)}` : orderText(t, items);
+    // 다시 보내기: 보낸 뒤 바뀐 게 없으면 마지막 글 그대로 [재발송], 바뀌었으면 지금 내용으로 [변경],
+    // 전화로 주문하고 상태만 바꿔 둔 줄(보낸 글 없음)이면 그냥 주문 글
+    const last = typeof g.lastText === 'string' && g.lastText ? g.lastText : '';
+    const same = again && last && g.lastSig === orderSig(t, items);
+    const fresh = orderText(t, items);
+    const text = !again ? fresh : same ? `[재발송]\n${last}` : last ? `[변경]\n${fresh}` : fresh;
     const out = sec.querySelector('[data-out]');
     out.hidden = true;
     out.innerHTML = '';
@@ -508,7 +516,8 @@
       return;
     }
     if (again) {
-      if (how === 'share') App.ui.toast('주문한 내용을 다시 보냈습니다.');
+      if (!same) { const gw = groupW(t.id); gw.lastText = fresh; gw.lastSig = orderSig(t, items); save(); } // 바뀐 글을 보낸 것으로 기억
+      if (how === 'share') App.ui.toast(same ? '주문한 내용을 다시 보냈습니다.' : '바뀐 주문 내용을 보냈습니다.');
       return;
     }
     sent(body, sec, items, how === 'share', text);
@@ -521,6 +530,7 @@
     if (typeof g.date !== 'string') g.date = dateOf(t);
     if (!g.ampm) g.ampm = groupOf(t.id).ampm === 'pm' ? 'pm' : 'am';
     g.lastText = text || orderText(t, items);
+    g.lastSig = orderSig(t, toSend(t.id).items); // 주문함이 된 줄로 (다시 보낼 때 견줄 기준)
     save();
     items.forEach(({ l }) => paintLine(lineEl(body, l.key)));
     paintTools(body);
@@ -588,12 +598,17 @@
     Object.keys(L).forEach((k) => {
       const r = L[k], l = byKey.get(k);
       if (isObj(r)) {
-        // 계산과 다르게 주문한 양은 주문 수량으로 남김 (안내대로 ‘주문 수량은 그대로’)
-        if (typeof r.orderedQty === 'number' && (!l || Math.abs(r.orderedQty - l.qty) > 1e-9) && typeof r.qty !== 'number') r.qty = r.orderedQty;
+        if (typeof r.orderedQty === 'number') {
+          // 계산과 다르게 주문한 양만 주문 수량으로 남김 (주문 때의 계산과 견줌, 예전 기록은 지금 계산과). 주문 전 추가분 수량은 버림
+          const base = typeof r.calc === 'number' ? r.calc : l ? l.qty : null;
+          if (base == null || Math.abs(r.orderedQty - base) > 1e-9) r.qty = r.orderedQty;
+          else delete r.qty;
+        }
         ['state', 'at', 'gotAt', 'orderedQty', 'calc'].forEach((f) => delete r[f]);
       }
       tidy(k);
     });
+    Object.values(part('groups')).forEach((g) => { if (isObj(g)) { delete g.lastText; delete g.lastSig; } });
     save();
     redraw(body);
     App.ui.toast('모든 줄을 ‘주문 전’으로 되돌렸습니다. 주문 수량·제품 메모는 그대로입니다.');

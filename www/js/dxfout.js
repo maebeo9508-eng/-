@@ -444,7 +444,7 @@
     const openings = [...of('door'), ...of('window')].map((el) => ({ el, g: App.model.openingGeom(el) })).filter((x) => x.g);
     walls(w, of('wall').filter((x) => G.dist(x.start, x.end) >= 1), openings);
     openings.forEach(({ el, g }) => opening(w, el, g));
-    if (App.current.openingMarks && App.openings) openings.forEach(({ el, g }) => openingMark(w, el, g));
+    if (App.openings && App.openings.showing()) openings.forEach(({ el, g }) => openingMark(w, el, g)); // 화면·PNG와 같은 조건 (조감도에서는 없음)
     of('column').forEach((c) => {
       const { hx, hy } = App.model.TYPES.column.half(c);
       if (c.shape === 'circle') w.circle('A-COLS', c, hx);

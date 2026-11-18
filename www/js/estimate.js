@@ -36,7 +36,7 @@
     const flush = () => {
       clearTimeout(upTimer);
       pointerIsDown = false;
-      if (pendingRender) { pendingRender = false; setTimeout(() => App.summary.render(), 0); }
+      if (pendingRender) { pendingRender = false; setTimeout(renderKeep, 0); }
     };
     const down = () => { clearTimeout(upTimer); pointerIsDown = true; };
     document.addEventListener('pointerdown', down, true);
@@ -46,7 +46,27 @@
     document.addEventListener('pointerup', up, true);
     document.addEventListener('pointercancel', flush, true);
   }
-  const renderSoon = () => { if (pointerIsDown) pendingRender = true; else App.summary.render(); };
+  /** 다시 그려도 커서는 그 칸에 (id·단가 열쇠·기타 항목 칸·공종 칸으로 찾음) */
+  function renderKeep() {
+    const a = document.activeElement, pane = document.getElementById('pane-summary');
+    let sel = '';
+    if (a && pane && pane.contains(a)) {
+      const ex = a.closest('[data-extra]');
+      if (a.id) sel = `#${CSS.escape(a.id)}`;
+      else if (a.dataset.price != null) sel = `[data-price="${CSS.escape(a.dataset.price)}"]`;
+      else if (a.dataset.trade != null) sel = `[data-trade="${CSS.escape(a.dataset.trade)}"]`;
+      else if (ex && a.dataset.x) sel = `[data-extra="${CSS.escape(ex.dataset.extra)}"] [data-x="${a.dataset.x}"]`;
+      else if (ex && a.dataset.xtrade != null) sel = `[data-extra="${CSS.escape(ex.dataset.extra)}"] [data-xtrade]`;
+    }
+    const caret = a && typeof a.selectionStart === 'number' ? a.selectionStart : null;
+    App.summary.render();
+    const b = sel && pane ? pane.querySelector(sel) : null;
+    if (b) {
+      b.focus({ preventScroll: true });
+      if (caret != null && typeof b.setSelectionRange === 'function') try { b.setSelectionRange(caret, caret); } catch (e) { /* 숫자 칸 등 */ }
+    }
+  }
+  const renderSoon = () => { if (pointerIsDown) pendingRender = true; else renderKeep(); };
   /** 자주 넣는 기타 항목: [이름, 단위] */
   const EXTRA_PRESETS = {
     interior: [['인건비', '인'], ['자재 운반비', '식'], ['폐기물 처리', '식'], ['철거', '식'], ['공구·소모품', '식'], ['할인', '식']],
@@ -521,9 +541,10 @@
         const v = k === 'round' ? Number(t.value) : parseFloat(String(t.value).replace(/,/g, '.').replace(/[^\d.]/g, ''));
         if (Number.isFinite(v) && v > 0 && (k !== 'misc' && k !== 'profit' || v < 100)) a[k] = Math.round(v * 100) / 100;
         else delete a[k];
+        if (k !== 'round') t.value = a[k] != null ? String(a[k]) : ''; // 친 값을 정리해 보여 줌 (5,5 → 5.5)
         if (!Object.keys(a).length) delete App.current.estimateAdj;
         save();
-        renderSoon();
+        refreshTotals(pane); // 합계 칸만 다시 씀 (방금 누른 칸이 그대로)
       } else if (t.id === 'estVatOn') {
         App.current.vat = t.checked;
         refreshTotals(pane);
@@ -989,8 +1010,12 @@
       for (let k = 0; k < numbered.length;) {
         let end = Math.min(numbered.length, k + nextRows);
         if (end < numbered.length) {
-          if (numbered[end - 1].head) end--; // 공종 머리줄만 쪽 끝에 남지 않게
-          else if (numbered[end].sub && !numbered[end - 1].sub && end - 1 > k) end--; // 소계만 다음 쪽 맨 위에 가지 않게 (한 줄을 같이 넘김)
+          // 소계(와 이어진 직접공사비 합계)만 다음 쪽 맨 위에 가지 않게: 앞의 소계와 항목 한 줄을 같이 넘김
+          while (end - 1 > k && numbered[end].sub && numbered[end - 1].sub) end--;
+          if (numbered[end].sub && end - 1 > k) end--;
+          // 공종 머리줄만 쪽 끝에 남지 않게
+          while (end - 1 > k && numbered[end - 1].head) end--;
+          if (end <= k) end = Math.min(numbered.length, k + nextRows); // 못 나누면 그대로
         }
         parts.push(numbered.slice(k, end));
         k = end;

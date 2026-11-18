@@ -20,6 +20,7 @@
   const W = PX(210), H = PX(297); // A4 세로
   const M = 130, TOP = 260, FOOT = 190; // 제안서와 같은 여백·머리글 아래·바닥글 위
   const K = 2.2; // 배치도: 화면 1px을 그림 몇 px로 (글자·기호 크기)
+  let curK = K; // 지금 그리는 배치도의 배율 (300m 넘는 큰 부지는 줄여서 칸에 다 들어가게)
   const INK = '#1f2937', MUTE = '#6b7280', FAINT = '#9ca3af', LINE = '#e5e7eb', SOFT = '#f3f4f6', ACCENT = '#c54b08', STAFF = '#6741d9';
   const LV_COLOR = { ok: '#2f9e44', warn: '#e8590c', bad: '#e03131', info: '#868e96' };
   const BADGE_W = 112;
@@ -58,7 +59,15 @@
   /** 처음 값: 행사 이름은 도면 이름, 날짜는 공정표의 행사일 */
   function defaults() {
     const sc = App.current.schedule;
-    const day = sc && typeof sc === 'object' && /^\d{4}-\d{2}-\d{2}$/.test(sc.eventDay || '') ? sc.eventDay : '';
+    let day = sc && typeof sc === 'object' && /^\d{4}-\d{2}-\d{2}$/.test(sc.eventDay || '') ? sc.eventDay : '';
+    // 여러 날 행사면 공정표의 행사 기간 (행사일을 공정표에서 골랐을 때만)
+    if (day && App.schedule) {
+      try {
+        const p = App.schedule.plan(), ev = p.eventSet ? p.tasks.find((t) => t.kind === 'event') : null;
+        const iso = (x) => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
+        if (ev && ev.to > ev.from) day = `${iso(ev.from)} ~ ${iso(ev.to)}`;
+      } catch (e) { /* 공정표를 못 읽으면 첫날만 */ }
+    }
     return { name: projectName(), date: day, time: '', address: '', host: '', organizer: '', peak: '', program: '' };
   }
   /** 칸 값: 고친 값(빈 칸으로 고친 것도), 없으면 처음 값 */
@@ -93,7 +102,12 @@
   function dateText(s) {
     const v = str(s).trim();
     const m = /^(\d{4}-\d{2}-\d{2})\s*~\s*(.+)$/.exec(v);
-    return m ? `${isoText(m[1])} ~ ${isoText(m[2].trim())}` : isoText(v);
+    if (!m) return isoText(v);
+    const a = isoText(m[1]), b = isoText(m[2].trim());
+    // 같은 해·같은 달이면 줄여서: 2026년 12월 12일 (토) ~ 14일 (월)
+    const ma = /^(\d+)년 (\d+)월 (.+)$/.exec(a), mb = /^(\d+)년 (\d+)월 (.+)$/.exec(b);
+    if (ma && mb && ma[1] === mb[1]) return `${a} ~ ${ma[2] === mb[2] ? mb[3] : `${mb[2]}월 ${mb[3]}`}`;
+    return `${a} ~ ${b}`;
   }
 
   /* ── 안전 요원·구역 ── */
@@ -223,9 +237,9 @@
       level: lv(cL), res: cL ? (dark ? '어두운 곳 있음' : '모두 밝음') : r.indoor ? '실내' : '낮 행사',
     });
     // 비상구
-    const cE = ck('evac'), exits = r.data.exits || [], width = exits.reduce((t, x) => t + x.width, 0) / 1000;
+    const cE = ck('evac'), all = r.data.exits || [], exits = all.filter((x) => x.routes.some((rt) => App.layers.visible(rt))), width = exits.reduce((t, x) => t + x.width, 0) / 1000;
     out.push({
-      item: '비상구·대피', now: exits.length ? `${exits.length}곳 · 출구 폭 합계 ${n1(width)}m` : '대피 동선 없음',
+      item: '비상구·대피', now: exits.length ? `${exits.length}곳 · 출구 폭 합계 ${n1(width)}m` : all.length ? '대피 동선이 숨긴 레이어에 있음' : '대피 동선 없음',
       rule: `${RULE.evacMin}분 안에 모두 대피 (출구 폭 1m에 1분 ${RULE.flow}명)`, level: lv(cE),
       res: cE ? (exits.length ? `대피 ${cE.value}` : '대피 길 정해야 함') : '—',
     });
@@ -342,7 +356,7 @@
   }
 
   /** 표. cols: [{ w, head, align }], rows: [[칸…]] — 칸은 글자 또는 { t, span(칸 수), shade(회색 바탕), weight, color, lines(줄 수 한도), badge(점검 수준) }.
-      o: { size(글자), rowH(가장 낮은 줄 높이), headH, lines, dry(재기만) }. 돌려주는 값: 표 아래 y */
+      o: { size(글자), rowH(가장 낮은 줄 높이), vpad(글자 위아래 여백 합, 기본 22), headH, lines, dry(재기만) }. 돌려주는 값: 표 아래 y */
   function table(P, x, y, cols, rows, o = {}) {
     const ctx = P.ctx, size = o.size || 24, pad = 16, rowH = o.rowH || 60, draw = !o.dry;
     const total = cols.reduce((t, c) => t + c.w, 0), top = y;
@@ -380,7 +394,8 @@
         cx += w;
         return cell;
       });
-      const h = Math.max(rowH, ...cells.map((c) => c.lines.length * Math.round(c.sz * 1.4) + 22));
+      const vpad = o.vpad != null ? o.vpad : 22;
+      const h = Math.max(rowH, ...cells.map((c) => c.lines.length * Math.round(c.sz * 1.4) + vpad));
       if (draw) {
         cells.forEach((c) => {
           if (c.shade) { ctx.fillStyle = SOFT; ctx.fillRect(c.x, y, c.w, h); }
@@ -463,9 +478,9 @@
     const OV = [{ w: 220 }, { w: 477 }, { w: 220 }, { w: 477 }];
     const ovRows = [
       [lab('행사 이름'), { t: ov.get('행사 이름'), span: 3, weight: 700 }],
-      [lab('날짜'), ov.get('날짜'), lab('시간'), ov.get('시간')],
+      [lab('날짜'), { t: ov.get('날짜'), lines: 2 }, lab('시간'), { t: ov.get('시간'), lines: 2 }],
       [lab('장소'), { t: ov.get('장소'), span: 3, lines: 2 }],
-      [lab('주최'), ov.get('주최'), lab('주관'), ov.get('주관')],
+      [lab('주최'), { t: ov.get('주최'), lines: 2 }, lab('주관'), { t: ov.get('주관'), lines: 2 }],
       [lab('예상 인원'), { t: ov.get('예상 인원'), lines: 2 }, lab('순간 최대 인원'), { t: ov.get('순간 최대 인원'), lines: 2 }],
       [lab('주요 프로그램'), { t: ov.get('주요 프로그램'), span: 3, lines: 5 }],
     ];
@@ -476,17 +491,27 @@
     for (let i = 0; i < cons.length; i += 2) pairs.push([cons[i], cons[i + 1] || null]);
     const y0 = M + 266, bottom = H - FOOT - 10;
     const ovH = table(P, M, 0, OV, ovRows, { size: 24, rowH: 60, dry: true });
-    const fixed = 3 * 64 + 2 * 34 + ovH + 2 * 50;
-    const rowH = Math.max(38, Math.min(76, Math.floor((bottom - y0 - fixed) / (org.length + pairs.length)))); // 빈칸은 손으로 적기 좋게 넉넉히
-    const size = rowH < 50 ? 22 : 24;
+    const ORG = [{ w: 300, head: '역할' }, { w: 300, head: '이름' }, { w: 470, head: '연락처' }, { w: 324, head: '무전 채널' }];
+    const orgRows = org.map((o) => [{ t: o.role, weight: 700 }, o.name, o.phone, o.radio]);
+    const CON = [{ w: 420, head: '기관' }, { w: 277, head: '전화' }, { w: 420, head: '기관' }, { w: 277, head: '전화' }];
+    const conRows = pairs.map(([a, b]) => [{ t: a.org, weight: 700, lines: 2 }, { t: a.phone, weight: 700, lines: 2 }, { t: b ? b.org : '', weight: 700, lines: 2 }, { t: b ? b.phone : '', weight: 700, lines: 2 }]);
+    // 안전 조직·비상 연락망: 실제로 재어 남은 자리에 들어가는 가장 넉넉한 줄 높이·글자 (빈칸은 손으로 적기 좋게 넉넉히)
+    const room = bottom - y0 - (3 * 64 + 2 * 34) - ovH;
+    let fit = { size: 18, rowH: 33, vpad: 8 };
+    search: for (const size of [24, 22, 20, 18]) {
+      const lh = Math.round(size * 1.4);
+      for (let rowH = 76; rowH >= lh + 8; rowH -= 2) {
+        const o = { size, rowH, vpad: Math.min(22, rowH - lh), dry: true };
+        if (table(P, M, 0, ORG, orgRows, o) + table(P, M, 0, CON, conRows, o) <= room) { fit = o; break search; }
+      }
+    }
+    const opt = { size: fit.size, rowH: fit.rowH, vpad: fit.vpad };
     let y = heading(P, '행사 개요', y0);
     y = table(P, M, y, OV, ovRows, { size: 24, rowH: 60 }) + 34;
     y = heading(P, '안전 조직', y, '역할·이름·연락처·무전 채널');
-    y = table(P, M, y, [{ w: 300, head: '역할' }, { w: 300, head: '이름' }, { w: 470, head: '연락처' }, { w: 324, head: '무전 채널' }],
-      org.map((o) => [{ t: o.role, weight: 700 }, o.name, o.phone, o.radio]), { size, rowH }) + 34;
+    y = table(P, M, y, ORG, orgRows, opt) + 34;
     y = heading(P, '비상 연락망', y);
-    const CON = [{ w: 420, head: '기관' }, { w: 277, head: '전화' }, { w: 420, head: '기관' }, { w: 277, head: '전화' }];
-    table(P, M, y, CON, pairs.map(([a, b]) => [{ t: a.org, weight: 700 }, { t: a.phone, weight: 700 }, { t: b ? b.org : '', weight: 700 }, { t: b ? b.phone : '', weight: 700 }]), { size, rowH });
+    table(P, M, y, CON, conRows, opt);
   }
 
   /* ── 2쪽: 배치도·대피 경로도 ── */
@@ -515,19 +540,23 @@
   /** 겹쳐 보기의 ‘비상구’ 글자 상자 (safety.js drawLabels와 같은 자리·글꼴, 그림 px) */
   function exitTag(ctx, T, x) {
     const q = T.toPage(x.at);
-    ctx.font = `800 ${12 * K}px system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif`;
-    const w = ctx.measureText('비상구').width + 12 * K, y = q.y - 16 * K;
-    return { x0: q.x - w / 2 - 2 * K, x1: q.x + w / 2 + 2 * K, y0: y - 12 * K, y1: y + 12 * K, cy: y };
+    const k = curK;
+    ctx.font = `800 ${12 * k}px system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif`;
+    const w = ctx.measureText('비상구').width + 12 * k, y = q.y - 16 * k;
+    return { x0: q.x - w / 2 - 2 * k, x1: q.x + w / 2 + 2 * k, y0: y - 12 * k, y1: y + 12 * k, cy: y };
   }
   /** 도면 위 글자(비상구·밀집도·영역 이름) 자리: 안전 요원 번호가 그 위에 겹치지 않게 (밀집도·영역 이름은 어림 크기) */
   function labelBoxes(ctx, d, T, ex) {
     const out = [];
-    const box = (p, dy, w, h) => { const q = T.toPage(p); out.push({ x0: q.x - (w / 2) * K, x1: q.x + (w / 2) * K, y0: q.y + (dy - h / 2) * K, y1: q.y + (dy + h / 2) * K }); };
+    const k = curK;
+    const box = (p, dy, w, h) => { const q = T.toPage(p); out.push({ x0: q.x - (w / 2) * k, x1: q.x + (w / 2) * k, y0: q.y + (dy - h / 2) * k, y1: q.y + (dy + h / 2) * k }); };
     ex.forEach((x) => { const b = exitTag(ctx, T, x.x); out.push(x.badge ? { ...b, x1: b.x1 + 40 } : b); });
     (d.r.data.crowdZones || []).filter((z) => App.layers.visible(z)).forEach((z) => box(App.geom.interiorPoint(z.points), 34, 130, 24));
     d.L.zones.forEach((z) => box(App.geom.interiorPoint(z.points), 0, 90, 36));
     return out;
   }
+  /** 비상구는 있는데 동선이 모두 숨긴 레이어에 있음 */
+  const hiddenExits = (d) => (d.r.data.exits || []).length > 0 && !(d.r.data.exits || []).some((x) => x.routes.some((rt) => App.layers.visible(rt)));
   /** 비상구: 번호·출구 폭·이어진 대피 동선·가장 가까운 안전 요원 (도면에 ‘비상구’ 글자가 있는 곳만) */
   function exitRows(d) {
     return (d.r.data.exits || []).filter((x) => x.routes.some((rt) => App.layers.visible(rt))).map((x, i) => {
@@ -627,8 +656,9 @@
     const P = frame(ctx, d, no, total, '배치도·대피 경로도');
     const f = FONT(), cw = W - 2 * M, r = d.r;
     const evac = r.checks.find((c) => c.id === 'evac');
-    const sum = [`예상 ${n0(r.expected)}명${r.auto ? ' (어림)' : ''}`, `비상구 ${r.data.exits.length}곳`, `안전 요원 ${n0(d.staffN)}명${d.staffN ? ` (S1~S${d.staffN})` : ''}`,
-      `소화기 ${d.count('소화기')}개`, evac && r.data.exits.length ? `대피 ${evac.value}` : ''].filter(Boolean).join(' · ');
+    const shown = exitRows(d).length; // 배치도·표·글과 같은 비상구 (숨긴 동선은 뺌)
+    const sum = [`예상 ${n0(r.expected)}명${r.auto ? ' (어림)' : ''}`, `비상구 ${shown}곳`, `안전 요원 ${n0(d.staffN)}명${d.staffN ? ` (S1~S${d.staffN})` : ''}`,
+      `소화기 ${d.count('소화기')}개`, evac && shown ? `대피 ${evac.value}` : ''].filter(Boolean).join(' · ');
     P.text(sum, M, TOP + 40, 27, 700, INK, 'left', cw);
     const rows = legendRows(P, legendKeys(d, P), cw);
     const top = TOP + 88, maxH = H - FOOT - 30 - rows.length * 48 - top;
@@ -651,8 +681,11 @@
     let tags = 0;
     if (d.rect) {
       const inner = { x: box.x + 16, y: box.y + 16, width: box.width - 32, height: box.height - 32 - 64 };
-      const scale = App.safety.withOverlay(() => App.exporter.drawPlan(ctx, inner, d.rect, K));
-      const T = App.exporter.planTransform(inner, d.rect, K);
+      // 화면 배율 하한(0.002px/mm) 때문에 300m쯤 넘는 부지는 잘리므로, 그만큼 글자·기호 배율을 줄여 칸에 다 넣음
+      const rw = Math.max(1, d.rect.maxX - d.rect.minX), rh = Math.max(1, d.rect.maxY - d.rect.minY);
+      curK = Math.min(K, (inner.width / (rw * 0.002)) * 0.99, (inner.height / (rh * 0.002)) * 0.99);
+      const scale = App.safety.withOverlay(() => App.exporter.drawPlan(ctx, inner, d.rect, curK));
+      const T = App.exporter.planTransform(inner, d.rect, curK);
       if (showEx) {
         // 비상구 번호: 겹쳐 보기의 ‘비상구’ 글자 오른쪽에 초록 동그라미
         ctx.save();
@@ -693,7 +726,7 @@
     if (showEx) {
       let y = heading(P, '비상구·대피 동선', exTop, ex.length ? '번호는 배치도의 비상구 옆 숫자 · 맡은 요원이 출구를 열고 안내' : '');
       const cells = ex.slice(0, exRows).map((x) => [{ t: `비상구 ${x.no}`, weight: 700 }, `${n1(x.width / 1000)}m`, { t: x.routes, lines: 2 }, { t: x.staff, weight: 600, color: STAFF }]);
-      if (!ex.length) cells.push([{ t: '비상 대피 동선이 도면에 없습니다. 비상구와 대피 길을 현장에서 정해 적어 넣으세요.', span: 4, color: MUTE }]);
+      if (!ex.length) cells.push([{ t: hiddenExits(d) ? '비상 대피 동선이 숨긴 레이어에 있습니다 — 레이어 메뉴에서 동선을 켜면 배치도와 이 표에 나옵니다.' : '비상 대피 동선이 도면에 없습니다. 비상구와 대피 길을 현장에서 정해 적어 넣으세요.', span: 4, color: MUTE }]);
       else if (ex.length > exRows) cells.push([{ t: `… 외 ${ex.length - exRows}곳`, span: 4, color: MUTE }]);
       y = table(P, M, y, [{ w: 200, head: '비상구' }, { w: 150, head: '출구 폭', align: 'right' }, { w: 604, head: '이어진 대피 동선' }, { w: 440, head: '가까운 안전 요원' }], cells, { size: 22, rowH: 56 }) + 24;
       const lab = (t) => ({ t, shade: true, weight: 700, color: MUTE, size: 22 });
@@ -713,24 +746,36 @@
       fac.map((x) => [{ t: x.item, weight: 700 }, { t: x.now, weight: 600, lines: 2 }, { t: x.rule, color: '#4b5563', lines: 2, size: 21 }, { t: x.res, badge: x.level, lines: 2, size: 21, weight: 600, color: LV_COLOR[(App.safety.LV[x.level] || App.safety.LV.info).cls] }]),
       { size: 23, rowH: 66 }) + 40;
     y = heading(P, '구역별 안전 요원 배치표', y, '번호는 2쪽 배치도의 S 번호 · 이름은 현장에서 적어 넣기');
-    // 줄이 많으면 줄 높이를 줄이고, 그래도 넘치면 요원·관람 구역이 있는 줄을 먼저 남김
-    const bottom = H - FOOT - 70;
+    // 줄이 많으면 줄 높이를 줄이고, 그래도 넘치면 요원·관람 구역이 있는 줄을 먼저 남김 — 실제로 재어 아래 안내 글 자리까지 남김
+    const limit = H - FOOT - 20 - 128;
     const all = d.L.rows;
-    const rowH = Math.max(42, Math.min(58, Math.floor((bottom - y - 50) / Math.max(1, all.length))));
-    const fit = Math.max(1, Math.floor((bottom - y - 50) / rowH));
-    let rows = all;
-    if (all.length > fit) {
-      const keep = new Set(all.filter((z) => z.nums.length || z.crowd).slice(0, fit - 1));
-      all.forEach((z) => { if (keep.size < fit - 1 && !keep.has(z)) keep.add(z); });
-      rows = all.filter((z) => keep.has(z));
+    const ZC = [{ w: 300, head: '구역' }, { w: 170, head: '넓이', align: 'right' }, { w: 250, head: '권장 최대 인원', align: 'right' }, { w: 400, head: '안전 요원 (번호)' }, { w: 274, head: '이름' }];
+    const zoneCells = (z) => [{ t: z.name, weight: 700 }, z.area != null ? App.units.formatArea(z.area) : '—', z.max != null ? `${n0(z.max)}명` : '—', { t: z.staffText, weight: 600, color: z.nums.length ? STAFF : INK }, ''];
+    const pick = (n) => {
+      if (n >= all.length) return all;
+      const keep = new Set(all.filter((z) => z.nums.length || z.crowd).slice(0, n));
+      all.forEach((z) => { if (keep.size < n && !keep.has(z)) keep.add(z); });
+      return all.filter((z) => keep.has(z));
+    };
+    const build = (n, blanks) => {
+      const rows = pick(n), out = rows.map(zoneCells);
+      if (rows.length < all.length) out.push([{ t: `… 외 ${all.length - rows.length}곳 (‘글만 복사’에 모두 있음)`, span: 5, color: MUTE }]);
+      for (let i = 0; i < blanks; i++) out.push(['', '', '', '', '']);
+      return out;
+    };
+    let best = null;
+    search: for (let n = all.length; n >= 1; n--) {
+      for (let rowH = 58; rowH >= 40; rowH -= 2) {
+        const o = { size: 22, rowH, vpad: Math.min(22, rowH - 31), dry: true };
+        if (y + table(P, M, 0, ZC, build(n, 0), o) <= limit) { best = { n, o }; break search; }
+      }
     }
-    const cells = rows.map((z) => [{ t: z.name, weight: 700 }, z.area != null ? App.units.formatArea(z.area) : '—', z.max != null ? `${n0(z.max)}명` : '—', { t: z.staffText, weight: 600, color: z.nums.length ? STAFF : INK }, '']);
-    if (rows.length < all.length) cells.push([{ t: `… 외 ${all.length - rows.length}곳 (‘글만 복사’에 모두 있음)`, span: 5, color: MUTE }]);
-    // 줄이 적으면 손으로 적을 빈 줄 (입구·주차장처럼 도면에 영역이 없는 자리)
-    const blanks = Math.max(0, Math.min(fit, 6) - cells.length);
-    for (let i = 0; i < blanks; i++) cells.push(['', '', '', '', '']);
-    y = table(P, M, y, [{ w: 300, head: '구역' }, { w: 170, head: '넓이', align: 'right' }, { w: 250, head: '권장 최대 인원', align: 'right' }, { w: 400, head: '안전 요원 (번호)' }, { w: 274, head: '이름' }],
-      cells, { size: 22, rowH });
+    if (!best) best = { n: 1, o: { size: 22, rowH: 40, vpad: 9 } };
+    // 줄이 적으면 손으로 적을 빈 줄 (입구·주차장처럼 도면에 영역이 없는 자리) — 6줄까지, 들어가는 만큼
+    let blanks = Math.max(0, 6 - (best.n + (best.n < all.length ? 1 : 0)));
+    while (blanks > 0 && y + table(P, M, 0, ZC, build(best.n, blanks), best.o) > limit) blanks--;
+    const cells = build(best.n, blanks);
+    y = table(P, M, y, ZC, cells, { size: best.o.size, rowH: best.o.rowH, vpad: best.o.vpad });
     const notes = [`권장 최대 인원은 관람 구역만 (1㎡에 ${RULE.densityOk}명).`];
     if (blanks) notes.push('빈 줄에는 입구·주차장처럼 도면에 없는 자리를 적어 넣으세요.');
     if (!d.staffN) notes.push('안전 요원 자리가 아직 도면에 없어 번호 칸은 현장에서 적어 넣습니다.');
@@ -793,7 +838,7 @@
     }
     y = heading(P, '비상 연락처', y + 4);
     const CON = [{ w: 420, head: '기관' }, { w: 277, head: '전화' }, { w: 420, head: '기관' }, { w: 277, head: '전화' }];
-    table(P, M, y, CON, pairs.map(([a, b]) => [{ t: a.org, weight: 700 }, { t: a.phone, weight: 800 }, { t: b ? b.org : '', weight: 700 }, { t: b ? b.phone : '', weight: 800 }]), { size: 23, rowH: 50 });
+    table(P, M, y, CON, pairs.map(([a, b]) => [{ t: a.org, weight: 700, lines: 2 }, { t: a.phone, weight: 800, lines: 2 }, { t: b ? b.org : '', weight: 700, lines: 2 }, { t: b ? b.phone : '', weight: 800, lines: 2 }]), { size: 23, rowH: 50 });
   }
 
   /* ── 만들기 ── */
@@ -847,7 +892,7 @@
     d.contacts.forEach((x) => out.push(`- ${x.org.trim()}: ${x.phone.trim()}`));
     out.push('', '■ 비상구·대피 동선');
     const ex = exitRows(d);
-    if (!ex.length) out.push('- 비상 대피 동선이 도면에 없습니다 (현장에서 정해 적어 넣기)');
+    if (!ex.length) out.push(hiddenExits(d) ? '- 비상 대피 동선이 숨긴 레이어에 있습니다 (레이어를 켜면 배치도에 나옴)' : '- 비상 대피 동선이 도면에 없습니다 (현장에서 정해 적어 넣기)');
     ex.forEach((x) => out.push(`- 비상구 ${x.no}: 출구 폭 ${n1(x.width / 1000)}m · ${x.routes}${x.staff ? ` · 가까운 안전 요원 ${x.staff}` : ''}`));
     out.push('- 집결지 (모이는 곳): ', '- 대피 안내 방송: ');
     out.push('', `■ 시설·인력 현황 (예상 ${n0(d.r.expected)}명 기준, 현장 어림값)`);
