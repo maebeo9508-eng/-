@@ -546,6 +546,7 @@
 
   function render() {
     const pane = document.getElementById('pane-summary');
+    if (App.modes.is('design') && App.designUI) { widen(false); App.designUI.renderSummary(pane); return; } // 설계 모드: 부재표
     const s = compute();
     const cost = view === 'cost';
     const blocks = cost ? [] : BUILD[view](s);

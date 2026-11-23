@@ -161,6 +161,7 @@
 
     /** 그린 요소 전체 범위(mm). 비어 있으면 null */
     contentBounds() {
+      if (App.modes && App.modes.is('design') && App.designDraw) return App.designDraw.bounds(); // 설계 모드: 지금 설계도면
       return App.doc ? App.doc.bounds() : null;
     }
 
@@ -187,7 +188,7 @@
       ctx.fillStyle = this.colors.canvasBg || '#fff';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       if (App.settings.showGrid) this.drawGrid();
-      this.drawAxes();
+      if (!(App.modes && App.modes.is('design'))) this.drawAxes(); // 설계도면에는 원점 축선을 긋지 않음
       for (const fn of this._layers) {
         ctx.save();
         fn(this);

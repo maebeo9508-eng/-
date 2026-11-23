@@ -1,4 +1,4 @@
-/* 두 가지 모드: 인테리어 도면 / 조감도(행사).
+/* 세 가지 모드: 인테리어 도면 / 조감도(행사) / 설계(가구·틀·전광판을 치수로 만들고 설계도면·부재표).
    모드는 도면마다 저장(App.current.mode)되고, 모드에 따라 도구 줄·집계표·새 도면 템플릿이 달라진다.
    그린 것은 모드와 상관없이 그대로 보인다 (행사장을 벽으로 그린 뒤 조감도 모드에서 물건을 놓는 식으로 같이 씀) */
 (function () {
@@ -17,6 +17,11 @@
       id: 'event', label: '조감도', icon: 'event',
       title: '조감도 (행사)', desc: '텐트·무대·좌석 배치, 동선 체크, 3D로 걸어서 둘러보기',
       tools: ['select', '|', 'event', 'route', 'zone', '|', 'text', 'photo', 'dim', '|', 'wall', 'door', 'window', 'column', '|', 'erase'],
+    },
+    {
+      id: 'design', label: '설계', icon: 'design',
+      title: '설계 도면', desc: '가구·각파이프 틀·전광판을 치수로 만들고 설계도면·부재표를 뽑기',
+      tools: ['dselect', '|', 'dbox', 'dbar'],
     },
   ];
   const byId = (id) => LIST.find((m) => m.id === id) || LIST[0];
@@ -43,6 +48,16 @@
         ['cube', '<b>3D 보기</b>: 낮·노을·밤, 걷기, 이름표·<b>인파</b>·<b>걷는 사람</b>·시점 저장, 사진·<b>영상</b> 저장. 파일 → <b>현장 배치도</b>로 인쇄용 한 장. 파일 → 새 도면의 <b>자동 배치</b>는 종류(콘서트·축제·장터·기념식·체육대회)·인원·크기·입구 쪽만 넣으면 한 번에 놓습니다. 그려 둔 네모 영역을 고르고 <b>이 영역에 자동 배치</b>를 누르면 그 자리에 맞춰 놓습니다.'],
       ],
     },
+  };
+  GUIDE.design = {
+    title: '설계 도면 — 이렇게 쓰세요',
+    steps: [
+      ['design', '위쪽 <b>＋ 새 설계</b>에서 수납장·책장, 테이블, 선반, 카운터, 각파이프 틀, <b>전광판(LED) 틀</b>의 규격 예시를 고르면 바로 만들어집니다.'],
+      ['props', '오른쪽 <b>속성</b>에서 폭·높이·깊이, 판재·파이프, 선반·문짝 수를 바꾸면 정면도·평면도·측면도·입체도와 치수가 따라 바뀝니다. 전광판은 화면 크기·해상도·무게·전력이 함께 나옵니다.'],
+      ['sum', '<b>집계</b>에 <b>부재표</b>(재단 치수·수량, 원장·원자재 수, 무게)가 나옵니다. <b>설계도면</b> 버튼으로 도면과 부재표·재단 배치도를 PDF로, DXF·CSV·GLB로도 저장합니다.'],
+      ['draw', '직접 그리려면 <b>자유 설계</b>에서 <b>판</b>·<b>막대</b> 도구로 끌어 그리고, 부재를 끌어 옮기거나 속성에서 숫자로 맞춥니다. 값으로 만든 것도 <b>부재로 풀기</b> 하면 하나씩 고칠 수 있습니다.'],
+      ['obj', '<b>사물로 등록</b>하면 인테리어·조감도 도면의 <b>내 사물</b>에서 골라 놓고 3D로 볼 수 있습니다. 내려받은 3D 모델(GLB·OBJ·STL)도 여기서 열어 봅니다.'],
+    ],
   };
   function guide(id = modes.get(), force = false) {
     const g = GUIDE[id];
@@ -98,7 +113,7 @@
       document.documentElement.dataset.mode = m.id;
       document.querySelectorAll('#modeSwitch [data-mode]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.mode === m.id)));
       const sub = $('#brandSub');
-      if (sub) sub.textContent = m.id === 'event' ? '행사 조감도' : '물량 집계';
+      if (sub) sub.textContent = m.id === 'event' ? '행사 조감도' : m.id === 'design' ? '설계 도면' : '물량 집계';
       if (changed && App.plan) App.plan.readTheme(); // 모드마다 강조색이 다름
       App.ui.rebuildToolbar();
       App.ui.emit('mode', m.id);

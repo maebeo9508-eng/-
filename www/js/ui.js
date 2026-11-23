@@ -24,6 +24,10 @@
     { id: 'photo', label: '사진', key: 'O' },
     { id: 'dim', label: '치수', key: 'M' },
     { id: 'erase', label: '지우개', key: 'Del' },
+    // 설계 모드
+    { id: 'dselect', label: '선택', key: 'V' },
+    { id: 'dbox', label: '판', key: 'B' },
+    { id: 'dbar', label: '막대', key: 'L' },
   ];
 
   // 도구를 고를 때 보여 줄 사용법
@@ -47,6 +51,9 @@
     text: { pc: '글자를 넣을 곳을 클릭 · Enter로 확정, Shift+Enter 줄바꿈', touch: '글자를 넣을 곳을 누르고 입력하세요' },
     get dim() { return DIM_USAGE[App.current.dimMode] || DIM_USAGE.clear; },
     erase: { pc: '지울 항목을 클릭하거나 문지르세요', touch: '지울 항목을 누르거나 문지르세요' },
+    dselect: { pc: '부재를 클릭하면 크기·자리가 보입니다 · 직접 넣은 부재는 끌어서 옮김(Alt: 붙지 않게) · 빈 곳을 끌면 화면 이동', touch: '부재를 누르면 크기·자리가 보입니다 · 직접 넣은 부재는 끌어서 옮김' },
+    dbox: { pc: '정면도·평면도·측면도 안에서 끌어 판을 그립니다 (두께는 속성에서 고른 판재)', touch: '정면도·평면도·측면도 안에서 끌어 판을 그립니다' },
+    dbar: { pc: '시작점에서 끝점까지 끌어 각재·파이프를 그립니다 · 비스듬히 끌면 버팀대', touch: '시작점에서 끝점까지 끌어 막대를 그립니다' },
   };
 
   const ZONE_USAGE = { pc: '끌면 사각형, 클릭으로 점을 찍으면 다각형 · 처음 점을 다시 누르면 닫힘', touch: '끌면 사각형, 점을 차례로 누르면 다각형' };
@@ -128,7 +135,7 @@
       App.icons.apply(bar);
       bar.scrollTo({ left: 0, top: 0 });
     }
-    setTool(ids.includes(ui.tool) ? ui.tool : 'select');
+    setTool(ids.includes(ui.tool) ? ui.tool : ids[0]);
   }
 
   const isTouch = () => window.matchMedia('(hover: none), (pointer: coarse)').matches;
@@ -145,6 +152,8 @@
   }
 
   function setTool(id) {
+    // 설계 모드에서는 그 모드의 선택 도구로 (다른 화면이 '선택'으로 돌려놓을 때)
+    if (id === 'select' && App.modes && App.modes.is('design')) id = 'dselect';
     ui.tool = id;
     const bar = $('#toolbar');
     bar.querySelectorAll('.tool[aria-pressed]').forEach((b) => {
@@ -214,10 +223,12 @@
       close();
       fn();
     });
-    item('#menuCsv', () => App.summary.exportCsv());
-    item('#menuPng', () => App.exporter.exportPng());
-    item('#menuDxf', () => App.dxfout.open());
-    item('#menuPdf', () => App.exporter.pdfDialog());
+    // 설계 모드에서는 설계도면·부재표를 내보냄
+    const design = () => App.modes.is('design');
+    item('#menuCsv', () => (design() ? App.designOut.exportCsv() : App.summary.exportCsv()));
+    item('#menuPng', () => (design() ? App.designOut.exportPng() : App.exporter.exportPng()));
+    item('#menuDxf', () => (design() ? App.designOut.exportDxf() : App.dxfout.open()));
+    item('#menuPdf', () => (design() ? App.designOut.exportPdf() : App.exporter.pdfDialog()));
     item('#menuLayout', () => App.exporter.layoutDialog());
     // 견적서: 집계 탭의 '견적' 보기를 열고, 단가를 하나라도 넣었으면 바로 PDF로
     item('#menuEstimate', () => openEstimate());

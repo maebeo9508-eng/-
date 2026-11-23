@@ -31,6 +31,30 @@
       c.globalAlpha = 0.25; c.fill(); c.globalAlpha = 1;
       c.lineWidth = 1.7; c.stroke();
     },
+    dselect(c) { DRAW.select(c); },
+    // 설계: 입체 상자 (모서리가 보이는 육면체)
+    design(c) {
+      c.lineWidth = 1.7;
+      path(c, [4, 8, 12, 4, 20, 8, 20, 16.5, 12, 20.5, 4, 16.5]); c.stroke();
+      stroke(c, [4, 8, 12, 12, 20, 8], 1.7);
+      stroke(c, [12, 12, 12, 20.5], 1.7);
+      c.globalAlpha = 0.2; path(c, [4, 8, 12, 4, 20, 8, 12, 12]); c.fill(); c.globalAlpha = 1;
+    },
+    // 판: 얇은 널 한 장
+    dbox(c) {
+      c.globalAlpha = 0.22; path(c, [3, 9, 15, 5, 21, 8, 9, 12]); c.fill(); c.globalAlpha = 1;
+      c.lineWidth = 1.7;
+      path(c, [3, 9, 15, 5, 21, 8, 9, 12]); c.stroke();
+      stroke(c, [3, 9, 3, 12, 9, 15.5, 21, 11.5, 21, 8], 1.7);
+      stroke(c, [9, 12, 9, 15.5], 1.7);
+    },
+    // 막대: 비스듬한 각재
+    dbar(c) {
+      c.lineWidth = 1.7;
+      path(c, [4, 17.5, 16.5, 5, 20, 8.5, 7.5, 21]); c.stroke();
+      c.globalAlpha = 0.22; path(c, [4, 17.5, 16.5, 5, 20, 8.5, 7.5, 21]); c.fill(); c.globalAlpha = 1;
+      stroke(c, [16.5, 5, 18.5, 3.5, 21.5, 6.5, 20, 8.5], 1.4);
+    },
     wall(c) {
       path(c, [4, 20, 4, 4, 20, 4, 20, 8.5, 8.5, 8.5, 8.5, 20]);
       c.fill();

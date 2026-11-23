@@ -1134,6 +1134,7 @@
 
   let stale = false; // 숨어 있는 동안 바뀌어 다시 그려야 함
   function refresh() {
+    if (App.modes.is('design') && App.designUI) { shownKey = null; App.designUI.renderProps(pane); return; }
     els = App.selection.list().map((id) => App.doc.get(id)).filter(Boolean);
     const key = els.map((e) => e.id).join(',') + (els.length ? '' : `|${App.tools.id}`);
     // 끄는 중(기록 전)에 같은 것을 고른 채면: 숨어 있으면 나중에, 보이면 숫자만 고침 (패널을 통째로 다시 만들지 않음)

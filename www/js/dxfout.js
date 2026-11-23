@@ -605,5 +605,5 @@
     }
   }
 
-  App.dxfout = { open, build, exportFile, fileName, options, encode, LAYERS, DEFAULTS };
+  App.dxfout = { open, build, exportFile, fileName, options, encode, LAYERS, DEFAULTS, writer, assemble };
 })();

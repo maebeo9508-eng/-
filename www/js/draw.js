@@ -81,6 +81,7 @@
   const DETAIL_PX = 5; // 벽 두께가 화면에서 이보다 두꺼우면 층(석고·틀·콘크리트)을 나눠 그림
 
   function scene(plan) {
+    if (App.modes.is('design') && App.designDraw) { App.designDraw.scene(plan); return; } // 설계 모드: 설계도면 한 장
     const ctx = plan.ctx;
     const c = plan.colors;
     const vis = visibleRect(plan);

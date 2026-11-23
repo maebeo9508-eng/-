@@ -291,6 +291,10 @@
     { id: 'furnished', mode: 'interior', name: '원룸 + 가구 예시', desc: '원룸 예시에 침대·소파·식탁·액자까지 놓았습니다. 3D로 걸어서 둘러보기 좋습니다.' },
     { id: 'apartment', mode: 'interior', name: '아파트 예시 (방 2·거실·주방·욕실)', desc: '9.6 × 7.2 m 아파트에 마루·타일 바닥, 방마다 벽지 색, 가구·주방·욕실까지 꾸몄습니다. 컬러 평면과 3D를 바로 볼 수 있습니다.' },
     { id: 'cafe', mode: 'interior', name: '카페 매장 예시', desc: '홀·주방·화장실이 있는 12 × 8 m 카페입니다. 카운터·진열장·테이블·라운지·펜던트 조명을 놓았습니다.' },
+    { id: 'design-blank', mode: 'design', name: '빈 설계', desc: '‘＋ 새 설계’로 수납장·테이블·각파이프 틀·전광판을 만들거나 판·막대를 직접 그립니다.' },
+    { id: 'design-cabinet', mode: 'design', name: '가구 예시 (하부장·책장·책상)', desc: '문 2짝 하부장, 선반 4단 책장, 각파이프 다리 책상이 들어 있습니다. 치수를 바꾸면 도면과 재단표가 따라 바뀝니다.' },
+    { id: 'design-led', mode: 'design', name: '전광판 예시 (3 × 2 m LED + 틀)', desc: '500각 캐비닛 6 × 4장과 각파이프 지지 틀입니다. 해상도·무게·전력, 파이프 절단표가 바로 나옵니다.' },
+    { id: 'design-booth', mode: 'design', name: '행사 제작물 예시 (포토월 틀·안내 데스크)', desc: '3 × 2.4 m 포토월 각파이프 틀과 안내 데스크입니다. ‘사물로 등록’해 조감도에 놓아 보세요.' },
     { id: 'event-blank', mode: 'event', name: '빈 행사장', desc: '아무것도 없는 바닥에서 시작합니다. 물건·영역·동선을 놓아 보세요.' },
     { id: 'auto', mode: 'event', name: '자동 배치 (종류·크기·인원으로 만들기)', desc: '콘서트·축제·플리마켓·기념식을 고르고 부지 크기와 예상 인원을 넣으면 무대·객석·부스·화장실·의무실·소화기·발전기·펜스·동선까지 한 번에 놓아 줍니다.' },
     { id: 'ceremony', mode: 'event', name: '야외 기념식 예시', desc: '건물 앞마당에 무대·백월·의자 160석과 원형 테이블·텐트·스피커·주차장·동선까지 놓았습니다. 3D 조감도와 걸어서 둘러보기를 바로 볼 수 있습니다.' },
@@ -312,6 +316,17 @@
     App.current = { mode: tpl.mode, ground: tpl.mode === 'event' ? 'asphalt' : '' };
     App.catalog.ensureCurrent();
     if (id === 'blank' || id === 'event-blank') return [...doc.all()];
+    if (tpl.mode === 'design') {
+      // 설계 예시: 설계물 몇 개를 넣고 첫 번째를 보여 줌
+      const K = App.design.KINDS, pre = (kind, i) => K[kind].presets[i];
+      const list = id === 'design-cabinet' ? [['cabinet', pre('cabinet', 0)], ['cabinet', pre('cabinet', 1)], ['table', pre('table', 0)]]
+        : id === 'design-led' ? [['led', pre('led', 0)]]
+          : id === 'design-booth' ? [['frame', pre('frame', 0)], ['counter', pre('counter', 0)]] : [];
+      const made = list.map(([kind, p]) => App.design.create(kind, p[1], p[0].replace(/\s*\(.*$/, '')));
+      doc.transact('설계 예시', () => made.forEach((el) => doc.add(el)));
+      if (made.length) App.current.designId = made[0].id;
+      return [...doc.all()];
+    }
     // 자동 배치: 넣은 값대로 (야외 콘서트 예시는 정해 둔 값으로)
     if (id === 'auto' || id === 'concert') {
       App.wizard.build(id === 'concert' ? { type: 'concert', n: 1500, w: 60000, d: 45000, seating: 'standing', trucks: 3, fence: true, name: '여름밤 콘서트' } : params || {});

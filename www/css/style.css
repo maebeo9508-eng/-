@@ -1711,3 +1711,28 @@ body:has(> .view3d:not([hidden])) .toast { bottom: auto; top: 36%; }
 .obj-shop-link { width: 1%; white-space: nowrap; }
 .obj-shop-link .btn { display: inline-flex; align-items: center; min-height: 36px; padding: 0 12px; text-decoration: none; }
 .pal-plus { display: flex; align-items: center; justify-content: center; font-size: 26px; font-weight: 700; color: var(--accent); border: 1.5px dashed var(--line); border-radius: 8px; background: var(--surface); }
+
+/* ── 설계 모드: 색(청록), 평면 도면용 단추 감추기, 설계물 고르는 막대 ── */
+:root[data-mode="design"] { --accent: #0b7285; --accent-fg: #ffffff; --accent-soft: rgba(11, 114, 133, 0.12); }
+:root[data-theme="dark"][data-mode="design"] { --accent: #3bc9db; --accent-fg: #06181c; --accent-soft: rgba(59, 201, 219, 0.18); }
+:root[data-mode="design"] .topbar { box-shadow: inset 0 -2px 0 var(--accent); }
+.design-only { display: none !important; }
+:root[data-mode="design"] .design-only { display: inline-flex !important; }
+:root[data-mode="design"] .design-only[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
+:root[data-mode="design"] .snap-wrap, :root[data-mode="design"] .layer-wrap, :root[data-mode="design"] #btnSearch,
+:root[data-mode="design"] #menuImport, :root[data-mode="design"] #menuImportPhoto, :root[data-mode="design"] #menuLayout,
+:root[data-mode="design"] #menuEstimate, :root[data-mode="design"] #menuProposal, :root[data-mode="design"] #menuSearch { display: none !important; }
+:root[data-mode="design"] .fab-3d { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+:root[data-mode="design"] .fab-3d .fab-3d-mark { color: var(--accent-fg); }
+.design-bar .cat-btn[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+.ds-props, .ds-new, .ds-3d { display: flex; flex-direction: column; gap: 10px; }
+.ds-props { padding: 0 0 12px; }
+.ds-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.ds-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.ds-check { padding: 2px 0; min-height: 36px; align-items: center; }
+.ds-check input { margin: 0; }
+.ds-kind h3 { margin: 0 0 6px; font-size: 14px; }
+.ds-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.ds-3d-canvas { height: min(58vh, 520px); border: 1px solid var(--line); border-radius: 10px; }
+.ds-sum-acts { flex-wrap: wrap; padding: 4px 12px 0; }
+.ds-props .field-group-label small { font-weight: 500; color: var(--fg-muted); margin-left: 6px; }

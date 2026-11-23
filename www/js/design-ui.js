@@ -1,0 +1,690 @@
+/* 설계 모드 화면: 설계물 고르기·새로 만들기, 값 고치기(속성 칸), 부재표(집계 칸), 부재 고르기·끌기·그리기 도구, 3D 보기, 내 사물로 등록.
+   설계물은 도면 요소(type 'design')라서 실행 취소·자동 저장·백업을 그대로 따른다. 지금 보는 설계물은 App.current.designId */
+(function () {
+  'use strict';
+  const App = (window.App = window.App || {});
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const D = () => App.design, DD = () => App.designDraw;
+  const fmt = (v) => DD().fmt(v);
+  const isMode = () => App.modes.is('design');
+  const cur = () => D().current();
+  const render = () => { if (App.plan) App.plan.requestRender(); };
+  const numIn = (v) => { const n = Number(String(v == null ? '' : v).replace(/[,\s]/g, '')); return Number.isFinite(n) ? n : NaN; };
+  let sel = null;       // 고른 부재 id
+  let formKey = '';     // 속성 칸을 통째로 다시 그릴지
+  const uid = () => `u${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+
+  /* ── 설계물 다루기 ── */
+  function setCurrent(id, fit = true) {
+    if (App.current.designId !== id) { App.current.designId = id; App.ui.emit('current'); }
+    sel = null;
+    formKey = '';
+    syncBar();
+    refreshPanes();
+    if (fit && isMode()) App.plan.fitToContent();
+    render();
+  }
+  function add(kind, preset, name) {
+    const names = new Set(D().all().map((e) => e.name));
+    let nm = name || D().KINDS[kind].label.replace(/\s*\(.*$/, '');
+    if (names.has(nm)) { let i = 2; while (names.has(`${nm} ${i}`)) i++; nm = `${nm} ${i}`; }
+    const el = D().create(kind, preset, nm);
+    App.doc.transact('새 설계', () => App.doc.add(el));
+    setCurrent(el.id);
+    return el;
+  }
+  const patch = (el, label, p) => App.doc.transact(label, () => App.doc.update(el.id, p));
+  function setParam(el, k, v) {
+    patch(el, '설계 값 바꾸기', { p: { ...el.p, [k]: v } });
+  }
+  function remove(el) {
+    App.doc.transact('설계 지우기', () => App.doc.remove(el.id));
+    const left = D().all();
+    setCurrent(left.length ? left[left.length - 1].id : null);
+  }
+  function duplicate(el) {
+    const copy = D().create(el.kind, JSON.parse(JSON.stringify(el.p || {})), `${el.name} 복사`);
+    copy.parts = JSON.parse(JSON.stringify(el.parts || []));
+    if (el.objId) copy.objId = el.objId;
+    App.doc.transact('설계 복제', () => App.doc.add(copy));
+    setCurrent(copy.id);
+  }
+  /** 값으로 만든 부재를 하나씩 고칠 수 있게 풀어 놓음 (자유 설계로 바뀜) */
+  function explode(el) {
+    const B = D().build(el);
+    const parts = B.parts.filter((q) => q.role !== 'led').map((q) => {
+      const c = { id: uid(), s: q.s, n: q.n, m: q.m };
+      if (q.s === 'bar') Object.assign(c, { a: q.a.slice(), b: q.b.slice() }); else Object.assign(c, { x: q.x, y: q.y, z: q.z, w: q.w, d: q.d, h: q.h });
+      return c;
+    });
+    patch(el, '부재로 풀기', { kind: 'free', p: {}, parts });
+    sel = null; formKey = '';
+    refreshPanes();
+  }
+  const userParts = (el) => (Array.isArray(el.parts) ? el.parts : []);
+  function setPart(el, id, p, label = '부재 고치기') {
+    patch(el, label, { parts: userParts(el).map((q) => (q.id === id ? { ...q, ...p } : q)) });
+  }
+  function deletePart() {
+    const el = cur();
+    if (!el || !sel) return false;
+    const q = userParts(el).find((x) => x.id === sel);
+    if (!q) { App.ui.toast('값으로 만든 부재는 지울 수 없습니다. 위 값(선반·문짝 수 등)을 바꾸거나 ‘부재로 풀기’ 한 뒤 지우세요.'); return false; }
+    patch(el, '부재 지우기', { parts: userParts(el).filter((x) => x.id !== sel) });
+    sel = null; formKey = '';
+    refreshPanes();
+    return true;
+  }
+  function addPart(el, part, label = '부재 넣기') {
+    const p = { id: uid(), ...part };
+    patch(el, label, { parts: [...userParts(el), p] });
+    sel = p.id; formKey = '';
+    refreshPanes();
+    return p;
+  }
+
+  /* ── 위쪽 막대: 설계물 고르기 ── */
+  function syncBar() {
+    const bar = document.getElementById('designBar');
+    if (!bar) return;
+    bar.hidden = !isMode();
+    if (!isMode()) return;
+    const el = cur(), list = D().all();
+    bar.innerHTML = `<button type="button" class="cat-btn cat-all" data-act="ds-new" title="수납장·테이블·각파이프 틀·전광판·자유 설계·3D 모델 보기">＋ 새 설계</button>`
+      + list.map((e) => `<button type="button" class="cat-btn" data-design="${esc(e.id)}" aria-pressed="${!!el && e.id === el.id}" title="${esc(D().KINDS[e.kind] ? D().KINDS[e.kind].label : '')}">${esc(e.name)}</button>`).join('');
+    const dims = document.getElementById('btnDsDims'), hid = document.getElementById('btnDsHidden');
+    if (dims) dims.setAttribute('aria-pressed', String(App.current.designDims !== false));
+    if (hid) hid.setAttribute('aria-pressed', String(App.current.designHidden !== false));
+  }
+  function refreshPanes() {
+    if (!isMode()) return;
+    if (App.props && App.props.refresh) App.props.refresh();
+    if (App.summary && App.summary.render) App.summary.render();
+  }
+
+  /* ── 새 설계 창 ── */
+  async function newDialog() {
+    const K = D().KINDS;
+    let made = null;
+    await App.ui.dialog({
+      title: '새 설계',
+      html: `
+        <div class="ds-new" data-keys="local">
+          ${['cabinet', 'table', 'shelf', 'counter', 'frame', 'led'].map((k) => `
+            <section class="ds-kind"><h3>${esc(K[k].label)}</h3>
+              <div class="ds-presets">${K[k].presets.map(([name], i) => `<button type="button" class="chip" data-kind="${k}" data-preset="${i}">${esc(name)}</button>`).join('')}</div>
+            </section>`).join('')}
+          <section class="ds-kind"><h3>그 밖에</h3>
+            <div class="ds-presets">
+              <button type="button" class="chip" data-kind="free">자유 설계 (판·막대를 하나씩 그리기)</button>
+              <button type="button" class="chip" data-kind="model">내려받은 3D 모델 보기 (GLB·OBJ·STL)</button>
+            </div>
+          </section>
+          <p class="props-meta">규격 예시를 고르면 바로 만들어지고, 오른쪽 <b>속성</b>에서 치수·자재·선반 수를 바꾸면 도면과 <b>부재표</b>(집계)가 따라 바뀝니다. 다 되면 ‘사물로 등록’해서 인테리어·조감도 도면에 놓을 수 있습니다.</p>
+        </div>`,
+      actions: [{ id: 'close', label: '닫기', primary: true }],
+      onOpen(body) {
+        const close = () => document.querySelector('#dialogFoot [data-id="close"]').click();
+        body.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); close(); } });
+        body.addEventListener('click', (e) => {
+          const b = e.target.closest('[data-kind]');
+          if (!b) return;
+          const kind = b.dataset.kind;
+          if (kind === 'model') made = 'model';
+          else if (kind === 'free') made = add('free', null, '자유 설계');
+          else { const pr = K[kind].presets[+b.dataset.preset]; made = add(kind, pr[1], pr[0].replace(/\s*\(.*$/, '')); }
+          close();
+        });
+      },
+    });
+    if (made === 'model') return openModel();
+    if (made && made.kind === 'free') { App.ui.pickTool('dbox'); App.ui.toast('‘판’·‘막대’ 도구로 끌어서 부재를 그리세요. 크기와 자리는 속성에서 숫자로 맞춥니다.'); }
+    return made;
+  }
+  /** 내려받은 3D 모델을 열어 설계 화면에서 봄 (내 사물에도 등록됨) */
+  async function openModel() {
+    const id = await App.libraryUI.register({ place: false });
+    if (!id) return null;
+    const m = App.library.byId(id);
+    if (!m || m.type !== 'mesh') { App.ui.toast('3D 모델 파일(GLB·OBJ·STL)을 골라 주세요. 사진은 ‘내 사물’에 등록되었습니다.'); return null; }
+    const el = D().create('model', null, m.name);
+    el.objId = id;
+    App.doc.transact('모델 보기', () => App.doc.add(el));
+    setCurrent(el.id);
+    return el;
+  }
+
+  /* ── 속성 칸 ── */
+  function fieldHtml(el, f) {
+    const v = el.p ? el.p[f.k] : undefined;
+    if (f.type === 'check') return `<label class="check-row ds-check"><input type="checkbox" data-p="${f.k}" ${v ? 'checked' : ''}><span>${esc(f.label)}</span></label>`;
+    let control;
+    if (f.type === 'sheet') {
+      const list = D().SHEETS.filter((s) => (f.min == null || s.t >= f.min) && (f.max == null || s.t <= f.max));
+      control = `<select data-p="${f.k}">${f.none ? `<option value="none" ${!v || v === 'none' ? 'selected' : ''}>${esc(f.none)}</option>` : ''}${list.map((s) => `<option value="${s.id}" ${s.id === v ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select>`;
+    } else if (f.type === 'bar') {
+      control = `<select data-p="${f.k}">${D().BARS.filter((b) => b.id !== 'rod25').map((b) => `<option value="${b.id}" ${b.id === v ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</select>`;
+    } else if (f.type === 'select') {
+      control = `<select data-p="${f.k}" ${f.num ? 'data-num="1"' : ''}>${f.options.map(([val, label]) => `<option value="${esc(val)}" ${String(val) === String(v) ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select>`;
+    } else {
+      control = `<input type="text" inputmode="decimal" data-p="${f.k}" ${f.int ? 'data-int="1"' : ''} ${f.optional ? 'data-optional="1"' : ''} value="${v == null ? '' : esc(v)}" autocomplete="off">${f.unit ? `<span class="field-unit">${esc(f.unit)}</span>` : ''}`;
+    }
+    const isSelect = f.type === 'sheet' || f.type === 'bar' || f.type === 'select';
+    return `<div class="field"><label class="field-label">${esc(f.label)}</label><div class="${isSelect ? 'field-row' : 'field-box'}">${isSelect ? control.replace('<select ', '<select class="field-select" ') : control}</div></div>`;
+  }
+  function infoHtml(el) {
+    if (el.kind === 'model') {
+      const m = el.objId ? App.library.byId(el.objId) : null;
+      if (!m) return '<p class="dialog-note is-warn">이 모델은 내 사물 목록에서 지워졌습니다.</p>';
+      const st = App.library.state(m.id);
+      return `<div class="stats">
+          <div class="stat"><span class="stat-label">크기</span><span class="stat-value">${fmt(m.w)} × ${fmt(m.d)} × ${fmt(m.h)} mm</span><small>폭 × 깊이 × 높이</small></div>
+          <div class="stat"><span class="stat-label">모형</span><span class="stat-value">삼각형 ${m.tris.toLocaleString('ko-KR')}개</span><small>${esc(m.src || '')}${st === 'missing' ? ' · 이 기기에 데이터 없음' : ''}</small></div>
+        </div>`;
+    }
+    const B = D().build(el);
+    const rows = [['전체 크기', `${fmt(B.size.w)} × ${fmt(B.size.d)} × ${fmt(B.size.h)} mm`, '폭 × 깊이 × 높이'], ...(B.info || [])];
+    return `<div class="stats">${rows.map(([a, b, c]) => `<div class="stat"><span class="stat-label">${esc(a)}</span><span class="stat-value">${esc(b)}</span>${c ? `<small>${esc(c)}</small>` : ''}</div>`).join('')}</div>`;
+  }
+  function partHtml(el) {
+    if (!sel || el.kind === 'model') return '';
+    const q = D().build(el).parts.find((x) => x.id === sel);
+    if (!q) return '';
+    const M = D().mat(q.m) || {};
+    const user = !!q.user;
+    const f = (k, label, v) => `<div class="field"><label class="field-label">${label}</label><div class="field-box"><input type="text" inputmode="decimal" data-part="${k}" value="${fmt(v).replace(/,/g, '')}" autocomplete="off"><span class="field-unit">mm</span></div></div>`;
+    const mats = `<select data-part="m">${q.s === 'bar' ? '' : D().SHEETS.map((s) => `<option value="${s.id}" ${s.id === q.m ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}${D().BARS.map((b) => `<option value="${b.id}" ${b.id === q.m ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</select>`;
+    const sizeText = q.s === 'bar' ? `길이 ${fmt(D().lenOf(q))} mm (비스듬히)` : q.role === 'bar' ? `길이 ${fmt(D().lenOf(q))} mm` : `${[q.w, q.d, q.h].sort((a, b) => b - a).map(fmt).join(' × ')} mm`;
+    if (!user) {
+      return `<div class="field-group-label">고른 부재</div>
+        <div class="stats"><div class="stat"><span class="stat-label">${esc(q.n)}</span><span class="stat-value">${esc(sizeText)}</span><small>${esc(M.name || '')} · 자리 X ${fmt(q.s === 'bar' ? q.a[0] : q.x)} · Y ${fmt(q.s === 'bar' ? q.a[1] : q.y)} · Z ${fmt(q.s === 'bar' ? q.a[2] : q.z)}</small></div></div>
+        <p class="props-meta">값으로 만든 부재입니다. 크기·자리는 위 값에서 바꾸세요. 하나씩 고치려면 ‘부재로 풀기’.</p>`;
+    }
+    return `<div class="field-group-label">고른 부재 <small>${esc(sizeText)}</small></div>
+      <div class="field"><label class="field-label">이름</label><div class="field-box"><input type="text" data-part="n" maxlength="30" value="${esc(q.n)}" autocomplete="off"></div></div>
+      <div class="field"><label class="field-label">자재</label><div class="field-row">${mats.replace('<select ', '<select class="field-select" ')}</div></div>
+      ${q.s === 'bar' ? `
+        <div class="field-group-label">시작 점</div><div class="field-grid ds-3">${f('a0', 'X', q.a[0])}${f('a1', 'Y (깊이)', q.a[1])}${f('a2', 'Z (높이)', q.a[2])}</div>
+        <div class="field-group-label">끝 점</div><div class="field-grid ds-3">${f('b0', 'X', q.b[0])}${f('b1', 'Y (깊이)', q.b[1])}${f('b2', 'Z (높이)', q.b[2])}</div>` : `
+        <div class="field-group-label">자리 (왼쪽·앞·아래 구석)</div><div class="field-grid ds-3">${f('x', 'X', q.x)}${f('y', 'Y (깊이)', q.y)}${f('z', 'Z (높이)', q.z)}</div>
+        <div class="field-group-label">크기</div><div class="field-grid ds-3">${f('w', '폭 (X)', q.w)}${f('d', '깊이 (Y)', q.d)}${f('h', '높이 (Z)', q.h)}</div>`}
+      <div class="btn-row"><button type="button" class="btn" data-act="ds-part-copy">부재 복제</button><button type="button" class="btn btn-danger" data-act="ds-part-del">부재 지우기</button></div>`;
+  }
+  function toolHtml() {
+    const t = App.ui.tool;
+    if (t !== 'dbox' && t !== 'dbar') return '';
+    const sheet = App.current.dsSheet || 'ply18', bar = App.current.dsBar || 'sq50';
+    return t === 'dbox'
+      ? `<div class="field"><label class="field-label">그릴 판</label><div class="field-row"><select class="field-select" data-draw="dsSheet">${D().SHEETS.map((s) => `<option value="${s.id}" ${s.id === sheet ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></div></div>
+         <p class="props-meta">정면도·평면도·측면도 안에서 끌면 그 면을 보는 판이 생깁니다 (두께는 고른 판의 두께). 다른 그림에서 끌어 자리를 맞추세요.</p>`
+      : `<div class="field"><label class="field-label">그릴 막대</label><div class="field-row"><select class="field-select" data-draw="dsBar">${D().BARS.filter((b) => b.id !== 'rod25').map((b) => `<option value="${b.id}" ${b.id === bar ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</select></div></div>
+         <p class="props-meta">정면도·평면도·측면도 안에서 시작점부터 끝점까지 끌면 막대가 생깁니다. 거의 가로·세로면 곧게 맞추고, 비스듬히 끌면 버팀대가 됩니다.</p>`;
+  }
+  function propsHtml(el) {
+    const K = D().KINDS[el.kind] || D().KINDS.free;
+    const param = el.kind !== 'free' && el.kind !== 'model';
+    const grid = K.fields.filter((f) => f.type !== 'check'), checks = K.fields.filter((f) => f.type === 'check');
+    return `
+      <div class="ds-props">
+        <div class="props-head"><h2>설계</h2><small>${esc(K.label)}</small></div>
+        <div class="field"><label class="field-label" for="dsName">이름</label><div class="field-box"><input id="dsName" type="text" maxlength="30" value="${esc(el.name)}" autocomplete="off"></div></div>
+        ${toolHtml()}
+        ${param && K.presets.length ? `<div class="field"><label class="field-label">규격 예시</label><div class="field-row"><select class="field-select" id="dsPreset"><option value="">고르면 그 치수로 바뀝니다</option>${K.presets.map(([n], i) => `<option value="${i}">${esc(n)}</option>`).join('')}</select></div></div>` : ''}
+        ${grid.length ? `<div class="field-grid ds-fields">${grid.map((f) => fieldHtml(el, f)).join('')}</div>` : ''}
+        ${checks.map((f) => fieldHtml(el, f)).join('')}
+        <div id="dsInfo">${infoHtml(el)}</div>
+        <div id="dsPart">${partHtml(el)}</div>
+        <div class="btn-row">
+          <button type="button" class="btn btn-primary" data-act="ds-3d">3D로 보기</button>
+          <button type="button" class="btn" data-act="ds-pdf">설계도면 PDF</button>
+        </div>
+        <div class="btn-row">
+          ${el.kind === 'model' ? '' : '<button type="button" class="btn" data-act="ds-object" title="인테리어·조감도 도면에 가구·물건처럼 놓을 수 있게 내 사물로 등록">사물로 등록 (도면에 놓기)</button>'}
+          ${param ? '<button type="button" class="btn" data-act="ds-explode" title="값으로 만든 부재를 하나씩 옮기고 고칠 수 있게 풀어 놓음">부재로 풀기</button>' : ''}
+        </div>
+        <div class="btn-row">
+          <button type="button" class="btn" data-act="ds-copy">설계 복제</button>
+          <button type="button" class="btn btn-danger" data-act="ds-del">설계 지우기</button>
+        </div>
+        <p class="props-meta">${el.kind === 'model' ? '내려받은 모델을 네 방향에서 본 그림입니다. 치수는 등록할 때 넣은 크기입니다 (내 사물에서 고칠 수 있음).' : '도면의 부재를 누르면 그 부재의 크기·자리가 보입니다. 휠·두 손가락으로 확대, 빈 곳을 끌면 화면 이동.'}</p>
+      </div>`;
+  }
+  function emptyHtml() {
+    return `<div class="ds-props"><div class="empty"><div class="empty-title">설계물이 없습니다</div>
+      <p>수납장·책장, 테이블, 선반, 카운터, 각파이프 틀, 전광판(LED) 틀을 치수로 만들고 재단표와 설계도면(PDF·DXF)을 뽑습니다. 내려받은 3D 모델(GLB·OBJ·STL)을 열어 볼 수도 있습니다.</p>
+      <button type="button" class="btn btn-primary" data-act="ds-new">＋ 새 설계</button></div></div>`;
+  }
+  /** 속성 칸을 그림 (props.js가 설계 모드일 때 부름) */
+  function renderProps(pane) {
+    const el = cur();
+    const key = el ? `${el.id}|${el.kind}|${sel || ''}|${App.ui.tool}|${userParts(el).length}` : 'none';
+    const badge = document.getElementById('propsBadge');
+    if (badge) { badge.hidden = true; }
+    if (key !== formKey || !pane.querySelector('.ds-props')) {
+      formKey = key;
+      const top = pane.scrollTop;
+      pane.innerHTML = el ? propsHtml(el) : emptyHtml();
+      App.icons.apply(pane);
+      pane.scrollTop = top;
+      return;
+    }
+    if (!el) return;
+    // 같은 설계물: 치는 중인 칸은 두고 값·계산 결과만 새로
+    const active = document.activeElement;
+    pane.querySelectorAll('[data-p]').forEach((inp) => {
+      if (inp === active) return;
+      const v = el.p ? el.p[inp.dataset.p] : undefined;
+      if (inp.type === 'checkbox') inp.checked = !!v;
+      else if (inp.tagName === 'SELECT') inp.value = v == null ? (inp.querySelector('option[value="none"]') ? 'none' : inp.value) : String(v);
+      else inp.value = v == null ? '' : v;
+    });
+    const nm = pane.querySelector('#dsName');
+    if (nm && nm !== active) nm.value = el.name;
+    const info = pane.querySelector('#dsInfo');
+    if (info) info.innerHTML = infoHtml(el);
+    const part = pane.querySelector('#dsPart');
+    if (part && !part.contains(active)) part.innerHTML = partHtml(el);
+  }
+
+  /* ── 집계 칸: 부재표 ── */
+  function summaryHtml(el) {
+    const head = `<div class="sum-bar is-two"><div class="sum-views" role="tablist"><button type="button" class="seg-btn" role="tab" aria-selected="true">부재표</button></div>
+        <button type="button" class="btn btn-primary" data-act="ds-pdf" ${el ? '' : 'disabled'} title="설계도면과 부재표를 PDF로">설계도면</button>
+        <button type="button" class="btn" data-act="ds-csv" ${el && el.kind !== 'model' ? '' : 'disabled'} title="부재표를 엑셀에서 열 수 있는 CSV로">CSV</button></div>`;
+    if (!el) return `${head}<div class="empty"><div class="empty-title">설계물이 없습니다</div><p>위쪽 ‘＋ 새 설계’로 시작하세요.</p></div>`;
+    if (el.kind === 'model') return `${head}<div class="empty"><div class="empty-title">${esc(el.name)}</div><p>내려받은 3D 모델은 부재표가 없습니다. 크기는 속성에서 보고, ‘내 사물’에서 도면에 놓을 수 있습니다.</p></div>`;
+    const b = D().bom(el);
+    const sec = (title, sub, rows, cls = '') => (rows.length ? `<section class="sum-sec${cls}"><h3 class="sum-title">${esc(title)}${sub ? ` <small>${esc(sub)}</small>` : ''}</h3><table class="sum-table"><tbody>${rows.join('')}</tbody></table></section>` : '');
+    const tr = (label, value, note = '', cls = '') => `<tr${cls ? ` class="is-${cls}"` : ''}><th scope="row">${esc(label)}</th><td>${esc(value)}${note ? `<small>${esc(note)}</small>` : ''}</td></tr>`;
+    let html = head;
+    b.sheets.forEach((s) => {
+      const rows = b.panels.filter((r) => r.m === s.m).map((r) => tr(r.n, `${r.q}장`, `${fmt(r.l)} × ${fmt(r.w)} × ${fmt(r.t)} mm`));
+      rows.push(tr('원장 (1220 × 2440)', `${s.count}장`, `넓이 ${s.area}㎡ · 약 ${s.kg}kg · 톱날 3mm 어림`, 'total'));
+      html += sec(s.mat, '재단 치수: 길이 × 폭 × 두께', rows);
+    });
+    b.stocks.forEach((s) => {
+      const rows = b.bars.filter((r) => r.m === s.m).map((r) => tr(r.n, `${r.q}개`, `${fmt(r.len)} mm${r.slant ? ' · 비스듬히 (끝을 각도에 맞춰)' : ''}`));
+      rows.push(tr(`원자재 ${s.stock / 1000}m`, `${s.count}본`, `모두 ${(s.total / 1000).toFixed(1)}m · 자투리 ${(s.waste / 1000).toFixed(1)}m · 약 ${s.kg}kg${s.joined ? ` · 원자재보다 긴 것 ${s.joined}개 (이어야 함)` : ''}`, 'total'));
+      html += sec(s.mat, `1m에 약 ${s.kgm}kg`, rows);
+    });
+    if (b.led) html += sec('전광판', '제품마다 다르니 사양서로 확인', [tr('LED 캐비닛', `${b.led.count}개`, `${b.led.cab.name} mm · ${b.led.cols} × ${b.led.rows}`), tr('화면 무게', `약 ${Math.round(b.led.kgScreen)}kg`), tr('최대 전력', `${(b.led.maxW / 1000).toFixed(1)}kW`, `20A 회로 ${b.led.circuits}개 넘게`)]);
+    if (b.hw.length) html += sec('철물·부속', '', b.hw.map((h) => tr(h.n, `${h.q}개`)));
+    html += sec('총계', '', [tr('전체 크기', `${fmt(b.size.w)} × ${fmt(b.size.d)} × ${fmt(b.size.h)} mm`), tr('무게', `약 ${b.kg}kg`, '철물 빼고 · 자재 무게 어림')], ' is-grand');
+    html += `<div class="btn-row ds-sum-acts"><button type="button" class="btn" data-act="ds-estimate" title="원장·원자재 수와 철물을 견적의 기타 항목으로 넣음 (단가는 견적에서)">견적에 넣기</button><button type="button" class="btn" data-act="ds-dxf">CAD 도면 (DXF)</button><button type="button" class="btn" data-act="ds-glb" title="다른 3D 프로그램에서 열 수 있는 모델 파일">3D 파일 (GLB)</button></div>
+      <p class="props-meta">재단 치수는 맞댐 이음 기준입니다. 원장·원자재 수는 톱날 3mm로 어림한 것이라 결 방향·여유는 따로 보세요.</p>`;
+    return html;
+  }
+  function renderSummary(pane) {
+    const top = pane.scrollTop;
+    pane.innerHTML = summaryHtml(cur());
+    pane.scrollTop = top;
+  }
+  /** 부재표를 견적의 기타 항목으로 */
+  function toEstimate(el) {
+    const b = D().bom(el), list = [];
+    const furn = ['cabinet', 'table', 'shelf', 'counter'].includes(el.kind);
+    b.sheets.forEach((s) => list.push({ name: `${el.name} · ${s.mat} 원장`, qty: s.count, unit: '장', trade: furn ? '가구' : '목공' }));
+    b.stocks.forEach((s) => list.push({ name: `${el.name} · ${s.mat} ${s.stock / 1000}m`, qty: s.count, unit: '본', trade: furn ? '가구' : /각재|구조목/.test(s.mat) ? '목공' : '기타' }));
+    if (b.led) list.push({ name: `${el.name} · LED 캐비닛 ${b.led.cab.name}`, qty: b.led.count, unit: '개', trade: '기타' });
+    b.hw.forEach((h) => list.push({ name: `${el.name} · ${h.n}`, qty: h.q, unit: '개', trade: furn ? '가구' : '기타' }));
+    list.push({ name: `${el.name} · 제작·설치 인건비`, qty: 1, unit: '식', trade: furn ? '가구' : '기타' });
+    const n = App.estimate.putExtras(`design:${el.id}`, list);
+    App.ui.toast(`견적의 기타 항목에 ${n}줄을 넣었습니다. 인테리어·조감도 모드의 집계 → 견적에서 단가를 넣으세요.`);
+    return n;
+  }
+
+  /* ── 3D 보기 ── */
+  let orbit = null;
+  async function open3d(el = cur()) {
+    if (!el) return false;
+    let model = null;
+    if (el.kind === 'model') {
+      const m = el.objId ? App.library.byId(el.objId) : null;
+      if (m) { await App.library.ready(m.id); const e = App.library.data(m.id); model = e ? e.view || e.mesh : null; }
+    } else model = D().toModel(el, { pick: sel });
+    if (!model) { App.ui.toast('보여 줄 부재가 없습니다.'); return false; }
+    await App.ui.dialog({
+      title: `${el.name} — 3D`,
+      html: `<div class="ds-3d" data-keys="local"><canvas class="obj-canvas ds-3d-canvas" id="ds3dCanvas" aria-label="3D 보기 (끌어서 돌리기)"></canvas>
+        <div class="btn-row"><button type="button" class="btn" data-act="ds3d-png">사진 저장 (PNG)</button>${el.kind === 'model' ? '' : '<button type="button" class="btn" data-act="ds-glb">3D 파일 (GLB)</button>'}</div>
+        <p class="props-meta">끌어서 돌리고 휠·두 손가락으로 확대합니다.${sel && el.kind !== 'model' ? ' 고른 부재는 주황색으로 보입니다.' : ''}</p></div>`,
+      actions: [{ id: 'close', label: '닫기', primary: true }],
+      onOpen(body) {
+        const cv = body.querySelector('#ds3dCanvas');
+        orbit = new App.libraryUI.Orbit(cv);
+        if (orbit.ok) orbit.set(App.library.sceneOf(model));
+        else cv.insertAdjacentHTML('afterend', '<p class="obj-nogl">이 기기에서는 3D 보기를 쓸 수 없습니다.</p>');
+        body.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); document.querySelector('#dialogFoot [data-id="close"]').click(); } });
+        body.addEventListener('click', (e) => {
+          const b = e.target.closest('[data-act]');
+          if (!b) return;
+          if (b.dataset.act === 'ds3d-png' && orbit && orbit.ok) {
+            orbit.now();
+            cv.toBlob((blob) => { if (blob) { const name = `${el.name.replace(/[\\/:*?"<>|]+/g, '_')}_3D_${App.exporter.stamp()}.png`; App.exporter.saved(App.exporter.download(name, blob, 'image/png'), `‘${name}’을 저장했습니다.`); } }, 'image/png');
+          } else if (b.dataset.act === 'ds-glb') App.designOut.exportGlb(el);
+        });
+      },
+    });
+    if (orbit) { orbit.dispose(); orbit = null; }
+    return true;
+  }
+
+  /* ── 내 사물로 등록 ── */
+  async function toObject(el = cur()) {
+    if (!el || el.kind === 'model') return null;
+    const model = D().toModel(el);
+    if (!model) { App.ui.toast('등록할 부재가 없습니다.'); return null; }
+    App.ui.busy('사물로 등록하는 중…');
+    let id = null, again = false;
+    try {
+      const M = App.meshio, low = M.reduce(model, M.PLACE_TRIS), B = D().build(el);
+      const data = { mesh: M.pack(low), view: low === model ? null : M.pack(model), thumb: null };
+      const meta = { name: el.name, type: 'mesh', w: Math.round(B.size.w), d: Math.round(B.size.d), h: Math.round(B.size.h), tris: M.stats(low).tris, src: '설계', lift: model.lift || 0, design: el.id };
+      const old = App.library.list().find((m) => m.design === el.id);
+      if (old) { again = true; id = old.id; await App.library.replaceData(id, data, { w: meta.w, d: meta.d, h: meta.h, tris: meta.tris, lift: meta.lift, name: el.name }); }
+      else id = await App.library.add(meta, data);
+      const m = App.library.byId(id);
+      const url = m && App.sprites && App.sprites.thumbNow ? App.sprites.thumbNow(m.name) : null;
+      if (url) await App.library.setThumb(id, url);
+    } catch (e) {
+      App.ui.toast(e && e.message ? e.message : '등록하지 못했습니다.');
+      return null;
+    } finally {
+      App.ui.busy(false);
+    }
+    const m = App.library.byId(id);
+    const r = await App.ui.dialog({
+      title: again ? '내 사물을 새로 고쳤습니다' : '내 사물에 등록했습니다',
+      html: `<p>‘${esc(m.name)}’ (${fmt(m.w)} × ${fmt(m.d)} × ${fmt(m.h)} mm)${again ? '을 지금 설계대로 바꿨습니다. 이미 도면에 놓인 것도 새 모양으로 보입니다.' : '을 내 사물에 넣었습니다.'}</p>
+        <p class="props-meta">인테리어의 <b>가구</b>, 조감도의 <b>물건</b> 도구 → <b>내 사물</b>에서 골라 도면에 놓고 3D로 볼 수 있습니다. 설계를 고친 뒤 다시 ‘사물로 등록’을 누르면 놓인 것까지 바뀝니다.</p>`,
+      actions: [{ id: 'close', label: '닫기' }, { id: 'event', label: '조감도에 놓기' }, { id: 'interior', label: '인테리어에 놓기', primary: true }],
+    });
+    if (r.id === 'interior' || r.id === 'event') { App.modes.set(r.id, true); App.libraryUI.placeNow(m.name); }
+    return id;
+  }
+
+  /* ── 도구: 고르기·끌기 / 판 그리기 / 막대 그리기 ── */
+  const AX = () => DD().AXES;
+  const dragged = (a, b) => Math.hypot(a.x - b.x, a.y - b.y) > 4;
+  /** 지금 배율에서 붙는 간격(mm): 화면 6px쯤 되는 1·5·10·50 */
+  const grid = () => { const s = App.plan.view.scale; return [1, 5, 10, 50, 100].find((g) => g * s >= 5) || 100; };
+  const snapTo = (v, g) => Math.round(v / g) * g;
+  /** 다른 부재의 면에 붙임: vals(움직이는 것의 면들)가 faces 가운데 하나와 tol 안이면 그만큼 옮길 값 */
+  function faceSnap(vals, faces, tol) {
+    let best = null;
+    vals.forEach((v) => faces.forEach((f) => { const d = f - v; if (Math.abs(d) <= tol && (best == null || Math.abs(d) < Math.abs(best))) best = d; }));
+    return best;
+  }
+  function facesOf(el, skipId, axis) {
+    const out = [];
+    D().build(el).parts.forEach((q) => { if (q.id === skipId) return; const c = D().corners(q); out.push(Math.min(...c.map((p) => p[axis])), Math.max(...c.map((p) => p[axis]))); });
+    return out;
+  }
+
+  class DSelect {
+    activate() { this.drag = null; }
+    down(ev) {
+      const el = cur();
+      this.press = ev;
+      this.drag = null;
+      if (!el) return;
+      const h = DD().hit(el, ev.world);
+      if (h && h.part) {
+        if (sel !== h.part.id) { sel = h.part.id; formKey = ''; refreshPanes(); render(); }
+        if (h.part.user) {
+          const q = userParts(el).find((x) => x.id === h.part.id);
+          if (q) { this.drag = { el, id: q.id, view: h.view, orig: JSON.parse(JSON.stringify(q)), started: false }; }
+        }
+      } else this.pan = { x: ev.x, y: ev.y };
+    }
+    move(ev) {
+      if (this.pan) { App.plan.view.panBy(ev.x - this.pan.x, ev.y - this.pan.y); this.pan = { x: ev.x, y: ev.y }; render(); return; }
+      const g = this.drag;
+      if (!g || !this.press || (!g.started && !dragged(ev, this.press))) return;
+      if (!g.started) { g.started = true; App.doc.begin('부재 옮기기'); DD().freeze(g.el); }
+      const [ha, va] = AX()[g.view];
+      let du = ev.world.x - this.press.world.x, dv = -(ev.world.y - this.press.world.y); // 종이의 y는 아래로, 부재의 세로 축은 위로
+      const o = g.orig, step = ev.alt ? 1 : grid(), tol = 7 / App.plan.view.scale;
+      const cornersAt = (d0, d1) => {
+        const sh = [0, 0, 0]; sh[ha] = d0; sh[va] = d1;
+        return D().corners(o.s === 'bar' ? { ...o, a: o.a.map((v, i) => v + sh[i]), b: o.b.map((v, i) => v + sh[i]) } : { ...o, x: o.x + sh[0], y: o.y + sh[1], z: o.z + sh[2] });
+      };
+      const fit = (axis, d) => {
+        const c = cornersAt(axis === ha ? d : 0, axis === va ? d : 0), lo = Math.min(...c.map((p) => p[axis])), hi = Math.max(...c.map((p) => p[axis]));
+        const s = ev.alt ? null : faceSnap([lo, hi], facesOf(g.el, g.id, axis), tol);
+        if (s != null) return d + s;
+        const base = Math.min(...D().corners(o).map((p) => p[axis]));
+        return snapTo(base + d, step) - base;
+      };
+      du = fit(ha, du); dv = fit(va, dv);
+      const sh = [0, 0, 0]; sh[ha] = du; sh[va] = dv;
+      const r1 = (v) => Math.round(v * 10) / 10;
+      const next = o.s === 'bar' ? { a: o.a.map((v, i) => r1(v + sh[i])), b: o.b.map((v, i) => r1(v + sh[i])) } : { x: r1(o.x + sh[0]), y: r1(o.y + sh[1]), z: r1(o.z + sh[2]) };
+      App.doc.update(g.el.id, { parts: userParts(g.el).map((q) => (q.id === g.id ? { ...q, ...next } : q)) });
+      render();
+    }
+    up(ev) {
+      const g = this.drag, press = this.press;
+      this.pan = null; this.drag = null; this.press = null;
+      if (g && g.started) { DD().freeze(null); App.doc.commit(); refreshPanes(); render(); return; }
+      if (!press || dragged(ev, press)) return;
+      const el = cur();
+      const h = el ? DD().hit(el, ev.world) : null;
+      if ((!h || !h.part) && sel) { sel = null; formKey = ''; refreshPanes(); render(); }
+    }
+    cancel() {
+      if (this.drag && this.drag.started) { DD().freeze(null); App.doc.rollback(); }
+      this.pan = null; this.drag = null; this.press = null;
+      render();
+    }
+    escape() { if (sel) { sel = null; formKey = ''; refreshPanes(); render(); return true; } return false; }
+  }
+
+  /** 그리기 도구 공통: 어느 그림에서 시작했는지와 그 그림의 두 축 값 */
+  function startAt(el, ev) {
+    const B = D().build(el);
+    if (!B.parts.length) return { view: 'front', at: [0, 0], empty: true, world: ev.world };
+    const L = DD().layout(el);
+    const h = DD().hit(el, ev.world, L.G * 0.45);
+    return h ? { view: h.view, at: h.at, world: ev.world } : null;
+  }
+  const delta = (st, ev) => [ev.world.x - st.world.x, -(ev.world.y - st.world.y)];
+  class DDraw {
+    constructor(bar) { this.bar = bar; }
+    activate() { this.st = null; this.cur = null; }
+    down(ev) {
+      const el = cur();
+      if (!el || el.kind === 'model') { App.ui.toast(el ? '내려받은 모델에는 부재를 그릴 수 없습니다. ‘＋ 새 설계 → 자유 설계’에서 그리세요.' : '먼저 ‘＋ 새 설계’로 설계물을 만드세요.'); return; }
+      this.st = startAt(el, ev);
+      this.cur = ev;
+      if (!this.st) App.ui.toast('정면도·평면도·측면도 안(또는 바로 옆)에서 끌어 그리세요.');
+    }
+    move(ev) { if (this.st) { this.cur = ev; render(); } }
+    up(ev) {
+      const st = this.st, el = cur();
+      this.st = null; this.cur = null;
+      render();
+      if (!st || !el) return;
+      const g = grid(), [du, dv] = delta(st, ev);
+      const [ha, va] = AX()[st.view], ta = 3 - ha - va;
+      const a0 = snapTo(st.at[0], g), b0 = snapTo(st.at[1], g), a1 = snapTo(st.at[0] + du, g), b1 = snapTo(st.at[1] + dv, g);
+      const B = D().build(el), base = B.parts.length ? B.min[ta] : 0;
+      if (!this.bar) {
+        const S = D().sheet(App.current.dsSheet || 'ply18');
+        const lo = [0, 0, 0], size = [0, 0, 0];
+        lo[ha] = Math.min(a0, a1); lo[va] = Math.min(b0, b1); lo[ta] = base;
+        size[ha] = Math.abs(a1 - a0); size[va] = Math.abs(b1 - b0); size[ta] = S.t;
+        if (size[ha] < 10 || size[va] < 10) { App.ui.toast('끌어서 판의 크기를 정하세요 (10mm 넘게).'); return; }
+        addPart(el, { s: 'box', n: '판', m: S.id, x: lo[0], y: lo[1], z: lo[2], w: size[0], d: size[1], h: size[2] }, '판 그리기');
+      } else {
+        const M = D().bar(App.current.dsBar || 'sq50');
+        const len = Math.hypot(a1 - a0, b1 - b0);
+        if (len < 20) { App.ui.toast('시작점에서 끝점까지 끌어 막대의 길이를 정하세요.'); return; }
+        const ang = (Math.atan2(Math.abs(b1 - b0), Math.abs(a1 - a0)) * 180) / Math.PI;
+        if (ang < 4 || ang > 86) {
+          // 곧은 막대: 끈 선이 가운데가 되게
+          const along = ang < 4 ? ha : va, across = ang < 4 ? va : ha;
+          const axis = 'xyz'[along], p = [0, 0, 0];
+          const lo = along === ha ? Math.min(a0, a1) : Math.min(b0, b1), fixed = along === ha ? b0 : a0;
+          const probe = D().rail('막대', M.id, axis, 0, 0, 0, len);
+          const dims = [probe.w, probe.d, probe.h];
+          p[along] = lo; p[across] = fixed - dims[across] / 2; p[ta] = base;
+          addPart(el, { s: 'box', n: '막대', m: M.id, x: p[0], y: p[1], z: p[2], w: dims[0], d: dims[1], h: dims[2] }, '막대 그리기');
+        } else {
+          const A = [0, 0, 0], Bp = [0, 0, 0];
+          A[ha] = a0; A[va] = b0; A[ta] = base + M.sw / 2;
+          Bp[ha] = a1; Bp[va] = b1; Bp[ta] = base + M.sw / 2;
+          addPart(el, { s: 'bar', n: '버팀대', m: M.id, a: A, b: Bp }, '막대 그리기');
+        }
+      }
+      if (st.empty) App.plan.fitToContent();
+    }
+    cancel() { this.st = null; this.cur = null; render(); }
+    escape() { if (this.st) { this.cancel(); return true; } return false; }
+    overlay(plan) {
+      if (!this.st || !this.cur) return;
+      const ctx = plan.ctx, px = 1 / plan.view.scale;
+      App.draw.worldTransform(plan);
+      const a = this.st.world, b = this.cur.world;
+      ctx.strokeStyle = plan.colors.accent || '#e8590c'; ctx.fillStyle = ctx.strokeStyle; ctx.lineWidth = 1.6 * px; ctx.setLineDash([6 * px, 4 * px]);
+      ctx.beginPath();
+      if (this.bar) { ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); } else ctx.rect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+      ctx.stroke();
+      ctx.setLineDash([]);
+      const text = this.bar ? `${fmt(Math.hypot(b.x - a.x, b.y - a.y))}` : `${fmt(Math.abs(b.x - a.x))} × ${fmt(Math.abs(b.y - a.y))}`;
+      ctx.font = `700 ${12 * px}px system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif`; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+      ctx.fillText(text, b.x + 8 * px, b.y - 8 * px);
+    }
+  }
+
+  /* ── 눌린 버튼·바뀐 칸 처리 (속성·집계 칸, 위쪽 막대) ── */
+  async function act(name) {
+    const el = cur();
+    switch (name) {
+      case 'ds-new': return newDialog();
+      case 'ds-3d': return open3d(el);
+      case 'ds-pdf': return el ? App.designOut.exportPdf() : null;
+      case 'ds-csv': return el ? App.designOut.exportCsv(el) : null;
+      case 'ds-dxf': return el ? App.designOut.exportDxf(el) : null;
+      case 'ds-glb': return el ? App.designOut.exportGlb(el) : null;
+      case 'ds-object': return toObject(el);
+      case 'ds-estimate': return el ? toEstimate(el) : null;
+      case 'ds-copy': return el ? duplicate(el) : null;
+      case 'ds-explode': {
+        if (!el) return null;
+        const r = await App.ui.dialog({ title: '부재로 풀기', html: `<p>‘${esc(el.name)}’의 부재를 하나씩 옮기고 고칠 수 있게 풉니다. 풀고 나면 폭·높이·선반 수 같은 값으로는 더 바꿀 수 없습니다.${el.kind === 'led' ? ' 전광판 캐비닛과 전력·무게 계산은 빠지고 틀만 남습니다.' : ''}</p><p class="props-meta">실행 취소(Ctrl+Z)로 되돌릴 수 있습니다.</p>`, actions: [{ id: 'cancel', label: '취소' }, { id: 'ok', label: '풀기', primary: true }] });
+        if (r.id === 'ok') explode(el);
+        return null;
+      }
+      case 'ds-del': {
+        if (!el) return null;
+        const r = await App.ui.dialog({ title: '설계 지우기', html: `<p>‘${esc(el.name)}’ 설계를 지울까요?</p><p class="props-meta">이미 ‘사물로 등록’한 것은 내 사물에 그대로 남습니다.</p>`, actions: [{ id: 'cancel', label: '취소' }, { id: 'ok', label: '지우기', danger: true }] });
+        if (r.id === 'ok') remove(el);
+        return null;
+      }
+      case 'ds-part-del': return deletePart();
+      case 'ds-part-copy': {
+        const q = el && userParts(el).find((x) => x.id === sel);
+        if (!q) return null;
+        const c = JSON.parse(JSON.stringify(q));
+        delete c.id;
+        if (c.s === 'bar') { c.a[0] += 100; c.b[0] += 100; } else c.x += 100;
+        return addPart(el, c, '부재 복제');
+      }
+      default: return null;
+    }
+  }
+  function onChange(e) {
+    const t = e.target, el = cur();
+    if (t.dataset.draw) { App.current[t.dataset.draw] = t.value; App.ui.emit('current'); return; }
+    if (!el) return;
+    if (t.id === 'dsName') { const v = t.value.replace(/\s+/g, ' ').trim().slice(0, 30); if (v && v !== el.name) { patch(el, '이름 바꾸기', { name: v }); syncBar(); } else t.value = el.name; return; }
+    if (t.id === 'dsPreset') {
+      const pr = (D().KINDS[el.kind].presets || [])[+t.value];
+      if (t.value !== '' && pr) { patch(el, '규격 바꾸기', { p: { ...D().KINDS[el.kind].defaults, ...pr[1] } }); formKey = ''; refreshPanes(); App.plan.fitToContent(); }
+      return;
+    }
+    if (t.dataset.p) {
+      const k = t.dataset.p;
+      let v;
+      if (t.type === 'checkbox') v = t.checked;
+      else if (t.tagName === 'SELECT') v = t.dataset.num ? Number(t.value) : t.value;
+      else {
+        v = numIn(t.value);
+        if (Number.isNaN(v)) { if (t.dataset.optional && !t.value.trim()) v = null; else { t.value = el.p[k] == null ? '' : el.p[k]; return; } }
+        else if (t.dataset.int) v = Math.round(v);
+        if (v != null && v < 0) v = 0;
+      }
+      if (v === el.p[k]) return;
+      setParam(el, k, v);
+      return;
+    }
+    if (t.dataset.part && sel) {
+      const q = userParts(el).find((x) => x.id === sel);
+      if (!q) return;
+      const k = t.dataset.part;
+      if (k === 'n') { setPart(el, sel, { n: t.value.trim().slice(0, 30) || q.n }); return; }
+      if (k === 'm') {
+        const isBar = !!D().BARS.find((b) => b.id === t.value);
+        if (q.s !== 'bar' && isBar !== !!D().BARS.find((b) => b.id === q.m)) {
+          // 판 ↔ 막대로 바꾸면 단면을 새 자재에 맞춤
+          if (isBar) { const along = q.w >= q.d && q.w >= q.h ? 'x' : q.d >= q.h ? 'y' : 'z'; const r = D().rail(q.n, t.value, along, q.x, q.y, q.z, Math.max(q.w, q.d, q.h)); setPart(el, sel, { m: t.value, w: r.w, d: r.d, h: r.h }); }
+          else { const dims = [['w', q.w], ['d', q.d], ['h', q.h]].sort((a, b) => a[1] - b[1]); setPart(el, sel, { m: t.value, [dims[0][0]]: D().sheet(t.value).t }); }
+        } else if (q.s !== 'bar' && !isBar) { const dims = [['w', q.w], ['d', q.d], ['h', q.h]].sort((a, b) => a[1] - b[1]); setPart(el, sel, { m: t.value, [dims[0][0]]: D().sheet(t.value).t }); }
+        else if (q.s !== 'bar') { const along = q.w >= q.d && q.w >= q.h ? 'x' : q.d >= q.h ? 'y' : 'z'; const r = D().rail(q.n, t.value, along, q.x, q.y, q.z, Math.max(q.w, q.d, q.h)); setPart(el, sel, { m: t.value, w: r.w, d: r.d, h: r.h }); }
+        else setPart(el, sel, { m: t.value });
+        formKey = ''; refreshPanes();
+        return;
+      }
+      const v = numIn(t.value);
+      if (Number.isNaN(v)) { formKey = ''; refreshPanes(); return; }
+      if (/^[ab][012]$/.test(k)) { const arr = (k[0] === 'a' ? q.a : q.b).slice(); arr[+k[1]] = v; setPart(el, sel, { [k[0]]: arr }); }
+      else setPart(el, sel, { [k]: ['w', 'd', 'h'].includes(k) ? Math.max(1, v) : v });
+    }
+  }
+
+  function init() {
+    const T = App.model && App.model.TYPES;
+    if (T && !T.design) T.design = { label: '설계', catalog: true, pick: 0, bounds: () => null }; // 평면 도면에는 그리지 않는 요소
+    App.tools.register('dselect', () => new DSelect());
+    App.tools.register('dbox', () => new DDraw(false));
+    App.tools.register('dbar', () => new DDraw(true));
+    const bar = document.getElementById('designBar');
+    if (bar) bar.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-design], [data-act]');
+      if (!b) return;
+      if (b.dataset.design) setCurrent(b.dataset.design); else act(b.dataset.act);
+    });
+    const toggle = (id, key) => { const b = document.getElementById(id); if (b) b.addEventListener('click', () => { App.current[key] = App.current[key] === false; App.ui.emit('current'); syncBar(); render(); }); };
+    toggle('btnDsDims', 'designDims');
+    toggle('btnDsHidden', 'designHidden');
+    ['pane-props', 'pane-summary'].forEach((id) => {
+      const pane = document.getElementById(id);
+      pane.addEventListener('click', (e) => { if (!isMode()) return; const b = e.target.closest('[data-act^="ds"]'); if (b) act(b.dataset.act); });
+      pane.addEventListener('change', (e) => { if (isMode() && e.target.closest('.ds-props')) onChange(e); });
+      pane.addEventListener('keydown', (e) => { if (isMode() && e.key === 'Enter' && e.target.tagName === 'INPUT' && e.target.closest('.ds-props') && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); e.target.blur(); } });
+    });
+    App.ui.on('mode', () => {
+      sel = null; formKey = '';
+      syncBar();
+      if (isMode()) { const el = cur(); if (el && App.current.designId !== el.id) App.current.designId = el.id; setTimeout(() => { if (isMode()) App.plan.fitToContent(); }, 0); }
+    });
+    App.ui.on('project', () => { sel = null; formKey = ''; syncBar(); });
+    App.ui.on('tool', () => { if (isMode()) { formKey = ''; refreshPanes(); } });
+    App.ui.on('library', () => { if (isMode()) { refreshPanes(); render(); } });
+    App.doc.onChange(() => {
+      if (!isMode()) return;
+      // 실행 취소로 설계물이 사라졌으면 고른 것을 비움
+      const el = cur();
+      if (sel && el && !D().build(el).parts.some((q) => q.id === sel)) { sel = null; formKey = ''; }
+      syncBar();
+    });
+    syncBar();
+  }
+
+  App.designUI = {
+    init, renderProps, renderSummary, newDialog, openModel, open3d, toObject, toEstimate, add, remove, duplicate, explode, setCurrent, deletePart, addPart, setParam, act,
+    selected: () => sel,
+    select(id) { sel = id; formKey = ''; refreshPanes(); render(); },
+  };
+})();

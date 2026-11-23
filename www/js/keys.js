@@ -17,6 +17,15 @@
         return;
       }
       const ctrl = e.ctrlKey || e.metaKey;
+      if (App.modes.is('design')) { // 설계 모드: 실행 취소·다시 실행, 부재 지우기, 도구 글쇠만
+        if (ctrl && !e.altKey && e.code === 'KeyZ') { e.preventDefault(); if (e.shiftKey) App.actions.redo(); else App.actions.undo(); }
+        else if (ctrl && !e.altKey && e.code === 'KeyY') { e.preventDefault(); App.actions.redo(); }
+        else if (ctrl || e.altKey || e.repeat) return;
+        else if (e.key === 'Escape') { if (!App.tools.escape() && App.tools.id !== 'dselect') App.ui.setTool('dselect'); }
+        else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); App.designUI.deletePart(); }
+        else if (/^Key[A-Z]$/.test(e.code)) { const t = App.ui.TOOLS.find((x) => x.key === e.code.slice(3) && App.modes.tools().includes(x.id)); if (t) App.ui.pickTool(t.id); }
+        return;
+      }
 
       if (ctrl && !e.altKey) {
         if (e.code === 'KeyZ' && !e.shiftKey) {
@@ -88,8 +97,8 @@
         if (items.length) App.doc.transact('돌리기', () => items.forEach((it) => App.doc.update(it.id, { rotation: ((((it.rotation || 0) + d) % 360) + 360) % 360 })));
       } else if (/^Key[A-Z]$/.test(e.code)) {
         const letter = e.code.slice(3);
-        const tool = App.ui.TOOLS.find((t) => t.key === letter);
-        if (tool && App.modes.tools().includes(tool.id)) App.ui.pickTool(tool.id); // 지금 모드의 도구만
+        const tool = App.ui.TOOLS.find((t) => t.key === letter && App.modes.tools().includes(t.id)); // 지금 모드의 도구만
+        if (tool) App.ui.pickTool(tool.id);
       }
     });
   }

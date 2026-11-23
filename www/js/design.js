@@ -24,7 +24,8 @@
     { id: 'acryl5', name: '아크릴 5T', t: 5, color: '#dcecf5', dens: 1190, alpha: 0.45 },
     { id: 'pvc5', name: '포맥스 5T', t: 5, color: '#f5f5f3', dens: 550 },
   ];
-  const steel = (sw, sh, t) => r1(((sw * sh - (sw - 2 * t) * (sh - 2 * t)) * 7.85e-3) * 0.97 * 100) / 100; // kg/m (모서리 둥글림 어림)
+  const r2 = (v) => Math.round(v * 100) / 100;
+  const steel = (sw, sh, t) => r2((sw * sh - (sw - 2 * t) * (sh - 2 * t)) * 7.85e-3 * 0.97); // kg/m (모서리 둥글림 어림)
   const BARS = [
     { id: 'sq30', name: '각파이프 30×30×1.6T', sw: 30, sh: 30, t: 1.6, metal: true, stock: 6000, color: '#8d949c' },
     { id: 'sq40', name: '각파이프 40×40×2.0T', sw: 40, sh: 40, t: 2.0, metal: true, stock: 6000, color: '#8d949c' },
@@ -41,7 +42,7 @@
     { id: 'rod25', name: '옷걸이 봉 Ø25', sw: 25, sh: 25, kgm: 0.6, metal: true, round: true, stock: 3000, color: '#b9bec4' },
   ];
   BARS.forEach((b) => {
-    if (b.kgm == null) b.kgm = b.t ? (b.round ? r1(Math.PI * (b.sw - b.t) * b.t * 7.85e-3 * 100) / 100 : steel(b.sw, b.sh, b.t)) : r1(((b.sw * b.sh) / 1e6) * b.dens * 100) / 100;
+    if (b.kgm == null) b.kgm = b.t ? (b.round ? r2(Math.PI * (b.sw - b.t) * b.t * 7.85e-3) : steel(b.sw, b.sh, b.t)) : r2(((b.sw * b.sh) / 1e6) * b.dens);
   });
   const LED = { id: 'led', name: 'LED 캐비닛', color: '#12161c' };
   const sheet = (id) => SHEETS.find((s) => s.id === id) || SHEETS[0];
@@ -556,7 +557,7 @@
 
   App.design = {
     SHEETS, BARS, LED_CABS, LED_PITCH, KINDS, SHEET_W, SHEET_H, KERF,
-    sheet, bar, mat, create, build, bom, bomRows, bounds, corners, lenOf, weightOf, nest1d, nest2d, toBoxes, toModel, cleanPart,
+    sheet, bar, mat, create, build, bom, bomRows, bounds, corners, lenOf, weightOf, nest1d, nest2d, toBoxes, toModel, cleanPart, box, rail, brace,
     /** 도면의 설계물들 (만든 차례) */
     all: () => (App.doc ? [...App.doc.all()].filter((e) => e.type === 'design') : []),
     /** 지금 보고 있는 설계물 */

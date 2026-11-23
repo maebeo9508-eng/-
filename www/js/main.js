@@ -115,6 +115,7 @@
   App.edit.init();
   App.settingsUI.init();
   App.libraryUI.init();
+  App.designUI.init();
   App.textEditor.init();
   App.keys.init();
   App.ui.updateHistory();
@@ -124,7 +125,7 @@
   const setTopInset = () => {
     plan.insets.top = stageTop.offsetTop + stageTop.offsetHeight;
   };
-  document.getElementById('btn3d').addEventListener('click', () => App.view3d.open());
+  document.getElementById('btn3d').addEventListener('click', () => (App.modes.is('design') ? App.designUI.open3d() : App.view3d.open()));
   document.getElementById('btnFit').addEventListener('click', () => {
     setTopInset();
     plan.fitToContent();

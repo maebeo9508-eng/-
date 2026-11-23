@@ -63,6 +63,10 @@
 <script src="js/sprites.js" defer></script>
 <script src="js/library.js" defer></script>
 <script src="js/library-ui.js" defer></script>
+<script src="js/design.js" defer></script>
+<script src="js/design-draw.js" defer></script>
+<script src="js/design-out.js" defer></script>
+<script src="js/design-ui.js" defer></script>
 <script src="js/keys.js" defer></script>
 <script src="js/main.js" defer></script>
 </head>
@@ -75,6 +79,7 @@
     <div class="mode-switch" id="modeSwitch" role="tablist" aria-label="모드">
       <button type="button" class="mode-tab" role="tab" data-mode="interior" aria-selected="true" title="인테리어 도면: 벽·방·문·창문과 자재 물량"><span class="ico ico-sm" data-icon="room"></span><span>인테리어</span></button>
       <button type="button" class="mode-tab" role="tab" data-mode="event" aria-selected="false" title="조감도: 행사·경기장 배치, 동선, 3D로 둘러보기"><span class="ico ico-sm" data-icon="event"></span><span>조감도</span></button>
+      <button type="button" class="mode-tab" role="tab" data-mode="design" aria-selected="false" title="설계: 가구·각파이프 틀·전광판을 치수로 만들고 설계도면·부재표"><span class="ico ico-sm" data-icon="design"></span><span>설계</span></button>
     </div>
 
     <div class="menu-wrap">
@@ -153,7 +158,10 @@
         <div class="menu layer-menu" id="layerMenu" role="menu" hidden></div>
       </div>
       <button type="button" class="stage-pill event-only" id="btnNames" aria-pressed="true" title="물건 이름을 도면에 보이기·숨기기">이름표</button>
+      <button type="button" class="stage-pill design-only" id="btnDsDims" aria-pressed="true" title="치수선 보이기·숨기기">치수</button>
+      <button type="button" class="stage-pill design-only" id="btnDsHidden" aria-pressed="true" title="가려진 선(점선) 보이기·숨기기">숨은선</button>
       </div>
+      <div class="pal-cats design-bar" id="designBar" role="tablist" aria-label="설계물" hidden></div>
       <div class="pal-cats" id="paletteCats" role="tablist" aria-label="물건 분류" hidden></div>
       <div class="palette" id="palette" role="toolbar" aria-label="기호 고르기" hidden></div>
       <div class="menu-wrap tool-opt-wrap">
