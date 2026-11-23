@@ -102,8 +102,8 @@
     ctx.strokeStyle = DIM; ctx.fillStyle = DIM; ctx.lineWidth = 1 * px; ctx.setLineDash([]);
     ctx.font = `600 ${11.5 * px}px ${FONT}`; ctx.textAlign = 'center';
   }
-  /** 가로 치수: x0~x1을 높이 y에. from: 그림 쪽 끝 y (보조선이 시작하는 곳). used: 좁은 칸의 글자가 서로 겹치지 않게 적어 두는 곳 */
-  function dimH(ctx, x0, x1, y, from, px, text = fmt(Math.abs(x1 - x0)), used = null) {
+  /** 가로 치수: x0~x1을 높이 y에. from: 그림 쪽 끝 y (보조선이 시작하는 곳) */
+  function dimH(ctx, x0, x1, y, from, px, text = fmt(Math.abs(x1 - x0))) {
     if (Math.abs(x1 - x0) < 0.5) return;
     const t = 4 * px, dir = y > from ? 1 : -1;
     ctx.beginPath();
@@ -115,11 +115,16 @@
     ctx.stroke();
     const w = ctx.measureText(text).width, len = Math.abs(x1 - x0), mid = (x0 + x1) / 2;
     if (w <= len - 4 * px) { ctx.textBaseline = 'bottom'; ctx.fillText(text, mid, y - 2 * px); return; }
-    if (w > len * 2.6) return; // 너무 좁은 칸(판 두께 따위)은 글자를 빼 둠
-    const a = mid - w / 2 - 3 * px, b = mid + w / 2 + 3 * px; // 좁은 칸: 선 아래에, 옆 칸 글자와 겹치면 뺌
-    if (used && used.some((u) => a < u[1] && b > u[0])) return;
-    if (used) used.push([a, b]);
-    ctx.textBaseline = 'top'; ctx.fillText(text, mid, y + 5 * px);
+    // 좁은 칸: 글자를 세워서 그림과 치수선 사이에 (칸이 글자 높이보다 넓고, 사이에 들어갈 때만). 더 좁은 칸(판 두께 따위)은 뺌
+    const gap = 30 * px; // 치수선과 그 안쪽(그림이나 앞 치수선) 사이
+    if (len >= 13 * px && w <= gap - 6 * px) {
+      ctx.save();
+      ctx.translate(mid + 0.5 * px, y - dir * (gap / 2 - 1.5 * px));
+      ctx.rotate(-Math.PI / 2);
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, 0, 0);
+      ctx.restore();
+    }
   }
   /** 세로 치수: y0~y1을 x에 (글자는 세워서). o.out: 글자를 선 바깥에 눕혀서 (‘바닥에서 500’처럼 긴 글) */
   function dimV(ctx, y0, y1, x, from, px, text = fmt(Math.abs(y1 - y0)), o = null) {
@@ -290,8 +295,7 @@
       const g1 = 30 * px, g2 = 58 * px;
       const cx = model ? null : chain(L, 'x'), cz = model ? null : chain(L, 'z'), cy = model ? null : chain(L, 'y');
       // 정면도: 아래 폭, 왼쪽 높이
-      const usedX = [];
-      if (cx) for (let i = 0; i + 1 < cx.length; i++) dimH(ctx, cx[i], cx[i + 1], base + g1, 0, px, undefined, usedX);
+      if (cx) for (let i = 0; i + 1 < cx.length; i++) dimH(ctx, cx[i], cx[i + 1], base + g1, 0, px);
       dimH(ctx, 0, s.w, base + (cx ? g2 : g1), 0, px);
       if (cz) for (let i = 0; i + 1 < cz.length; i++) dimV(ctx, -cz[i], -cz[i + 1], -g1, 0, px);
       dimV(ctx, 0, -s.h, cz ? -g2 : -g1, 0, px);
