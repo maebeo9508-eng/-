@@ -280,11 +280,14 @@
     const seg = (name, cur, list) => `<div class="seg-inline obj-seg" role="radiogroup">${list.map(([v, t, tip]) => `<button type="button" class="seg-btn" role="radio" data-${name}="${v}" aria-checked="${String(v) === String(cur)}"${tip ? ` title="${esc(tip)}"` : ''}>${esc(t)}</button>`).join('')}</div>`;
     let stage, opts = '';
     if (!st.kind) {
+      const got = [st.name ? `이름 ‘${esc(st.name)}’` : '', st.w ? `크기 ${st.w}${st.d ? ` × ${st.d}` : ''}${st.h ? ` × ${st.h}` : ''} mm` : '', st.price ? `가격 ${Math.round(st.price).toLocaleString('ko-KR')}원` : '', st.url ? '구매 링크' : ''].filter(Boolean);
       stage = `<div class="obj-empty">
           <p><b>밖에서 받아 온 사물을 등록합니다</b></p>
+          ${got.length ? `<p class="dialog-note obj-got" id="objGot">받은 내용: ${got.join(' · ')}<br>사진이나 3D 모델을 고르면 함께 등록됩니다. 사진이 없으면 <b>사진 없이 상자로</b>를 누르세요.</p>` : ''}
           <div class="btn-row">
             <button type="button" class="btn btn-primary" data-act="obj-pick-image">제품 사진·그림 고르기</button>
             <button type="button" class="btn btn-primary" data-act="obj-pick-model">3D 모델 파일 고르기</button>
+            <button type="button" class="btn" data-act="obj-pick-box" title="사진·모델 없이 이름·크기·가격만으로 등록 (도면에는 상자로 보임)">사진 없이 상자로</button>
           </div>
           <p class="props-meta">사진: 오늘의집 같은 쇼핑 앱에서 저장한 제품 사진(JPG·PNG·WebP) · 화면 캡처도 됩니다. PC는 그림을 복사해 <kbd>Ctrl</kbd>+<kbd>V</kbd>로 붙여도 됩니다.<br>
           3D 모델: GLB·glTF·OBJ·Collada(DAE)·3MF·PLY·STL. 내려받은 <b>압축파일(zip)은 풀지 않고 그대로</b> 골라도 됩니다 (안의 그림·재질 파일까지 읽음). 풀어 둔 것은 OBJ와 MTL·그림, glTF와 .bin·그림을 함께 고르세요.<br>
@@ -299,6 +302,9 @@
           <label class="check-row obj-check"><input type="checkbox" id="objBg" ${st.bgOn ? 'checked' : ''}><span>바탕 지우기 (흰 배경)</span></label>
           <label class="obj-tol" ${st.bgOn ? '' : 'hidden'}><span>세기</span><input type="range" id="objTol" min="6" max="110" step="2" value="${st.tol}" aria-label="바탕 지우기 세기"></label>
         </div>`;
+    } else if (st.kind === 'box') {
+      stage = `<div class="obj-boxprev"><img src="${boxThumb(st.color)}" alt="" width="160" height="120"><p>사진 없이 등록합니다. 평면에는 이 색의 상자와 이름으로, 3D에는 크기대로의 상자로 보입니다. 나중에 사진이나 3D 모델을 구하면 새로 등록하세요.</p></div>`;
+      opts = `<div class="obj-row"><span class="obj-lab">상자 색</span><div class="obj-swatches" role="radiogroup" aria-label="상자 색">${BOX_COLORS.map((c) => `<button type="button" class="obj-swatch" role="radio" data-color="${c}" aria-checked="${c === st.color}" style="background:${c}" aria-label="색 ${c}"></button>`).join('')}</div></div>`;
     } else {
       stage = '<canvas class="obj-canvas" id="objCanvas" aria-label="3D 미리보기 (끌어서 돌리기)"></canvas>';
       const r = st.raw;
@@ -319,7 +325,7 @@
         ${st.kind ? `
         ${opts}
         <div class="field"><label class="field-label" for="objName">이름</label><div class="field-box"><input id="objName" type="text" maxlength="36" value="${esc(st.name)}" placeholder="예: 3인 패브릭 소파" autocomplete="off"></div></div>
-        <div class="field-group-label obj-sizehead"><span>실제 크기</span><label class="check-row obj-check"><input type="checkbox" id="objLock" ${st.lock ? 'checked' : ''}><span>비율 고정</span></label></div>
+        <div class="field-group-label obj-sizehead"><span>실제 크기</span>${st.kind === 'box' ? '' : `<label class="check-row obj-check"><input type="checkbox" id="objLock" ${st.lock ? 'checked' : ''}><span>비율 고정</span></label>`}</div>
         <div class="field-grid obj-size">${sizeField('w', '폭')}${sizeField('d', '깊이')}${sizeField('h', '높이')}</div>
         <details class="est-info obj-more" ${st.url || st.price || st.pasted ? 'open' : ''}>
           <summary>가격·구매 링크 · 상품 글 붙여넣기</summary>
@@ -370,7 +376,7 @@
   async function takeImage(st, src, name) {
     const cv = await loadImage(src);
     const first = look(cv);
-    Object.assign(st, { kind: 'image', src: cv, cut: null, cutTol: null, tol: st.tol || 30, bgOn: !first.alpha, look: st.look || 'stand', removed: 0, raw: null, placed: null, painted: false });
+    Object.assign(st, { kind: 'image', src: cv, cut: null, cutTol: null, tol: st.tol || 30, bgOn: !first.alpha, look: st.look || 'stand', removed: 0, raw: null, placed: null, painted: false, lock: true });
     // 바탕이 잘 안 지워지는 사진(배경이 복잡한 사진)은 끈 채로 시작
     if (st.bgOn) { const r = cutBackground(cv, st.tol); if (r.removed < 0.04 || r.removed > 0.97) st.bgOn = false; else { st.cut = trim(r.canvas); st.cutTol = st.tol; st.removed = r.removed; } }
     if (!st.name && name) st.name = String(name).replace(/\.[a-z0-9]+$/i, '').replace(/[_-]+/g, ' ').trim().slice(0, 36);
@@ -441,8 +447,10 @@
             if (await safe(() => take(files), model ? '3D 모델을 읽는 중…' : '사진을 읽는 중…')) redraw();
           };
           body.addEventListener('click', async (e) => {
-            const b = e.target.closest('[data-act], [data-look], [data-unit], [data-up]');
+            const b = e.target.closest('[data-act], [data-look], [data-unit], [data-up], [data-color]');
             if (!b) return;
+            if (b.dataset.act === 'obj-pick-box') { takeBox(st); redraw(); return; }
+            if (b.dataset.color) { st.color = b.dataset.color; redraw(); return; }
             if (b.dataset.act === 'obj-pick-image') return choose(false);
             if (b.dataset.act === 'obj-pick-model') return choose(true);
             if (b.dataset.act === 'obj-fill') { const t = body.querySelector('#objPaste').value; st.pasted = t; const p = fill(t, true); redraw(); App.ui.toast(Object.keys(p).filter((k) => k !== 'src' || p.src).length ? '글에서 찾은 값을 채웠습니다. 크기를 확인하세요.' : '글에서 이름·링크·가격·크기를 찾지 못했습니다.'); return; }
@@ -527,6 +535,8 @@
       if (st.kind === 'image') {
         const cv = imageNow(st), lk = look(cv);
         id = await App.library.add({ ...base, type: st.look, avg: lk.avg, alpha: lk.alpha, src: '사진' }, { img: toUrl(cv, lk.alpha), thumb: thumbUrl(cv) });
+      } else if (st.kind === 'box') {
+        id = await App.library.add({ ...base, type: 'box', avg: st.color, src: '상자' }, { thumb: boxThumb(st.color) });
       } else {
         const M = App.meshio, low = M.reduce(st.placed, M.PLACE_TRIS);
         const mesh = M.pack(low), view = low === st.placed ? null : M.pack(st.placed);
@@ -561,13 +571,15 @@
   async function edit(id) {
     const m = App.library.byId(id);
     if (!m) return false;
-    const image = m.type !== 'mesh';
+    const image = m.type !== 'mesh' && m.type !== 'box';
+    let color = m.avg;
     const r = await App.ui.dialog({
       title: '사물 정보 고치기',
       html: `
         <div class="obj-reg" data-keys="local">
           <div class="field"><label class="field-label" for="objName">이름</label><div class="field-box"><input id="objName" type="text" maxlength="36" value="${esc(m.name)}" autocomplete="off"></div></div>
           ${image ? `<div class="field"><label class="field-label" for="objType">보이는 방식</label><div class="field-box"><select id="objType">${['stand', 'flat', 'cutout'].map((t) => `<option value="${t}" ${t === m.type ? 'selected' : ''}>${esc(App.library.TYPES[t])}</option>`).join('')}</select></div></div>` : ''}
+          ${m.type === 'box' ? `<div class="obj-row"><span class="obj-lab">상자 색</span><div class="obj-swatches" role="radiogroup" aria-label="상자 색">${[...new Set([m.avg, ...BOX_COLORS])].map((c) => `<button type="button" class="obj-swatch" role="radio" data-color="${esc(c)}" aria-checked="${c === m.avg}" style="background:${esc(c)}" aria-label="색 ${esc(c)}"></button>`).join('')}</div></div>` : ''}
           <div class="field-grid obj-size">
             ${[['w', '폭'], ['d', '깊이'], ['h', '높이']].map(([k, label]) => `<div class="field"><label class="field-label" for="obj-${k}">${label}</label><div class="field-box"><input id="obj-${k}" type="text" inputmode="numeric" value="${m[k]}" autocomplete="off"><span class="field-unit">mm</span></div></div>`).join('')}
           </div>
@@ -577,13 +589,19 @@
           </div>
           <div class="field"><label class="field-label" for="objUrl">구매 링크</label><div class="field-box"><input id="objUrl" type="url" inputmode="url" maxlength="600" value="${esc(m.url)}" placeholder="https://…" autocomplete="off"></div></div>
           <div class="field"><label class="field-label" for="objMemo">메모</label><div class="field-box"><input id="objMemo" type="text" maxlength="200" value="${esc(m.memo)}" autocomplete="off"></div></div>
-          <p class="props-meta">크기를 바꾸면 앞으로 놓는 것부터 새 크기로 놓입니다 (이미 놓은 것은 그대로). 가격은 견적의 단가로 들어갑니다.</p>
+          <p class="props-meta">크기를 바꾸면 이 도면에 놓인 것 가운데 크기를 따로 바꾸지 않은 것도 새 크기로 바뀝니다. 가격은 견적의 단가로 들어갑니다.</p>
         </div>`,
       actions: [{ id: 'cancel', label: '취소' }, { id: 'ok', label: '저장', primary: true }],
       onOpen(body) {
         body.addEventListener('keydown', (e) => {
           if (e.key === 'Escape') { e.preventDefault(); document.querySelector('#dialogFoot [data-id="cancel"]').click(); }
           else if (e.key === 'Enter' && e.target.tagName === 'INPUT' && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); document.querySelector('#dialogFoot [data-id="ok"]').click(); }
+        });
+        body.addEventListener('click', (e) => {
+          const b = e.target.closest('[data-color]');
+          if (!b) return;
+          color = b.dataset.color;
+          body.querySelectorAll('[data-color]').forEach((x) => x.setAttribute('aria-checked', String(x === b)));
         });
       },
     });
@@ -594,6 +612,7 @@
       name: q('#objName').value, w: num(q('#obj-w').value) || m.w, d: num(q('#obj-d').value) || m.d, h: Math.max(0, num(q('#obj-h').value)),
       price: num(q('#objPrice').value), brand: q('#objBrand').value, url: /^https?:\/\//i.test(url) ? url : '', memo: q('#objMemo').value,
       ...(image ? { type: q('#objType').value } : {}),
+      ...(m.type === 'box' && color !== m.avg ? { avg: color } : {}),
     };
     const next = App.library.update(id, patch);
     if (next) App.ui.toast(`‘${next.name}’을 고쳤습니다.`);
@@ -686,7 +705,7 @@
     App.ui.busy('사물을 파일로 묶는 중…');
     try {
       const objects = [];
-      for (const id of ids) { const rec = await App.library.exportData(id); if (rec && (rec.img || rec.mesh)) objects.push(rec); } // eslint-disable-line no-await-in-loop
+      for (const id of ids) { const rec = await App.library.exportData(id); if (rec && (rec.img || rec.mesh || rec.meta.type === 'box')) objects.push(rec); } // eslint-disable-line no-await-in-loop
       if (!objects.length) { App.ui.toast('내보낼 사물 데이터를 찾지 못했습니다.'); return false; }
       const one = objects.length === 1 ? objects[0].meta.name : `내사물_${objects.length}개`;
       const name = `${one.replace(/[\\/:*?"<>|]+/g, '_')}_${App.exporter.stamp()}.hjobj.json`;
@@ -788,12 +807,35 @@
     };
   }
 
+  /* ── 사진 없이 상자로 (이름·크기·가격만) ── */
+  const BOX_COLORS = ['#c8b79c', '#8d6e4f', '#f1f3f5', '#868e96', '#343a40', '#4c6ef5', '#2f9e44', '#e8590c', '#f08c00', '#d6336c'];
+  const boxThumb = (color) => App.library.boxThumb(color);
+  function takeBox(st) {
+    Object.assign(st, { kind: 'box', raw: null, placed: null, src: null, cut: null, painted: false, lock: false, color: st.color || BOX_COLORS[0] });
+    if (!st.w) st.w = 1000;
+    if (!st.d) st.d = 500;
+    if (!st.h) st.h = 800;
+  }
+
   /* ── 다른 앱에서 ‘공유’로 받은 것 (안드로이드 앱·웹앱) ── */
   async function fromShare(s = {}) {
     const text = [s.title, s.text, s.url].filter(Boolean).join('\n').trim();
     if (s.image) return register({ image: s.image, text, name: s.name || '' });
     if (s.files && s.files.length) return register({ files: s.files, text });
     if (text) return register({ text });
+    return null;
+  }
+  /** 앱이 넘겨준 공유 내용: { text, image(data URL), file(data URL), name, mime, tooBig } */
+  async function takeShared(d) {
+    if (!d) return null;
+    if (d.tooBig) { App.ui.toast(`‘${d.name || '파일'}’이 너무 커서 공유로 받지 못했습니다. 파일 → 내 사물 → 사물 등록에서 직접 골라 주세요.`); return null; }
+    if (d.file) {
+      try {
+        const blob = await (await fetch(d.file)).blob();
+        return fromShare({ text: d.text || '', files: [new File([blob], d.name || '받은 파일', { type: d.mime || '' })] });
+      } catch (_) { App.ui.toast('공유 받은 파일을 읽지 못했습니다.'); return null; }
+    }
+    if (d.text || d.image) return fromShare({ text: d.text || '', image: d.image || null, name: d.name || '' });
     return null;
   }
   function init() {
@@ -806,12 +848,11 @@
         setTimeout(() => fromShare(s), 600);
       }
     } catch (_) { /* 주소를 못 읽는 환경 */ }
-    // 안드로이드 앱: 다른 앱의 ‘공유’ 목록에서 현장도면을 고르면 글·사진이 넘어옴
+    // 안드로이드 앱: 다른 앱의 ‘공유’ 목록(또는 파일 앱의 ‘다른 앱으로 열기’)에서 현장도면을 고르면 글·사진·모델 파일이 넘어옴
     const C = window.Capacitor;
     const P = C && C.isNativePlatform && C.isNativePlatform() && C.Plugins && C.Plugins.ShareIn;
     if (P) {
-      const take = (d) => { if (d && (d.text || d.image)) fromShare({ text: d.text || '', image: d.image || null, name: d.name || '' }); };
-      try { P.addListener('share', take); P.consume().then(take).catch(() => {}); } catch (_) { /* 플러그인이 없는 빌드 */ }
+      try { P.addListener('share', takeShared); P.consume().then((d) => setTimeout(() => takeShared(d), 600)).catch(() => {}); } catch (_) { /* 플러그인이 없는 빌드 */ }
     }
     const m = document.getElementById('menuObjects');
     if (m) m.addEventListener('click', () => open());
@@ -825,5 +866,5 @@
     });
   }
 
-  App.libraryUI = { init, register, open, edit, placeNow, shopping, shoppingCsv, shoppingText, summaryBlock, exportPack, importPack, importPackText, fromShare, parseText, parseSize, cutBackground, trim, loadImage, look, Orbit };
+  App.libraryUI = { init, register, open, edit, placeNow, shopping, shoppingCsv, shoppingText, summaryBlock, exportPack, importPack, importPackText, fromShare, takeShared, parseText, parseSize, cutBackground, trim, loadImage, look, Orbit };
 })();

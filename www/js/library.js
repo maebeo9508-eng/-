@@ -10,7 +10,7 @@
   const KEY_INDEX = 'hjdm.objects';
   const KEY = (id) => `obj:${id}`;
   const CAT = '내 사물';
-  const TYPES = { flat: '위에서 본 그림', stand: '제품 사진 (상자)', cutout: '세운 그림', mesh: '3D 모형' };
+  const TYPES = { flat: '위에서 본 그림', stand: '제품 사진 (상자)', cutout: '세운 그림', mesh: '3D 모형', box: '상자 (사진 없이 이름·크기만)' };
   const newId = () => `obj-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
   const clampMm = (v, lo = 1, hi = 100000) => Math.max(lo, Math.min(hi, Math.round(Number(v) || 0)));
 
@@ -144,6 +144,27 @@
     });
   }
   const hexOf = (s) => gl().hex(s);
+  /** 사진 없이 등록한 상자의 미리보기 그림 (비스듬히 본 상자) */
+  const boxPics = new Map();
+  function boxThumb(color) {
+    const key = /^#[0-9a-f]{6}$/i.test(color || '') ? color.toLowerCase() : '#c8b79c';
+    if (boxPics.has(key)) return boxPics.get(key);
+    if (typeof document === 'undefined') return null;
+    const cv = document.createElement('canvas');
+    cv.width = 160; cv.height = 120;
+    const c = cv.getContext('2d'), v = parseInt(key.slice(1), 16);
+    const shade = (k) => `rgb(${[(v >> 16) & 255, (v >> 8) & 255, v & 255].map((x) => Math.max(0, Math.min(255, Math.round(x * k)))).join(',')})`;
+    [[[[80, 20], [134, 43], [80, 66], [26, 43]], 1.1], [[[26, 43], [80, 66], [80, 106], [26, 83]], 0.9], [[[134, 43], [80, 66], [80, 106], [134, 83]], 0.72]].forEach(([pts, k]) => {
+      c.beginPath();
+      pts.forEach((p, i) => (i ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1])));
+      c.closePath();
+      c.fillStyle = shade(k); c.fill();
+      c.strokeStyle = 'rgba(0,0,0,0.3)'; c.lineWidth = 1.5; c.lineJoin = 'round'; c.stroke();
+    });
+    const url = cv.toDataURL('image/png');
+    boxPics.set(key, url);
+    return url;
+  }
   /** 물건 하나의 3D 모형을 넣음 (view3d.js itemModel에서 부름). w·d·h는 m */
   function model3d(C, it, w, d, h) {
     const m = metaOf(it.kind);
@@ -151,6 +172,7 @@
     const e = entry(m.id), MAT = gl().MAT, S = C.S;
     const avg = hexOf(m.avg);
     const hh = Math.max(0.004, h);
+    if (m.type === 'box') { S.box(-w / 2, 0, -d / 2, w / 2, Math.max(0.02, hh), d / 2, avg, MAT.plain); return true; } // 사진 없이 등록한 것: 고른 색의 상자
     if (e.state !== 'ready') { // 아직 못 읽었거나 이 기기에 없는 사물: 자리 상자
       S.box(-w / 2, 0, -d / 2, w / 2, Math.max(0.02, hh), d / 2, hexOf('#c9c4bb'), MAT.plain);
       return true;
@@ -221,9 +243,10 @@
     ready,
     /** 바로 쓸 수 있는 데이터 (아직 못 읽었으면 null, 읽고 나면 화면을 다시 그림) */
     data(id) { const e = entry(id); return e.state === 'ready' ? e : null; },
-    state: (id) => entry(id).state,
+    state: (id) => { const m = byId(id); return m && m.type === 'box' ? 'ready' : entry(id).state; }, // 상자는 그림·모형이 없어도 됨
     /** 고르는 막대의 미리보기 그림 주소 */
-    thumb(kind) { const m = metaOf(kind); if (!m) return null; const e = entry(m.id); return e.state === 'ready' ? e.thumb : null; },
+    thumb(kind) { const m = metaOf(kind); if (!m) return null; if (m.type === 'box') return boxThumb(m.avg); const e = entry(m.id); return e.state === 'ready' ? e.thumb : null; },
+    boxThumb,
     /** 평면에 바로 그릴 그림: flat은 그림 그대로, stand·cutout은 자리 상자 안에 제품 사진 */
     planImage(it) {
       const m = metaOf(it.kind);
@@ -358,7 +381,7 @@
       const F = App.meshio.fromJSON;
       const img = typeof rec.img === 'string' && /^data:image\//.test(rec.img) ? rec.img : null;
       const data = { id: m.id, img, thumb: typeof rec.thumb === 'string' && /^data:image\//.test(rec.thumb) ? rec.thumb : null, mesh: rec.mesh ? F(rec.mesh) : null, view: rec.view ? F(rec.view) : null };
-      const has = data.img || data.mesh;
+      const has = !!(data.img || data.mesh) || m.type === 'box'; // 상자는 그림·모형 없이 이름·크기·색만
       const list = load(), same = list.find((x) => x.id === m.id);
       try {
         if (has) { await App.storage.blobs.put(KEY(m.id), data); cache.delete(m.id); }

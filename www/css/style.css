@@ -1696,6 +1696,13 @@ body:has(> .view3d:not([hidden])) .toast { bottom: auto; top: 36%; }
 .obj-more .field { margin-top: 8px; }
 .obj-more .btn { margin-top: 6px; }
 .obj-again { justify-content: flex-end; }
+.obj-got { text-align: left; }
+.obj-boxprev { display: flex; align-items: center; gap: 14px; padding: 12px 14px; }
+.obj-boxprev img { flex: none; width: 120px; height: 90px; }
+.obj-boxprev p { margin: 0; font-size: 13px; color: var(--fg-muted); line-height: 1.5; }
+.obj-swatches { display: flex; flex-wrap: wrap; gap: 6px; }
+.obj-swatch { width: 30px; height: 30px; border-radius: 50%; border: 1px solid rgba(0, 0, 0, 0.22); padding: 0; cursor: pointer; }
+.obj-swatch[aria-checked="true"] { outline: 3px solid var(--accent); outline-offset: 2px; }
 .obj-top { flex-wrap: wrap; }
 .obj-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
 .obj-card { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 10px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }

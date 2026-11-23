@@ -18,6 +18,22 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- 다른 앱의 '공유' 목록에 나옴: 쇼핑 앱의 제품(글·링크·사진), 내려받은 3D 모델 파일·압축파일 → 사물 등록 -->
+            <intent-filter android:label="@string/share_label">
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+                <data android:mimeType="image/*" />
+                <data android:mimeType="model/*" />
+                <data android:mimeType="application/zip" />
+                <data android:mimeType="application/x-zip-compressed" />
+            </intent-filter>
+            <!-- 파일 앱에서 3D 모델을 '다른 앱으로 열기' -->
+            <intent-filter android:label="@string/share_label">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" android:mimeType="model/*" />
+            </intent-filter>
         </activity>
 
         <provider

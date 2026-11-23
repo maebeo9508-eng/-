@@ -4,4 +4,5 @@
     <string name="title_activity_main">현장도면</string>
     <string name="package_name">kr.hyeonjang.domyeon</string>
     <string name="custom_url_scheme">kr.hyeonjang.domyeon</string>
+    <string name="share_label">현장도면에 사물 등록</string>
 </resources>

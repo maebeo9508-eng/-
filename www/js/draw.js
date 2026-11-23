@@ -1491,13 +1491,14 @@
     if (m && m.type === 'flat' && c.img) {
       ctx.drawImage(c.img, -w / 2, -d / 2, w, d);
     } else {
-      ctx.globalAlpha = alpha * 0.3;
+      const box = !!m && m.type === 'box'; // 사진 없이 등록한 것: 고른 색의 상자에 이름
+      ctx.globalAlpha = alpha * (box ? 0.55 : 0.3);
       ctx.fillStyle = (m && m.avg) || '#b9b3a8';
       ctx.fillRect(-w / 2, -d / 2, w, d);
       ctx.globalAlpha = alpha;
       ctx.lineWidth = 1.2 * px;
       ctx.strokeStyle = ink;
-      if (!c.img) ctx.setLineDash([6 * px, 4 * px]);
+      if (!c.img && !box) ctx.setLineDash([6 * px, 4 * px]);
       ctx.strokeRect(-w / 2, -d / 2, w, d);
       ctx.setLineDash([]);
       if (c.img) {
@@ -1506,13 +1507,19 @@
         const k = Math.min((w * 0.84) / iw, (d * 0.84) / ih);
         if (k > 0 && Number.isFinite(k)) ctx.drawImage(c.img, (-iw * k) / 2, (-ih * k) / 2, iw * k, ih * k);
       } else {
-        const t = String(it.kind || '').replace(/\s/g, '').slice(0, 2);
-        const size = Math.max(10 * px, Math.min(w, d) * 0.3);
+        const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif';
         ctx.fillStyle = ink;
-        ctx.font = `700 ${size}px system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(t, 0, 0);
+        const full = String(it.kind || '').trim();
+        let size = Math.max(10 * px, Math.min(Math.min(w, d) * 0.22, 15 * px));
+        ctx.font = `700 ${size}px ${FONT}`;
+        if (box && full && ctx.measureText(full).width <= w * 0.92 && size <= d * 0.8) ctx.fillText(full, 0, 0); // 이름이 들어가면 이름을
+        else {
+          size = Math.max(10 * px, Math.min(w, d) * 0.3);
+          ctx.font = `700 ${size}px ${FONT}`;
+          ctx.fillText(full.replace(/\s/g, '').slice(0, 2), 0, 0);
+        }
       }
       if (m && (m.type === 'stand' || m.type === 'cutout')) { // 앞쪽(사진이 보이는 쪽)을 굵게
         ctx.lineWidth = 3 * px;
