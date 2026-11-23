@@ -36,6 +36,8 @@
       brand: String(m.brand || '').slice(0, 40), memo: String(m.memo || '').slice(0, 200), src: String(m.src || '').slice(0, 80),
       avg: /^#[0-9a-f]{6}$/i.test(m.avg || '') ? m.avg : '#b9b3a8', alpha: !!m.alpha, tris: Math.max(0, Math.round(Number(m.tris) || 0)),
       at: typeof m.at === 'string' ? m.at : new Date().toISOString(), ver: Math.max(1, Math.round(Number(m.ver) || 1)),
+      lift: Math.max(0, Math.min(20000, Math.round(Number(m.lift) || 0))), // 바닥에서 띄우는 높이 (벽에 다는 것)
+      design: typeof m.design === 'string' ? m.design : '', // 설계 모드에서 만든 것: 설계물 id
       aka: Array.isArray(m.aka) ? m.aka.filter((s) => typeof s === 'string' && s && s !== name).slice(-12) : [], // 예전 이름들 (다른 도면에 놓인 것이 계속 보이게)
     };
   }
@@ -117,10 +119,10 @@
     return m;
   };
   /** 모형(mm, 바닥 가운데가 원점)을 그릇에 넣음. 폭 w × 깊이 d × 높이 h(m)에 맞춰 늘림 */
-  function emitMesh(C, model, w, d, h, key) {
+  function emitMesh(C, model, w, d, h, key, lift = 0) {
     const b = model.bbox, MAT = gl().MAT;
     const kx = w / Math.max(1e-6, b.max[0] - b.min[0]), ky = h / Math.max(1e-6, b.max[1] - b.min[1]), kz = d / Math.max(1e-6, b.max[2] - b.min[2]);
-    const cx = (b.min[0] + b.max[0]) / 2, cz = (b.min[2] + b.max[2]) / 2, y0 = b.min[1];
+    const cx = (b.min[0] + b.max[0]) / 2, cz = (b.min[2] + b.max[2]) / 2, y0 = b.min[1] - lift / ky;
     const even = Math.abs(kx / ky - 1) < 0.01 && Math.abs(kz / ky - 1) < 0.01;
     const col = [1, 1, 1];
     model.groups.forEach((g, gi) => {
@@ -153,7 +155,7 @@
       S.box(-w / 2, 0, -d / 2, w / 2, Math.max(0.02, hh), d / 2, hexOf('#c9c4bb'), MAT.plain);
       return true;
     }
-    if (m.type === 'mesh' && e.mesh) { emitMesh(C, e.mesh, w, d, hh, `${m.id}:${m.ver}`); return true; }
+    if (m.type === 'mesh' && e.mesh) { emitMesh(C, e.mesh, w, d, hh, `${m.id}:${m.ver}`, (m.lift || 0) / 1000); return true; }
     const img = e.img;
     const quad = (pts, layer = 'solid') => { if (img) C.face(pts, img, layer); };
     if (m.type === 'flat') {
