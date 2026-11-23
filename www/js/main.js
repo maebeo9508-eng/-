@@ -114,6 +114,7 @@
   App.underlay.init();
   App.edit.init();
   App.settingsUI.init();
+  App.libraryUI.init();
   App.textEditor.init();
   App.keys.init();
   App.ui.updateHistory();

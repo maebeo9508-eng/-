@@ -1053,7 +1053,10 @@
     def() {
       const kind = App.current[`${this.category}Kind`];
       // 조감도 팔레트에는 다른 분류의 종류(액자·벽보)도 함께 나옴
-      return App.catalog.ITEM_KINDS[this.category].find((d) => (d.kind || d.line) === kind) || (this.category === 'event' ? App.catalog.itemDef(kind) : null);
+      const hit = App.catalog.ITEM_KINDS[this.category].find((d) => (d.kind || d.line) === kind);
+      if (hit) return hit;
+      const def = this.category === 'event' || this.category === 'furn' ? App.catalog.itemDef(kind) : null;
+      return def && (this.category === 'event' || def.custom) ? def : null; // 내 사물은 가구·조감도 어디서나
     }
     activate() {
       this.press = null;

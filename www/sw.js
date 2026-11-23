@@ -15,6 +15,7 @@ const FILES = [
   'js/safetyplan.js',
   'js/dwg-worker.js',
   'js/orders.js',
+  'js/meshio.js', 'js/library.js', 'js/library-ui.js',
   'lib/libredwg/libredwg.js', 'lib/libredwg/libredwg.wasm', 'lib/libredwg/LICENSE',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png', 'icons/apple-touch-icon.png', 'icons/favicon-32.png',
 ];

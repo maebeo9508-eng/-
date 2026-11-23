@@ -686,6 +686,23 @@
   }
 
   /** 가구·조감도 물건: 종류, 모양·색, 규격·크기(의자 배열·사람 등은 수량), 높이, 글자·이미지, 회전, 위치 */
+  /** 내 사물(등록한 제품 사진·3D 모형·설계한 것): 종류·가격·링크와 고치기 */
+  function customInfo(kind) {
+    const m = App.library.meta(kind);
+    if (!m) return '';
+    const missing = App.library.state(m.id) === 'missing';
+    return `
+      <div class="stats">
+        ${stat('종류', esc(App.library.TYPES[m.type]), m.brand ? esc(m.brand) : '')}
+        ${stat('가격', m.price ? `${m.price.toLocaleString('ko-KR')}원` : '없음', m.price ? '견적 단가로 들어감' : '사물 정보에서 넣을 수 있음')}
+      </div>
+      ${missing ? '<p class="dialog-note is-warn">이 사물의 그림·모형이 이 기기에 없어 자리 상자로 보입니다. 만든 기기에서 도면 백업이나 사물 묶음 파일을 받아 열면 그대로 보입니다.</p>' : ''}
+      <div class="btn-row">
+        ${App.library.byId(m.id) && App.library.list().some((x) => x.id === m.id) ? '<button type="button" class="btn" data-act="obj-edit">사물 정보 고치기</button>' : ''}
+        ${m.url ? '<button type="button" class="btn" data-act="obj-link">구매 링크 열기</button>' : ''}
+      </div>`;
+  }
+
   function furnForm(cat = 'furn') {
     const single = els.length === 1;
     const event = cat === 'event';
@@ -703,8 +720,8 @@
     const img = single && els[0].imageId ? App.images.url(els[0].imageId) : null;
     const mounted = els.filter((e) => e.wallId && App.doc.has(e.wallId));
     return `
-      ${head(title, single ? App.catalog.itemLabel(els[0]) : `${els.length}개 선택`)}
-      ${selectField('f-itemKind', '종류', kinds.map((d) => [d.kind, d.kind]), kind)}
+      ${head(def && def.custom ? '내 사물' : title, single ? App.catalog.itemLabel(els[0]) : `${els.length}개 선택`)}
+      ${def && def.custom ? customInfo(kind) : selectField('f-itemKind', '종류', kinds.map((d) => [d.kind, d.kind]), kind)}
       ${def && def.options ? Object.entries(def.options).map(([key, o]) =>
         selectField(`f-opt-${key}`, esc(o.label), o.values.map((v) => [v, v]), commonText((e) => e[key] ?? null))).join('') : ''}
       ${def && def.styles ? selectField('f-opt-style', def.kind === '나무' || def.kind === '담장' || def.kind === '화분' || def.kind === '사람' ? '모양' : '의자 모양', def.styles.map((v) => [v, v]), commonText((e) => e.style ?? null)) : ''}
@@ -716,7 +733,7 @@
       ${kind === '의자 배열' ? seatNoFields() : ''}
       ${event && App.booths && els.some((e) => App.booths.isBooth(e)) ? boothFields() : ''}
       ${'size' in auto ? '' : sizeRows(def)}
-      ${event && def && !def.flat && !('h3' in auto) ? `<div class="field-grid">${numberField('h3')}</div>` : ''}
+      ${def && !def.flat && !('h3' in auto) && (event || def.custom) ? `<div class="field-grid">${numberField('h3')}</div>` : ''}
       ${!event && def && def.face ? `<div class="field-grid">${numberField('h3', '그림 높이')}${numberField('height', '걸리는 높이 (가운데)')}</div>` : ''}
       ${def && def.face ? `
         <div class="field-group-label">${esc(def.face)}·이미지 (3D에서 앞면에 보임)</div>
@@ -1537,6 +1554,8 @@
           App.images.pick().then((id) => { if (id) apply('이미지 넣기', () => ({ imageId: id })); });
           break;
         case 'face-image-clear': apply('이미지 빼기', () => ({ imageId: null })); break;
+        case 'obj-edit': { const m = els[0] && App.library.meta(els[0].kind); if (m) App.libraryUI.edit(m.id).then(() => { shownKey = null; refresh(); }); break; }
+        case 'obj-link': { const m = els[0] && App.library.meta(els[0].kind); if (m && m.url) window.open(m.url, '_blank', 'noopener'); break; }
         case 'wall-image':
           App.images.pick().then((id) => { if (id) apply('벽에 사진 붙이기', () => ({ imageId: id })); });
           break;

@@ -345,6 +345,9 @@
       const rb = routeBlock(s);
       if (rb) blocks.push(rb);
     }
+    // 내 사물: 등록한 제품·모형을 이름별로 (가격·구매 링크는 ‘링크 보기’에서)
+    const mine = App.libraryUI ? App.libraryUI.summaryBlock() : null;
+    if (mine) blocks.push(mine);
     // 현장 사진 핀: 번호·제목·사진 수
     const pins = App.photos ? App.photos.all().filter((p) => !s.excluded.length || App.layers.visible(p)) : [];
     if (pins.length) {
@@ -665,6 +668,7 @@
       if (e.target.closest('#pane-summary [data-act="schedule"]')) App.schedule.open();
       if (e.target.closest('#pane-summary [data-act="orders"]')) App.orders.open(); // 전체 보기·견적 보기·발주 묶음의 버튼
       if (e.target.closest('[data-act="safety-open"]')) App.safety.open();
+      if (e.target.closest('#pane-summary [data-act="obj-shopping"]')) App.libraryUI.shopping();
       if (e.target.closest('[data-act="booth-csv"]')) App.booths.exportCsv();
       if (e.target.closest('#pane-summary [data-act="booth-number"]')) App.booths.numberDialog();
     });

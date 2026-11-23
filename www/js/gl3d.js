@@ -709,8 +709,8 @@
       return { p, u };
     }
 
-    /** 캔버스·이미지를 텍스처로 (2의 거듭제곱 크기로 맞춰 밉맵을 만듦). source가 없으면 흰 점 */
-    _texture(source) {
+    /** 캔버스·이미지를 텍스처로 (2의 거듭제곱 크기로 맞춰 밉맵을 만듦). source가 없으면 흰 점. repeat: 무늬를 되풀이 (가져온 3D 모형) */
+    _texture(source, repeat = false) {
       const gl = this.gl;
       const tex = gl.createTexture();
       gl.bindTexture(gl.TEXTURE_2D, tex);
@@ -737,8 +737,8 @@
       gl.generateMipmap(gl.TEXTURE_2D);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, repeat ? gl.REPEAT : gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, repeat ? gl.REPEAT : gl.CLAMP_TO_EDGE);
       return tex;
     }
 
@@ -750,7 +750,8 @@
       return { buf, count: mesh.n };
     }
 
-    /** 장면을 올림. scene: { layers: { solid, ceil, glass, decals: [Mesh, ...] }, textured: [{ mesh, source, layer: 'solid'|'decal', emissive }], bounds } */
+    /** 장면을 올림. scene: { layers: { solid, ceil, glass, decals: [Mesh, ...] }, textured: [{ mesh, source, layer: 'solid'|'decal', emissive, repeat, share }], bounds }
+        share: 같은 값끼리는 그림 한 장과 버퍼 하나로 합침 (같은 3D 모형을 여러 개 놓았을 때) — 이런 것은 그림자도 드리움 */
     setScene(scene) {
       const gl = this.gl;
       this.clearScene();
@@ -759,7 +760,25 @@
         solid: this._upload(L.solid), ceil: this._upload(L.ceil), glass: this._upload(L.glass),
         decals: L.decals.map((m) => this._upload(m)), blobs: L.blobs && L.blobs.n ? this._upload(L.blobs) : null,
       };
-      this.textured = scene.textured.filter((t) => t.mesh.n).map((t) => ({ ...this._upload(t.mesh), tex: this._texture(t.source), layer: t.layer }));
+      const shared = new Map(), list = [];
+      scene.textured.forEach((t) => {
+        if (!t.mesh.n) return;
+        const k = t.share ? `${t.layer}|${t.share}` : null, s = k ? shared.get(k) : null;
+        if (s) { s.parts.push(t.mesh); return; }
+        const e = { parts: [t.mesh], source: t.source, layer: t.layer, repeat: !!t.repeat, shadow: !!t.share };
+        if (k) shared.set(k, e);
+        list.push(e);
+      });
+      this.textured = list.map((e) => {
+        let mesh = e.parts[0];
+        if (e.parts.length > 1) {
+          const n = e.parts.reduce((t, m) => t + m.n, 0), a = new Float32Array(n * STRIDE);
+          let o = 0;
+          e.parts.forEach((m) => { a.set(m.a.subarray(0, m.n * STRIDE), o); o += m.n * STRIDE; });
+          mesh = { a, n };
+        }
+        return { ...this._upload(mesh), tex: this._texture(e.source, e.repeat), layer: e.layer, shadow: e.shadow };
+      });
       this.bounds = scene.bounds;
       gl.bindBuffer(gl.ARRAY_BUFFER, null);
     }
@@ -982,6 +1001,7 @@
         gl.drawArrays(gl.TRIANGLES, 0, x.count);
       };
       draw(this.batches.solid);
+      this.textured.forEach((t) => { if (t.shadow) draw(t); }); // 그림이 입혀진 3D 모형
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       const bias = [0.5, 0, 0, 0, 0, 0.5, 0, 0, 0, 0, 0.5, 0, 0.5, 0.5, 0.5, 1];
       return { mat: M4.mul(bias, vp), texel: 1 / size, bias: 0.03 / (zf - zn), offset: texel * 1.6 };

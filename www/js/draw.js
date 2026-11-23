@@ -1479,9 +1479,66 @@
   const pictureOf = (plan, it) => ((it.category === 'event' || it.category === 'furn') && it.depth != null && App.sprites && App.settings.planPictures !== false
     && !(App.catalog.itemDef(it.kind) || {}).wall ? App.sprites.top(it, plan.view.scale * plan.dpr) : null);
 
+  /** 내 사물(제품 사진·세운 그림, 또는 아직 그림이 없는 3D 모형)을 평면에: 위에서 본 그림은 그대로, 나머지는 자리 상자 안에 사진 */
+  function customShape(plan, it, c, color, alpha) {
+    const ctx = plan.ctx, px = 1 / plan.view.scale, w = it.size, d = it.depth != null ? it.depth : it.size;
+    const m = c.meta, ink = plan.colors.furn || '#6b4f2a';
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(it.x, it.y);
+    ctx.rotate((it.rotation * Math.PI) / 180);
+    if (m && m.type === 'flat' && c.img) {
+      ctx.drawImage(c.img, -w / 2, -d / 2, w, d);
+    } else {
+      ctx.globalAlpha = alpha * 0.3;
+      ctx.fillStyle = (m && m.avg) || '#b9b3a8';
+      ctx.fillRect(-w / 2, -d / 2, w, d);
+      ctx.globalAlpha = alpha;
+      ctx.lineWidth = 1.2 * px;
+      ctx.strokeStyle = ink;
+      if (!c.img) ctx.setLineDash([6 * px, 4 * px]);
+      ctx.strokeRect(-w / 2, -d / 2, w, d);
+      ctx.setLineDash([]);
+      if (c.img) {
+        // 제품 사진을 자리 안에 맞춰 (비율 그대로)
+        const iw = c.img.naturalWidth || c.img.width, ih = c.img.naturalHeight || c.img.height;
+        const k = Math.min((w * 0.84) / iw, (d * 0.84) / ih);
+        if (k > 0 && Number.isFinite(k)) ctx.drawImage(c.img, (-iw * k) / 2, (-ih * k) / 2, iw * k, ih * k);
+      } else {
+        const t = String(it.kind || '').replace(/\s/g, '').slice(0, 2);
+        const size = Math.max(10 * px, Math.min(w, d) * 0.3);
+        ctx.fillStyle = ink;
+        ctx.font = `700 ${size}px system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(t, 0, 0);
+      }
+      if (m && (m.type === 'stand' || m.type === 'cutout')) { // 앞쪽(사진이 보이는 쪽)을 굵게
+        ctx.lineWidth = 3 * px;
+        ctx.beginPath();
+        ctx.moveTo(-w / 2, d / 2);
+        ctx.lineTo(w / 2, d / 2);
+        ctx.stroke();
+      }
+    }
+    if (color) {
+      ctx.globalAlpha = alpha * 0.1;
+      ctx.fillStyle = color;
+      ctx.fillRect(-w / 2, -d / 2, w, d);
+      ctx.globalAlpha = alpha;
+      ctx.lineWidth = 2 * px;
+      ctx.strokeStyle = color;
+      ctx.strokeRect(-w / 2 - 2 * px, -d / 2 - 2 * px, w + 4 * px, d + 4 * px);
+    }
+    ctx.restore();
+  }
+
   function itemShape(plan, it, color, alpha = 1) {
     const ctx = plan.ctx;
+    const mine = App.library && it.kind ? App.library.meta(it.kind) : null;
+    if (mine && mine.type !== 'mesh') { customShape(plan, it, App.library.planImage(it), color, alpha); return; }
     const pic = pictureOf(plan, it);
+    if (mine && !pic) { customShape(plan, it, { meta: mine, img: null }, color, alpha); return; } // 3D 모형: 위에서 본 그림을 만드는 동안
     if (pic) {
       const px = 1 / plan.view.scale;
       ctx.save();

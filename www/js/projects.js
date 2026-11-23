@@ -120,6 +120,7 @@
     timer = 0;
     if (!current || loading || stopped) return true;
     if (conflicted || newerElsewhere()) { showConflict(); return false; }
+    if (App.library) App.library.embed(); // 도면에 놓인 내 사물의 이름·크기·가격을 도면에도 (다른 기기에서도 자리와 이름이 보이게)
     const data = snapshot();
     const ok = S().write(keyOf(current.id), data);
     if (ok) {
@@ -129,6 +130,7 @@
         count: drawnCount(data.elements),
         underlays: [...new Set(data.elements.filter((e) => e.type === 'underlay').map((e) => e.dataId))],
         images: [...App.images.used(data.elements)],
+        objs: App.library ? [...App.library.used(data.elements, data.current.objs)] : [],
         mode: data.current.mode,
       });
       S().write(KEY_INDEX, list);
@@ -206,7 +208,7 @@
         const copy = { ...data, id: newId(), name: `${current.name} (이 창)`.slice(0, NAME_MAX), createdAt: new Date().toISOString() };
         if (S().write(keyOf(copy.id), copy)) {
           const list = index();
-          list.unshift({ id: copy.id, name: copy.name, createdAt: copy.createdAt, updatedAt: copy.savedAt, count: drawnCount(copy.elements), underlays: [...new Set(copy.elements.filter((e) => e.type === 'underlay').map((e) => e.dataId))], images: [...App.images.used(copy.elements)], mode: copy.current.mode });
+          list.unshift({ id: copy.id, name: copy.name, createdAt: copy.createdAt, updatedAt: copy.savedAt, count: drawnCount(copy.elements), underlays: [...new Set(copy.elements.filter((e) => e.type === 'underlay').map((e) => e.dataId))], images: [...App.images.used(copy.elements)], objs: App.library ? [...App.library.used(copy.elements, copy.current.objs)] : [], mode: copy.current.mode });
           S().write(KEY_INDEX, list);
           conflicted = false;
           current = null;
@@ -260,6 +262,7 @@
     lastSaved = [data.savedAt || '', (ix && ix.updatedAt) || ''].sort().pop(); // 이 창이 지금 저장된 내용 그대로를 가짐
     conflicted = false;
     App.images.loadAll(m.elements); // 넣은 이미지(현수막·벽보 등)를 미리 읽어 둠
+    if (App.library) App.library.loadAll(m.elements); // 내 사물의 그림·모형도
     const missing = await App.underlay.loadAll();
     if (missing) App.ui.toast(`가져온 도면 ${missing}개의 밑그림 데이터를 이 기기에서 찾지 못했습니다. 지우고 다시 불러오세요.`);
     if (m.dropped) App.ui.toast(`이 앱이 모르는 항목 ${m.dropped}개는 빼고 열었습니다.`);
@@ -887,6 +890,14 @@
       const rec = await App.images.exportData(id);
       if (rec) data.images[id] = rec;
     }
+    // 내 사물(제품 사진·3D 모형)도 함께: 다른 기기에서 열어도 그대로 보이게
+    if (App.library) {
+      data.objects = {};
+      for (const id of App.library.used(data.elements, data.current.objs)) {
+        const rec = await App.library.exportData(id);
+        if (rec) data.objects[id] = rec;
+      }
+    }
     const name = `${safeFile(current.name)}_${App.exporter.stamp()}.json`;
     App.exporter.saved(App.exporter.download(name, JSON.stringify(data), 'application/json'), `‘${name}’을 저장했습니다. 다른 기기에서는 ‘파일 → 백업 불러오기’로 열 수 있습니다.`);
   }
@@ -907,6 +918,7 @@
     try {
       for (const u of Object.values(data.underlays || {})) if (!(await App.underlay.importData(u))) lost++;
       for (const rec of Object.values(data.images || {})) if (!(await App.images.importData(rec))) lost++;
+      if (App.library) for (const rec of Object.values(data.objects || {})) if ((await App.library.importData(rec, { rename: false })) === 'failed') lost++;
     } finally {
       App.ui.busy(false);
     }
@@ -985,7 +997,16 @@
     App.images.used(App.doc.all()).forEach((id) => used.add(id));
     App.images.used(keptElements()).forEach((id) => used.add(id));
     App.images.cleanup(used);
+    if (App.library) {
+      const objs = new Set();
+      index().forEach((p) => (p.objs || []).forEach((id) => objs.add(id)));
+      App.library.used(App.doc.all()).forEach((id) => objs.add(id));
+      App.library.used(keptElements()).forEach((id) => objs.add(id));
+      App.library.cleanup(objs);
+    }
   };
+  /** 저장된 도면 가운데 이 사물을 쓰는 것이 있는지 (목록에서 지울 때 데이터까지 지울지) */
+  const usesObject = (id) => index().some((p) => (p.objs || []).includes(id)) || (App.library && App.library.used(App.doc.all()).has(id));
 
   const usedUnderlays = () => {
     const used = new Set();
@@ -1187,7 +1208,7 @@
   }
 
   App.projects = {
-    init, saveNow, flush, open, create, exportBackup, importBackup, rename, duplicate, remove, newDialog, listDialog, TEMPLATES,
+    init, saveNow, flush, open, create, exportBackup, importBackup, rename, duplicate, remove, newDialog, listDialog, TEMPLATES, usesObject,
     stopSaving() {
       stopped = true;
       clearTimeout(timer);

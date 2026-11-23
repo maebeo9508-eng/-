@@ -147,14 +147,19 @@
   /** 단가가 어디서 왔는지: 'project'(이 도면에 친 단가) · 'library'(단가표) · '' */
   function priceSource(key) {
     if (typeof prices()[key] === 'number') return libMarks()[key] ? 'library' : 'project';
-    return typeof memory()[key] === 'number' ? 'library' : '';
+    if (typeof memory()[key] === 'number') return 'library';
+    const o = App.library ? App.library.meta(String(key).split('|')[1]) : null;
+    return o && o.price > 0 ? 'object' : '';
   }
   /** 이 도면에 넣은 단가, 없으면 이 기기에 기억된 단가 */
   function priceOf(key) {
     const p = prices()[key];
     if (typeof p === 'number') return p;
     const m = memory()[key];
-    return typeof m === 'number' ? m : 0;
+    if (typeof m === 'number') return m;
+    // 내 사물: 등록할 때 넣은 가격 (열쇠: '묶음|이름|규격|개')
+    if (App.library) { const o = App.library.meta(String(key).split('|')[1]); if (o && o.price > 0) return o.price; }
+    return 0;
   }
   function extras() {
     const c = App.current;

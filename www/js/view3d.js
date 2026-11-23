@@ -56,7 +56,7 @@
   function makeCtx(L, textured, o = {}) {
     const S = L.solid, meshes = [L.solid, L.glass, L.decals[2], L.ceil, L.blobs];
     return {
-      S, G: L.glass, D: L.decals[2], T: L.ceil, B: L.blobs, lod: !!o.lod, crowd: o.crowd || 0, rnd: Math.random,
+      S, G: L.glass, D: L.decals[2], T: L.ceil, B: L.blobs, textured, lod: !!o.lod, crowd: o.crowd || 0, rnd: Math.random,
       base: { x: 0, z: 0, rot: 0, y: 0, c: 1, s: 0 },
       place(x, z, rot, y) {
         const r = (rot * Math.PI) / 180;
@@ -88,7 +88,8 @@
     const M3 = App.models3d, S = C.S;
     const w = it.size / 1000, d = (it.depth != null ? it.depth : it.size * (def.aspect || 1)) / 1000, h = App.catalog.itemHeight3(it) / 1000;
     try {
-      if (it.category === 'event' && M3.EVENT[it.kind]) M3.EVENT[it.kind](C, it, w, d, h);
+      if (def.custom) App.library.model3d(C, it, w, d, h); // 내 사물 (제품 사진·가져온 3D 모형·설계한 것)
+      else if (it.category === 'event' && M3.EVENT[it.kind]) M3.EVENT[it.kind](C, it, w, d, h);
       else if (M3.FURN[it.kind] && (it.category === 'furn' || it.category === 'event')) {
         // 벽 낮추기: 벽에 거는 것(액자 등)은 잘린 벽 위로 떠 보이지 않게 위 끝을 벽 높이 아래로
         const lowIt = o.low && def.wall && it.height != null && it.height / 1000 + h / 2 > LOW_WALL - 0.02 ? { ...it, height: Math.max(h / 2 + 20 / 1000, LOW_WALL - h / 2 - 0.02) * 1000 } : it;

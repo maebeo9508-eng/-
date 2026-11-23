@@ -64,6 +64,7 @@
     let k = '';
     for (const f of FIELDS) if (it[f] != null && it[f] !== '') k += `${f}=${it[f]};`;
     if (it.imageId && !App.images.get(it.imageId)) k += 'img?'; // 이미지를 다 읽으면 다시 그림
+    if (App.library) k += App.library.keyOf(it.kind); // 내 사물: 다 읽거나 고치면 다시 그림
     return k;
   }
 
@@ -157,6 +158,14 @@
       const url = thumbs.get(id);
       if (!url && renderer()) enqueue(`thumb:${id}`, () => makeThumb(id, kind, style));
       return url || null;
+    },
+    /** 지금 바로 미리보기 한 장 (내 사물을 등록한 직후 저장해 둘 그림). 못 만들면 null */
+    thumbNow(kind) {
+      if (failed || !App.view3d || !App.view3d.buildItem || !renderer()) return null;
+      const id = `${kind}|`;
+      thumbs.delete(id);
+      try { makeThumb(id, kind, ''); } catch (e) { console.warn('미리보기를 만들지 못함', kind, e); return null; }
+      return thumbs.get(id) || null;
     },
     /** 이 종류의 미리보기를 먼저 만들어 달라고 (지금 보이는 분류) */
     prefer(kinds) {

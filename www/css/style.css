@@ -1671,3 +1671,43 @@ body:has(> .view3d:not([hidden])) .toast { bottom: auto; top: 36%; }
 .est-adj .field-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 /* 발주서: 긴 현장 주소가 창을 넓히지 않게 (휴대폰) */
 .od { grid-template-columns: minmax(0, 1fr); min-width: 0; }
+
+/* ── 내 사물: 등록 창·목록·구매 목록 ── */
+.obj-reg, .obj-list, .obj-shop { display: flex; flex-direction: column; gap: 10px; }
+.obj-stage { position: relative; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2, #f1f3f5); overflow: hidden; }
+.obj-canvas { display: block; width: 100%; height: 240px; touch-action: none; cursor: grab; }
+.obj-canvas.obj-image { cursor: default; touch-action: auto; }
+.obj-canvas:active { cursor: grabbing; }
+.obj-nogl { margin: 0; padding: 8px 12px; font-size: 13px; color: var(--fg-muted); }
+.obj-empty { padding: 18px 14px; text-align: center; }
+.obj-empty p { margin: 0 0 10px; }
+.obj-empty .btn-row { justify-content: center; }
+.obj-empty .props-meta { text-align: left; margin-top: 12px; }
+.obj-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.obj-lab { flex: none; min-width: 64px; font-size: 13px; color: var(--fg-muted); }
+.obj-seg { display: flex; gap: 4px; flex: 1 1 auto; min-width: 0; }
+.obj-seg .seg-btn { min-width: 0; }
+.obj-check { flex: none; padding: 0; min-height: 36px; align-items: center; }
+.obj-check input { margin: 0; }
+.obj-tol { display: flex; align-items: center; gap: 8px; flex: 1 1 140px; font-size: 13px; color: var(--fg-muted); }
+.obj-tol input { flex: 1; min-width: 0; accent-color: var(--accent); }
+.obj-sizehead { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.obj-size { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.obj-more .field { margin-top: 8px; }
+.obj-more .btn { margin-top: 6px; }
+.obj-again { justify-content: flex-end; }
+.obj-top { flex-wrap: wrap; }
+.obj-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+.obj-card { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 10px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.obj-pic { width: 84px; height: 84px; border-radius: 8px; background: var(--surface-2, #f1f3f5); display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.obj-pic img { max-width: 100%; max-height: 100%; }
+.obj-nopic { width: 44px; height: 44px; border-radius: 6px; opacity: 0.6; }
+.obj-meta { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.obj-meta b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.obj-meta small { color: var(--fg-muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.obj-acts { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; }
+.obj-acts .btn { min-height: 36px; padding: 0 10px; font-size: 13px; }
+.obj-shop-table th small, .obj-shop-table td small { display: block; font-weight: 400; color: var(--fg-muted); font-size: 12px; }
+.obj-shop-link { width: 1%; white-space: nowrap; }
+.obj-shop-link .btn { display: inline-flex; align-items: center; min-height: 36px; padding: 0 12px; text-decoration: none; }
+.pal-plus { display: flex; align-items: center; justify-content: center; font-size: 26px; font-weight: 700; color: var(--accent); border: 1.5px dashed var(--line); border-radius: 8px; background: var(--surface); }

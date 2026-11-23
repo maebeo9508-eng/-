@@ -747,6 +747,7 @@
           pos, nor, col, uv: tex ? Float32Array.from(g.uv) : null,
           idx: g.idx ? (n <= 65535 ? Uint16Array.from(g.idx) : Uint32Array.from(g.idx)) : null,
           color: g.color.map((c) => Math.round(c * 1000) / 1000), alpha: g.alpha, tex, repeat: !!(tex && g.repeat),
+          ...(g.mat != null ? { mat: g.mat } : {}),
         };
       }),
     };
@@ -758,7 +759,7 @@
       for (let i = 0; i < n * 3; i++) { pos[i] = p.min[i % 3] + (g.pos[i] / 65535) * ext[i % 3]; nor[i] = g.nor[i] / 127; }
       let col = null;
       if (g.col) { col = new Float32Array(n * 3); for (let i = 0; i < n * 3; i++) col[i] = g.col[i] / 255; }
-      return { pos, nor, col, uv: g.uv || null, idx: g.idx ? Uint32Array.from(g.idx) : null, color: g.color.slice(), alpha: g.alpha == null ? 1 : g.alpha, tex: g.tex ? { url: g.tex } : null, repeat: !!g.repeat };
+      return { pos, nor, col, uv: g.uv || null, idx: g.idx ? Uint32Array.from(g.idx) : null, color: g.color.slice(), alpha: g.alpha == null ? 1 : g.alpha, tex: g.tex ? { url: g.tex } : null, repeat: !!g.repeat, ...(g.mat != null ? { mat: g.mat } : {}) };
     });
     return { groups, bbox: { min: p.min.slice(), max: p.max.slice() } };
   }
@@ -780,11 +781,11 @@
   const enc = (a) => (a ? { t: tagOf(a), d: b64(a) } : null);
   const dec = (o) => (o && TYPED[o.t] && typeof o.d === 'string' ? unb64(o.d, o.t) : null);
   function toJSON(p) {
-    return { v: 1, min: p.min, max: p.max, groups: p.groups.map((g) => ({ pos: enc(g.pos), nor: enc(g.nor), col: enc(g.col), uv: enc(g.uv), idx: enc(g.idx), color: g.color, alpha: g.alpha, tex: g.tex || null, repeat: !!g.repeat })) };
+    return { v: 1, min: p.min, max: p.max, groups: p.groups.map((g) => ({ pos: enc(g.pos), nor: enc(g.nor), col: enc(g.col), uv: enc(g.uv), idx: enc(g.idx), color: g.color, alpha: g.alpha, tex: g.tex || null, repeat: !!g.repeat, ...(g.mat != null ? { mat: g.mat } : {}) })) };
   }
   function fromJSON(j) {
     if (!j || !Array.isArray(j.groups) || !Array.isArray(j.min) || !Array.isArray(j.max)) return null;
-    const groups = j.groups.map((g) => ({ pos: dec(g.pos), nor: dec(g.nor), col: dec(g.col), uv: dec(g.uv), idx: dec(g.idx), color: Array.isArray(g.color) ? g.color.slice(0, 3).map(Number) : [0.8, 0.8, 0.8], alpha: Number.isFinite(g.alpha) ? g.alpha : 1, tex: typeof g.tex === 'string' && /^data:image\//.test(g.tex) ? g.tex : null, repeat: !!g.repeat }))
+    const groups = j.groups.map((g) => ({ pos: dec(g.pos), nor: dec(g.nor), col: dec(g.col), uv: dec(g.uv), idx: dec(g.idx), color: Array.isArray(g.color) ? g.color.slice(0, 3).map(Number) : [0.8, 0.8, 0.8], alpha: Number.isFinite(g.alpha) ? g.alpha : 1, tex: typeof g.tex === 'string' && /^data:image\//.test(g.tex) ? g.tex : null, repeat: !!g.repeat, ...(Number.isFinite(g.mat) ? { mat: g.mat } : {}) }))
       .filter((g) => g.pos && g.nor && g.pos.length === g.nor.length && g.pos.length >= 9);
     if (!groups.length) return null;
     return { v: 1, min: j.min.slice(0, 3).map(Number), max: j.max.slice(0, 3).map(Number), groups };
@@ -897,12 +898,12 @@
         const [x0, y0, z0] = b.min, [x1, y1, z1] = b.max;
         return [[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1], [x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0]];
       })();
-      const key = `${(b.color || [0.8, 0.8, 0.8]).map((v) => Math.round(v * 255)).join(',')}|${b.alpha == null ? 1 : b.alpha}|${b.metal ? 1 : 0}`;
+      const key = `${(b.color || [0.8, 0.8, 0.8]).map((v) => Math.round(v * 255)).join(',')}|${b.alpha == null ? 1 : b.alpha}|${b.metal ? 1 : 0}|${b.mat == null ? '' : b.mat}`;
       let g = groups.get(key);
-      if (!g) { g = { pos: [], color: (b.color || [0.8, 0.8, 0.8]).slice(), alpha: b.alpha == null ? 1 : b.alpha, metal: !!b.metal, name: b.group || '' }; groups.set(key, g); }
+      if (!g) { g = { pos: [], color: (b.color || [0.8, 0.8, 0.8]).slice(), alpha: b.alpha == null ? 1 : b.alpha, metal: !!b.metal, name: b.group || '', mat: b.mat }; groups.set(key, g); }
       quad.forEach((q) => { [q[0], q[1], q[2], q[0], q[2], q[3]].forEach((i) => g.pos.push(c[i][0], c[i][1], c[i][2])); });
     });
-    return ensureNormals(finalize({ groups: [...groups.values()].map((g) => ({ pos: Float32Array.from(g.pos), nor: null, uv: null, col: null, idx: null, color: g.color, alpha: g.alpha, tex: null, repeat: false, metal: g.metal, name: g.name })) }));
+    return ensureNormals(finalize({ groups: [...groups.values()].map((g) => ({ pos: Float32Array.from(g.pos), nor: null, uv: null, col: null, idx: null, color: g.color, alpha: g.alpha, tex: null, repeat: false, metal: g.metal, name: g.name, ...(g.mat != null ? { mat: g.mat } : {}) })) }));
   }
 
   App.meshio = {

@@ -596,10 +596,14 @@
       const groups = App.catalog.palette(cat), curCat = App.current[`${cat}Cat`];
       cats.innerHTML = `<button type="button" class="cat-btn cat-all" data-picker="1" title="모든 ${cat === 'furn' ? '가구' : '물건'}를 그림으로 보고 고르기">▦ 전체 보기</button>`
         + groups.map((g) => `<button type="button" class="cat-btn" data-cat="${escHtml(g.cat)}" aria-pressed="${g.cat === curCat}">${escHtml(g.cat)}</button>`).join('');
-      list = (groups.find((g) => g.cat === curCat) || groups[0]).kinds;
+      const group = groups.find((g) => g.cat === curCat) || groups[0];
+      list = group.kinds;
       // 3D 미리보기 그림으로 (아직 못 그렸으면 기호로 두었다가 바뀜)
       App.sprites.prefer(list.map((d) => d.kind));
-      pal.innerHTML = list.map((d) => picCard(d, d.kind === current)).join('');
+      // 내 사물: 맨 앞에 ‘등록’·‘목록’ 칸
+      const mine = group.custom ? `<button type="button" class="pal-btn pal-pic pal-add" data-object-act="add" title="제품 사진·3D 모델 파일(GLB·OBJ·STL)로 사물 등록"><span class="pal-thumb pal-plus">＋</span><span>사물 등록</span></button>
+        <button type="button" class="pal-btn pal-pic pal-add" data-object-act="list" title="등록한 사물 보기·고치기·내보내기"><span class="pal-thumb pal-plus">☰</span><span>목록 관리</span></button>` : '';
+      pal.innerHTML = mine + list.map((d) => picCard(d, d.kind === current)).join('');
       return;
     }
     pal.innerHTML = list.map((d) => {
@@ -612,7 +616,7 @@
 
   /** 물건 한 칸: 미리보기 그림과 이름 */
   function picCard(d, pressed) {
-    const url = App.sprites.thumb(d.kind);
+    const url = (d.custom && App.library.thumb(d.kind)) || App.sprites.thumb(d.kind);
     const pic = url ? `<img class="pal-thumb" src="${url}" alt="" draggable="false">` : `<span class="pal-thumb pal-wait" data-wait="${escHtml(d.kind)}"><span class="ico" style="--ico:url('${App.draw.itemIcon(d.kind)}')"></span></span>`;
     return `<button type="button" class="pal-btn pal-pic" data-kind="${escHtml(d.kind)}" aria-pressed="${pressed}" title="${escHtml(d.kind)}">${pic}<span>${escHtml(d.kind)}</span></button>`;
   }
@@ -837,12 +841,15 @@
       const tool = ui.tool === 'furn' ? 'furn' : 'event';
       App.current[`${tool}Cat`] = b.dataset.cat;
       const group = App.catalog.palette(tool).find((g) => g.cat === b.dataset.cat);
-      if (group && !group.kinds.some((d) => d.kind === App.current[`${tool}Kind`])) App.current[`${tool}Kind`] = group.kinds[0].kind;
+      if (group && group.kinds.length && !group.kinds.some((d) => d.kind === App.current[`${tool}Kind`])) App.current[`${tool}Kind`] = group.kinds[0].kind;
+      if (group && group.custom && !group.kinds.length) hint('‘사물 등록’을 눌러 제품 사진이나 3D 모델 파일을 넣어 보세요', 4000);
       ui.emit('current');
       setTool(ui.tool);
       $('#palette').scrollTo({ left: 0 });
     });
     $('#palette').addEventListener('click', (e) => {
+      const oa = e.target.closest('[data-object-act]');
+      if (oa && App.libraryUI) { if (oa.dataset.objectAct === 'add') App.libraryUI.register(); else App.libraryUI.open(); return; }
       const b = e.target.closest('[data-kind]');
       if (!b) return;
       App.current[`${ui.tool}Kind`] = b.dataset.kind;
@@ -896,6 +903,7 @@
     ui.on('mode', updateToolOption);
     // 미리보기 그림이 만들어지면 기다리던 칸을 채움
     ui.on('sprites', () => { fillThumbs($('#palette')); const pk = document.getElementById('pickerBody'); if (pk) fillThumbs(pk); });
+    ui.on('library', () => { if (ui.tool === 'furn' || ui.tool === 'event') renderPalette(); }); // 내 사물을 등록·고침
     // 빠른 막대
     $('#quickBar').addEventListener('click', (e) => { const b = e.target.closest('[data-q]'); if (b) quickAction(b.dataset.q); });
     const quick = () => queueMicrotask(renderQuick);

@@ -413,7 +413,12 @@
         defIndex = { n, map: new Map() };
         Object.values(ITEM_KINDS).flat().forEach((d) => { if (!defIndex.map.has(d.kind)) defIndex.map.set(d.kind, d); });
       }
-      return defIndex.map.get(kind) || null;
+      return defIndex.map.get(kind) || (App.library ? App.library.def(kind) : null);
+    },
+    /** 기본 목록에 있는 이름인지 (내 사물 이름이 겹치지 않게) */
+    builtin(kind) {
+      catalog.itemDef('');
+      return defIndex.map.has(kind);
     },
     /** 종류의 기본 속성값 (설치 높이, 구수·형식, 회로 수) */
     itemDefaults(def) {
@@ -474,7 +479,9 @@
     },
     /** 고르는 막대의 분류 목록 (조감도 물건 / 가구) */
     palette(category) {
-      return category === 'furn' ? catalog.furnPalette() : catalog.eventPalette();
+      const groups = category === 'furn' ? catalog.furnPalette() : catalog.eventPalette();
+      // 맨 뒤에 내 사물 (밖에서 받아 등록한 것·설계한 것). 비어 있어도 ‘등록’ 칸이 나옴
+      return App.library ? [...groups, { cat: App.library.CAT, kinds: App.library.defs(), custom: true }] : groups;
     },
     eventPalette() {
       return EVENT_CATS.map((cat) => ({
@@ -690,10 +697,12 @@
       });
       if (!cur.elecKind) cur.elecKind = '콘센트';
       if (!cur.mechKind) cur.mechKind = '에어컨 실내기';
-      if (!cur.furnKind || !ITEM_KINDS.furn.some((d) => d.kind === cur.furnKind)) cur.furnKind = '침대';
-      if (!FURN_CATS.includes(cur.furnCat)) cur.furnCat = (ITEM_KINDS.furn.find((d) => d.kind === cur.furnKind) || {}).cat || FURN_CATS[0];
+      const mine = App.library ? App.library.CAT : '';
+      const custom = (k) => !!(App.library && k && App.library.isCustom(k));
+      if (!cur.furnKind || !(ITEM_KINDS.furn.some((d) => d.kind === cur.furnKind) || custom(cur.furnKind))) cur.furnKind = '침대';
+      if (!FURN_CATS.includes(cur.furnCat) && cur.furnCat !== mine) cur.furnCat = (ITEM_KINDS.furn.find((d) => d.kind === cur.furnKind) || {}).cat || FURN_CATS[0];
       if (!cur.eventKind || !catalog.itemDef(cur.eventKind)) cur.eventKind = '몽골텐트';
-      if (!EVENT_CATS.includes(cur.eventCat)) cur.eventCat = (catalog.itemDef(cur.eventKind) || {}).cat || EVENT_CATS[0];
+      if (!EVENT_CATS.includes(cur.eventCat) && cur.eventCat !== mine) cur.eventCat = (catalog.itemDef(cur.eventKind) || {}).cat || EVENT_CATS[0];
       if (!App.routes.KINDS.some((k) => k.kind === cur.routeKind)) cur.routeKind = App.routes.KINDS[0].kind;
       if (cur.zoneSurface == null) cur.zoneSurface = '';
       if (!cur.zoneColor) cur.zoneColor = '#7048e8'; // 선택 표시(주황)·방 바닥(파랑)과 헷갈리지 않는 보라
