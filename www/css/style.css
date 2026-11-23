@@ -1312,9 +1312,14 @@ body:has(> .view3d:not([hidden])) .toast { bottom: auto; top: 36%; }
   .narrow-only { display: flex !important; }
   .mode-tab { padding: 0 5px; font-size: 11.5px; letter-spacing: -0.02em; }
 }
-@media (max-width: 345px) {
-  /* 아주 좁은 화면: 저장 상태 점은 숨김 (도면 목록은 파일 메뉴에 있음) */
+@media (max-width: 389px) {
+  /* 좁은 화면(360·375): 모드 탭이 셋이라 저장 상태 점은 숨김 (도면 목록은 파일 메뉴에 있음) */
   #btnProject { display: none; }
+}
+@media (max-width: 345px) {
+  /* 아주 좁은 화면(320): 모드 탭 셋이 한 줄에 들어가게 더 좁게 */
+  .mode-tab { min-width: 36px; padding: 0 3px; font-size: 11px; letter-spacing: -0.04em; }
+  .topbar { gap: 1px; padding-left: 3px; padding-right: 3px; }
 }
 
 /* ── 2.2: 아이폰 ── */
@@ -1714,7 +1719,9 @@ body:has(> .view3d:not([hidden])) .toast { bottom: auto; top: 36%; }
 .obj-meta small { color: var(--fg-muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .obj-acts { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; }
 .obj-acts .btn { min-height: 36px; padding: 0 10px; font-size: 13px; }
-.obj-shop-table th small, .obj-shop-table td small { display: block; font-weight: 400; color: var(--fg-muted); font-size: 12px; }
+.obj-shop-table th small, .obj-shop-table td small { display: block; font-weight: 400; color: var(--fg-muted); font-size: 12px; word-break: keep-all; overflow-wrap: anywhere; }
+.obj-shop-table td { white-space: nowrap; }
+.obj-shop-table td small { white-space: normal; }
 .obj-shop-link { width: 1%; white-space: nowrap; }
 .obj-shop-link .btn { display: inline-flex; align-items: center; min-height: 36px; padding: 0 12px; text-decoration: none; }
 .pal-plus { display: flex; align-items: center; justify-content: center; font-size: 26px; font-weight: 700; color: var(--accent); border: 1.5px dashed var(--line); border-radius: 8px; background: var(--surface); }
@@ -1735,7 +1742,16 @@ body:has(> .view3d:not([hidden])) .toast { bottom: auto; top: 36%; }
 .ds-props, .ds-new, .ds-3d { display: flex; flex-direction: column; gap: 10px; }
 .ds-props { padding: 0 0 12px; }
 .ds-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.ds-fields .field-wide { grid-column: 1 / -1; }
+/* 설계 속성의 계산 결과: 이름·값·덧말이 어절 가운데서 꺾이지 않게 */
+.ds-props .stat { display: grid; grid-template-columns: minmax(64px, auto) 1fr; column-gap: 10px; align-items: baseline; }
+.ds-props .stat-label { word-break: keep-all; }
+.ds-props .stat-value { word-break: keep-all; }
+.ds-props .stat > small { grid-column: 1 / -1; text-align: right; color: var(--fg-muted); font-size: 12px; word-break: keep-all; }
 .ds-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+#dsPart, #dsInfo { display: flex; flex-direction: column; gap: 10px; }
+#dsPart:empty { display: none; }
+#dsPart .field-group-label { margin: 4px 0 -4px; }
 .ds-check { padding: 2px 0; min-height: 36px; align-items: center; }
 .ds-check input { margin: 0; }
 .ds-kind h3 { margin: 0 0 6px; font-size: 14px; }

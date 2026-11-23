@@ -181,7 +181,9 @@
       control = `<input type="text" inputmode="decimal" data-p="${f.k}" ${f.int ? 'data-int="1"' : ''} ${f.optional ? 'data-optional="1"' : ''} value="${v == null ? '' : esc(v)}" autocomplete="off">${f.unit ? `<span class="field-unit">${esc(f.unit)}</span>` : ''}`;
     }
     const isSelect = f.type === 'sheet' || f.type === 'bar' || f.type === 'select';
-    return `<div class="field"><label class="field-label">${esc(f.label)}</label><div class="${isSelect ? 'field-row' : 'field-box'}">${isSelect ? control.replace('<select ', '<select class="field-select" ') : control}</div></div>`;
+    // 글이 긴 고르기 칸(파이프 규격·세우는 방식 등)은 한 줄을 다 써서 잘리지 않게
+    const wide = f.type === 'bar' || (f.type === 'select' && Math.max(...f.options.map((o) => String(o[1]).length)) > 9);
+    return `<div class="field${wide ? ' field-wide' : ''}"><label class="field-label">${esc(f.label)}</label><div class="${isSelect ? 'field-row' : 'field-box'}">${isSelect ? control.replace('<select ', '<select class="field-select" ') : control}</div></div>`;
   }
   function infoHtml(el) {
     if (el.kind === 'model') {
@@ -203,7 +205,7 @@
     if (!q) return '';
     const M = D().mat(q.m) || {};
     const user = !!q.user;
-    const f = (k, label, v) => `<div class="field"><label class="field-label">${label}</label><div class="field-box"><input type="text" inputmode="decimal" data-part="${k}" value="${fmt(v).replace(/,/g, '')}" autocomplete="off"><span class="field-unit">mm</span></div></div>`;
+    const f = (k, label, v) => `<div class="field"><label class="field-label">${label}</label><div class="field-box"><input type="text" inputmode="decimal" data-part="${k}" value="${fmt(v).replace(/,/g, '')}" autocomplete="off" aria-label="${label} (mm)"></div></div>`; // 칸이 좁아 단위(mm)는 묶음 이름에
     const mats = `<select data-part="m">${q.s === 'bar' ? '' : D().SHEETS.map((s) => `<option value="${s.id}" ${s.id === q.m ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}${D().BARS.map((b) => `<option value="${b.id}" ${b.id === q.m ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</select>`;
     const sizeText = q.s === 'bar' ? `길이 ${fmt(D().lenOf(q))} mm (비스듬히)` : q.role === 'bar' ? `길이 ${fmt(D().lenOf(q))} mm` : `${[q.w, q.d, q.h].sort((a, b) => b - a).map(fmt).join(' × ')} mm`;
     if (!user) {
@@ -215,10 +217,10 @@
       <div class="field"><label class="field-label">이름</label><div class="field-box"><input type="text" data-part="n" maxlength="30" value="${esc(q.n)}" autocomplete="off"></div></div>
       <div class="field"><label class="field-label">자재</label><div class="field-row">${mats.replace('<select ', '<select class="field-select" ')}</div></div>
       ${q.s === 'bar' ? `
-        <div class="field-group-label">시작 점</div><div class="field-grid ds-3">${f('a0', 'X', q.a[0])}${f('a1', 'Y (깊이)', q.a[1])}${f('a2', 'Z (높이)', q.a[2])}</div>
-        <div class="field-group-label">끝 점</div><div class="field-grid ds-3">${f('b0', 'X', q.b[0])}${f('b1', 'Y (깊이)', q.b[1])}${f('b2', 'Z (높이)', q.b[2])}</div>` : `
-        <div class="field-group-label">자리 (왼쪽·앞·아래 구석)</div><div class="field-grid ds-3">${f('x', 'X', q.x)}${f('y', 'Y (깊이)', q.y)}${f('z', 'Z (높이)', q.z)}</div>
-        <div class="field-group-label">크기</div><div class="field-grid ds-3">${f('w', '폭 (X)', q.w)}${f('d', '깊이 (Y)', q.d)}${f('h', '높이 (Z)', q.h)}</div>`}
+        <div class="field-group-label">시작 점 <small>mm</small></div><div class="field-grid ds-3">${f('a0', 'X', q.a[0])}${f('a1', 'Y (깊이)', q.a[1])}${f('a2', 'Z (높이)', q.a[2])}</div>
+        <div class="field-group-label">끝 점 <small>mm</small></div><div class="field-grid ds-3">${f('b0', 'X', q.b[0])}${f('b1', 'Y (깊이)', q.b[1])}${f('b2', 'Z (높이)', q.b[2])}</div>` : `
+        <div class="field-group-label">자리 <small>왼쪽·앞·아래 구석, mm</small></div><div class="field-grid ds-3">${f('x', 'X', q.x)}${f('y', 'Y (깊이)', q.y)}${f('z', 'Z (높이)', q.z)}</div>
+        <div class="field-group-label">크기 <small>mm</small></div><div class="field-grid ds-3">${f('w', '폭 (X)', q.w)}${f('d', '깊이 (Y)', q.d)}${f('h', '높이 (Z)', q.h)}</div>`}
       <div class="btn-row"><button type="button" class="btn" data-act="ds-part-copy">부재 복제</button><button type="button" class="btn btn-danger" data-act="ds-part-del">부재 지우기</button></div>`;
   }
   function toolHtml() {

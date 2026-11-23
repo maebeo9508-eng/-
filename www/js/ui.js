@@ -676,7 +676,7 @@
 
   async function openPicker() {
     const category = ui.tool === 'furn' ? 'furn' : 'event';
-    const groups = App.catalog.palette(category);
+    const groups = App.catalog.palette(category).filter((g) => !g.custom || g.kinds.length); // 등록한 사물이 없으면 ‘내 사물’ 묶음은 빼 둠
     const r = await dialog({
       title: category === 'furn' ? '가구 고르기' : '물건 고르기',
       html: `

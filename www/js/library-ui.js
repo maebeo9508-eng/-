@@ -327,13 +327,14 @@
         <div class="field"><label class="field-label" for="objName">이름</label><div class="field-box"><input id="objName" type="text" maxlength="36" value="${esc(st.name)}" placeholder="예: 3인 패브릭 소파" autocomplete="off"></div></div>
         <div class="field-group-label obj-sizehead"><span>실제 크기</span>${st.kind === 'box' ? '' : `<label class="check-row obj-check"><input type="checkbox" id="objLock" ${st.lock ? 'checked' : ''}><span>비율 고정</span></label>`}</div>
         <div class="field-grid obj-size">${sizeField('w', '폭')}${sizeField('d', '깊이')}${sizeField('h', '높이')}</div>
-        <details class="est-info obj-more" ${st.url || st.price || st.pasted ? 'open' : ''}>
-          <summary>가격·구매 링크 · 상품 글 붙여넣기</summary>
+        <details class="est-info obj-more" ${st.url || st.price || st.pasted || st.lift ? 'open' : ''}>
+          <summary>가격·구매 링크 · 벽걸이 높이 · 상품 글 붙여넣기</summary>
           <div class="field-grid">
             <div class="field"><label class="field-label" for="objPrice">가격</label><div class="field-box"><input id="objPrice" type="text" inputmode="numeric" value="${st.price ? Math.round(st.price).toLocaleString('ko-KR') : ''}" placeholder="견적 단가로 들어갑니다" autocomplete="off"><span class="field-unit">원</span></div></div>
             <div class="field"><label class="field-label" for="objBrand">브랜드·판매처</label><div class="field-box"><input id="objBrand" type="text" maxlength="40" value="${esc(st.brand)}" placeholder="예: 오늘의집" autocomplete="off"></div></div>
           </div>
           <div class="field"><label class="field-label" for="objUrl">구매 링크</label><div class="field-box"><input id="objUrl" type="url" inputmode="url" maxlength="600" value="${esc(st.url)}" placeholder="https://…" autocomplete="off"></div></div>
+          <div class="field"><label class="field-label" for="objLift">바닥에서 띄우기 (벽걸이 TV·에어컨처럼 벽에 다는 것)</label><div class="field-box"><input id="objLift" type="text" inputmode="numeric" value="${st.lift || ''}" placeholder="0" autocomplete="off"><span class="field-unit">mm</span></div></div>
           <div class="field"><label class="field-label" for="objPaste">상품 글 붙여넣기 (이름·링크·가격·크기를 찾아 채움)</label>
             <textarea id="objPaste" class="field-text" rows="2" placeholder="쇼핑 앱에서 ‘공유 → 복사’한 글이나 상품 정보의 크기 줄을 붙여 넣으세요. 예: 가로 2000 × 깊이 850 × 높이 800 mm">${esc(st.pasted || '')}</textarea>
             <button type="button" class="btn" data-act="obj-fill">글에서 채우기</button></div>
@@ -473,6 +474,7 @@
             else if (el.id === 'objUrl') st.url = el.value.trim();
             else if (el.id === 'objBrand') st.brand = el.value;
             else if (el.id === 'objPaste') st.pasted = el.value;
+            else if (el.id === 'objLift') st.lift = Math.max(0, Math.round(num(el.value)));
             else if (el.id === 'objTol') { st.tol = num(el.value); relink(st, 'w'); syncSize(body, st); paint(body, st); }
             else if (el.dataset.size) {
               const k = el.dataset.size;
@@ -531,7 +533,7 @@
     App.ui.busy('사물을 등록하는 중…');
     let id = null;
     try {
-      const base = { name: st.name, w: st.w, d: st.d, h: st.h, price: st.price, url: /^https?:\/\//i.test(st.url) ? st.url : '', brand: st.brand, memo: st.memo };
+      const base = { name: st.name, w: st.w, d: st.d, h: st.h, price: st.price, url: /^https?:\/\//i.test(st.url) ? st.url : '', brand: st.brand, memo: st.memo, lift: st.lift || 0 };
       if (st.kind === 'image') {
         const cv = imageNow(st), lk = look(cv);
         id = await App.library.add({ ...base, type: st.look, avg: lk.avg, alpha: lk.alpha, src: '사진' }, { img: toUrl(cv, lk.alpha), thumb: thumbUrl(cv) });
@@ -588,6 +590,7 @@
             <div class="field"><label class="field-label" for="objBrand">브랜드·판매처</label><div class="field-box"><input id="objBrand" type="text" maxlength="40" value="${esc(m.brand)}" autocomplete="off"></div></div>
           </div>
           <div class="field"><label class="field-label" for="objUrl">구매 링크</label><div class="field-box"><input id="objUrl" type="url" inputmode="url" maxlength="600" value="${esc(m.url)}" placeholder="https://…" autocomplete="off"></div></div>
+          ${m.type === 'flat' ? '' : `<div class="field"><label class="field-label" for="objLift">바닥에서 띄우기 (벽걸이 TV·에어컨처럼 벽에 다는 것)</label><div class="field-box"><input id="objLift" type="text" inputmode="numeric" value="${m.lift || ''}" placeholder="0" autocomplete="off"><span class="field-unit">mm</span></div></div>`}
           <div class="field"><label class="field-label" for="objMemo">메모</label><div class="field-box"><input id="objMemo" type="text" maxlength="200" value="${esc(m.memo)}" autocomplete="off"></div></div>
           <p class="props-meta">크기를 바꾸면 이 도면에 놓인 것 가운데 크기를 따로 바꾸지 않은 것도 새 크기로 바뀝니다. 가격은 견적의 단가로 들어갑니다.</p>
         </div>`,
@@ -613,6 +616,7 @@
       price: num(q('#objPrice').value), brand: q('#objBrand').value, url: /^https?:\/\//i.test(url) ? url : '', memo: q('#objMemo').value,
       ...(image ? { type: q('#objType').value } : {}),
       ...(m.type === 'box' && color !== m.avg ? { avg: color } : {}),
+      ...(q('#objLift') ? { lift: Math.max(0, num(q('#objLift').value)) } : {}),
     };
     const next = App.library.update(id, patch);
     if (next) App.ui.toast(`‘${next.name}’을 고쳤습니다.`);

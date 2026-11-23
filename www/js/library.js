@@ -172,7 +172,8 @@
     const e = entry(m.id), MAT = gl().MAT, S = C.S;
     const avg = hexOf(m.avg);
     const hh = Math.max(0.004, h);
-    if (m.type === 'box') { S.box(-w / 2, 0, -d / 2, w / 2, Math.max(0.02, hh), d / 2, avg, MAT.plain); return true; } // 사진 없이 등록한 것: 고른 색의 상자
+    const L = (m.lift || 0) / 1000; // 바닥에서 띄우는 높이 (벽걸이 TV·선반 위에 놓는 것)
+    if (m.type === 'box') { S.box(-w / 2, L, -d / 2, w / 2, L + Math.max(0.02, hh), d / 2, avg, MAT.plain); return true; } // 사진 없이 등록한 것: 고른 색의 상자
     if (e.state !== 'ready') { // 아직 못 읽었거나 이 기기에 없는 사물: 자리 상자
       S.box(-w / 2, 0, -d / 2, w / 2, Math.max(0.02, hh), d / 2, hexOf('#c9c4bb'), MAT.plain);
       return true;
@@ -192,15 +193,15 @@
       return true;
     }
     if (m.type === 'cutout') { // 세운 그림: 가운데에 한 장 (앞뒤 모두 보임)
-      if (img) quad([[-w / 2, 0, 0], [w / 2, 0, 0], [w / 2, hh, 0], [-w / 2, hh, 0]]);
-      else S.box(-w / 2, 0, -0.01, w / 2, hh, 0.01, avg, MAT.plain);
+      if (img) quad([[-w / 2, L, 0], [w / 2, L, 0], [w / 2, L + hh, 0], [-w / 2, L + hh, 0]]);
+      else S.box(-w / 2, L, -0.01, w / 2, L + hh, 0.01, avg, MAT.plain);
       return true;
     }
     // stand: 상자 + 앞면(과 뒷면)에 제품 사진
-    S.box(-w / 2, 0, -d / 2, w / 2, hh, d / 2, avg, MAT.plain);
+    S.box(-w / 2, L, -d / 2, w / 2, L + hh, d / 2, avg, MAT.plain);
     const z = d / 2 + 0.003;
-    quad([[-w / 2, 0, z], [w / 2, 0, z], [w / 2, hh, z], [-w / 2, hh, z]]);
-    quad([[w / 2, 0, -z], [-w / 2, 0, -z], [-w / 2, hh, -z], [w / 2, hh, -z]]);
+    quad([[-w / 2, L, z], [w / 2, L, z], [w / 2, L + hh, z], [-w / 2, L + hh, z]]);
+    quad([[w / 2, L, -z], [-w / 2, L, -z], [-w / 2, L + hh, -z], [w / 2, L + hh, -z]]);
     return true;
   }
   /** 모형만 따로 그릴 장면 (미리보기·설계 화면): { layers, textured, bounds } (m) */
