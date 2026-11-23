@@ -48,7 +48,11 @@
     const price = t.match(/(\d{1,3}(?:,\d{3})+|\d{4,9})\s*원/);
     if (price) out.price = num(price[1]);
     let name = t.replace(/https?:\/\/\S+/g, ' ').split(/\r?\n/).map((s) => s.trim()).filter(Boolean)[0] || '';
-    name = name.replace(/^\[[^\]]{1,14}\]\s*/, '').replace(/\s*[|·\-–—]\s*(오늘의집|ohou\.se|네이버(?:\s*쇼핑)?|쿠팡|이케아|IKEA|한샘|11번가|G마켓|옥션).*$/i, '').replace(/\s+/g, ' ').trim();
+    name = name.replace(/^\[[^\]]{1,14}\]\s*/, '').replace(/\s*[|·\-–—]\s*(오늘의집|ohou\.se|네이버(?:\s*쇼핑)?|쿠팡|이케아|IKEA|한샘|11번가|G마켓|옥션).*$/i, '');
+    // 같은 줄에 붙은 가격·크기는 이름에서 뺌 (그 앞까지만)
+    const cut = name.search(/(?:가로|폭|너비|세로|깊이|높이|크기|사이즈)\s*[:：]?\s*\d|\b[WDH]\s*\d{2,}|\d+(?:\.\d+)?\s*(?:mm|cm|㎜|㎝)\b|\d+(?:\.\d+)?\s*[x×*X]\s*\d|(?:\d{1,3}(?:,\d{3})+|\d{4,9})\s*원/);
+    if (cut >= 2) name = name.slice(0, cut);
+    name = name.replace(/[\s·,|\-–—:：(\[]+$/, '').replace(/\s+/g, ' ').trim();
     if (name) out.name = name.slice(0, 36);
     const host = out.url || '';
     out.src = /ohou\.se|ohouse|bucketplace/i.test(host) ? '오늘의집' : /ikea\./i.test(host) ? '이케아' : /coupang\./i.test(host) ? '쿠팡' : /naver\./i.test(host) ? '네이버' : /hanssem/i.test(host) ? '한샘' : '';
