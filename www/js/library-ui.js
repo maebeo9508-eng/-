@@ -1,6 +1,6 @@
 /* 내 사물 화면: 등록 창(제품 사진·3D 모델 파일·공유 받은 글), 목록 관리, 사물 묶음 파일, 구매 목록.
    - 제품 사진: 오늘의집 같은 쇼핑 앱에서 저장한 사진을 넣고 흰 바탕을 지운 뒤 실제 크기·가격·링크를 적어 둠
-   - 3D 모델: GLB·glTF·OBJ·STL (단위·위쪽 축·방향을 미리보기로 맞춤)
+   - 3D 모델: GLB·glTF·OBJ·Collada(DAE)·3MF·PLY·STL과 그 압축파일(zip) (단위·위쪽 축·방향을 미리보기로 맞춤)
    - 묶음 파일(.hjobj.json): 등록한 사물을 다른 기기·동료에게 넘김 */
 (function () {
   'use strict';
@@ -10,7 +10,7 @@
   const won = (v) => `${Math.round(v).toLocaleString('ko-KR')}원`;
   const mm = (v) => Math.round(v).toLocaleString('ko-KR');
   const IMG_SIDE = 1024, THUMB = 220, PACK_KIND = 'hjdm-objects';
-  const MODEL_EXT = ['glb', 'gltf', 'obj', 'stl'];
+  const MODEL_EXT = ['glb', 'gltf', 'obj', 'dae', '3mf', 'ply', 'stl', 'zip']; // zip: 내려받은 압축파일 그대로 (안의 모델·그림을 읽음)
   const extOf = (n) => App.meshio.extOf(n);
   const isImageFile = (f) => /^image\//.test(f.type || '') || ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'avif', 'heic'].includes(extOf(f.name));
 
@@ -287,7 +287,8 @@
             <button type="button" class="btn btn-primary" data-act="obj-pick-model">3D 모델 파일 고르기</button>
           </div>
           <p class="props-meta">사진: 오늘의집 같은 쇼핑 앱에서 저장한 제품 사진(JPG·PNG·WebP) · 화면 캡처도 됩니다. PC는 그림을 복사해 <kbd>Ctrl</kbd>+<kbd>V</kbd>로 붙여도 됩니다.<br>
-          3D 모델: GLB·glTF·OBJ·STL (OBJ는 MTL·그림 파일, glTF는 .bin·그림 파일을 함께 고르세요). 스케치업·블렌더·3ds Max에서 GLB나 OBJ로 내보낸 것도 됩니다.</p>
+          3D 모델: GLB·glTF·OBJ·Collada(DAE)·3MF·PLY·STL. 내려받은 <b>압축파일(zip)은 풀지 않고 그대로</b> 골라도 됩니다 (안의 그림·재질 파일까지 읽음). 풀어 둔 것은 OBJ와 MTL·그림, glTF와 .bin·그림을 함께 고르세요.<br>
+          스케치업 모델은 3D Warehouse에서 내려받을 때 <b>Collada 파일</b>을 고르면 됩니다. 블렌더·3ds Max는 GLB나 OBJ로 내보내세요.</p>
         </div>`;
     } else if (st.kind === 'image') {
       stage = '<canvas class="obj-canvas obj-image" id="objCanvas" aria-label="사진 미리보기"></canvas>';
@@ -631,7 +632,7 @@
         </div>
         ${list.length ? `<div class="obj-grid">${list.map(cardHtml).join('')}</div>` : `
           <div class="empty"><div class="empty-title">등록한 사물이 없습니다</div>
-          <p>오늘의집 같은 쇼핑 앱에서 저장한 <b>제품 사진</b>이나, 모델 사이트에서 받은 <b>3D 모델 파일</b>(GLB·OBJ·STL)을 등록하면 가구·물건처럼 도면에 놓고 3D로 볼 수 있습니다. 설계 모드에서 만든 가구·전광판도 여기에 모입니다.</p></div>`}
+          <p>오늘의집 같은 쇼핑 앱에서 저장한 <b>제품 사진</b>이나, 모델 사이트에서 받은 <b>3D 모델 파일</b>(GLB·OBJ·DAE·STL, 압축파일째로도)을 등록하면 가구·물건처럼 도면에 놓고 3D로 볼 수 있습니다. 설계 모드에서 만든 가구·전광판도 여기에 모입니다.</p></div>`}
         <p class="props-meta">사물은 이 기기에 저장됩니다. 다른 기기로 옮길 때는 ‘모두 내보내기’로 만든 묶음 파일을 그 기기에서 ‘묶음 파일 가져오기’로 여세요. 도면 백업 파일에는 그 도면에 놓인 사물이 함께 들어갑니다.</p>
       </div>`;
   }

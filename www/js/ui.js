@@ -612,7 +612,7 @@
       // 3D 미리보기 그림으로 (아직 못 그렸으면 기호로 두었다가 바뀜)
       App.sprites.prefer(list.map((d) => d.kind));
       // 내 사물: 맨 앞에 ‘등록’·‘목록’ 칸
-      const mine = group.custom ? `<button type="button" class="pal-btn pal-pic pal-add" data-object-act="add" title="제품 사진·3D 모델 파일(GLB·OBJ·STL)로 사물 등록"><span class="pal-thumb pal-plus">＋</span><span>사물 등록</span></button>
+      const mine = group.custom ? `<button type="button" class="pal-btn pal-pic pal-add" data-object-act="add" title="제품 사진·3D 모델 파일(GLB·OBJ·DAE·STL·zip)로 사물 등록"><span class="pal-thumb pal-plus">＋</span><span>사물 등록</span></button>
         <button type="button" class="pal-btn pal-pic pal-add" data-object-act="list" title="등록한 사물 보기·고치기·내보내기"><span class="pal-thumb pal-plus">☰</span><span>목록 관리</span></button>` : '';
       pal.innerHTML = mine + list.map((d) => picCard(d, d.kind === current)).join('');
       return;

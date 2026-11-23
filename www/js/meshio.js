@@ -1,4 +1,4 @@
-/* 3D 모델 파일 읽기·쓰기 (라이브러리 없음): GLB·glTF 2.0, OBJ(+MTL), STL → 앱에서 쓰는 삼각형 모형.
+/* 3D 모델 파일 읽기·쓰기 (라이브러리 없음): GLB·glTF 2.0, OBJ(+MTL), Collada(DAE), 3MF, PLY, STL과 그 압축파일(zip) → 앱에서 쓰는 삼각형 모형.
    모형(model): { groups: [{ pos, nor, uv, col, idx, color, alpha, tex, repeat }], bbox: { min, max } }
    - pos: Float32Array(xyz…), nor: Float32Array|null, uv: Float32Array|null, col: Float32Array(rgb…)|null (꼭짓점 색), idx: Uint32Array|null(없으면 차례대로 세 개씩)
    - color: [r, g, b] (0~1, 화면 색), alpha, tex: { canvas }|{ url }|null (바탕 그림), repeat: 무늬가 되풀이됨
@@ -488,6 +488,539 @@
     return finalize({ groups: [{ pos, nor: null, uv: null, col: null, idx: null, color: [0.72, 0.74, 0.78], alpha: 1, tex: null, repeat: false }] });
   }
 
+  /* ── 자리·법선에 행렬을 곱함 (열 우선 4×4). 뒤집히는 행렬이면 삼각형 차례도 바꿈 ── */
+  function applyMatrix(pos, nor, idx, M) {
+    const { n: N, flip } = normalMatrix(M);
+    for (let i = 0; i < pos.length; i += 3) {
+      const x = pos[i], y = pos[i + 1], z = pos[i + 2];
+      pos[i] = M[0] * x + M[4] * y + M[8] * z + M[12];
+      pos[i + 1] = M[1] * x + M[5] * y + M[9] * z + M[13];
+      pos[i + 2] = M[2] * x + M[6] * y + M[10] * z + M[14];
+    }
+    if (nor) {
+      for (let i = 0; i < nor.length; i += 3) {
+        const x = nor[i], y = nor[i + 1], z = nor[i + 2];
+        let a = N[0] * x + N[1] * y + N[2] * z, b = N[3] * x + N[4] * y + N[5] * z, c = N[6] * x + N[7] * y + N[8] * z;
+        if (flip) { a = -a; b = -b; c = -c; }
+        const l = Math.hypot(a, b, c) || 1;
+        nor[i] = a / l; nor[i + 1] = b / l; nor[i + 2] = c / l;
+      }
+    }
+    if (flip && idx) for (let i = 0; i + 2 < idx.length; i += 3) { const t = idx[i + 1]; idx[i + 1] = idx[i + 2]; idx[i + 2] = t; }
+  }
+
+  /* ── 압축파일(zip) 풀기: 저장(0)·deflate(8) ── */
+  const LBASE = [3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258];
+  const LEXT = [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0];
+  const DBASE = [1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577];
+  const DEXT = [0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13];
+  const CL_ORDER = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15];
+  const BAD_ZIP = '압축파일이 깨졌거나 지원하지 않는 방식입니다. 압축을 풀어서 파일을 골라 주세요.';
+  /** deflate 풀기 (브라우저 기능이 없을 때 쓰는 느린 방법). src: Uint8Array, size: 풀린 크기(모르면 0) */
+  function inflateJS(src, size) {
+    let out = new Uint8Array(size > 0 ? size : Math.max(1024, src.length * 4)), op = 0, ip = 0, buf = 0, cnt = 0;
+    const need = (n) => { if (op + n > out.length) { const t = new Uint8Array(Math.max(out.length * 2, op + n)); t.set(out); out = t; } };
+    const bits = (n) => {
+      while (cnt < n) { if (ip >= src.length) throw fail(BAD_ZIP); buf |= src[ip++] << cnt; cnt += 8; }
+      const v = buf & ((1 << n) - 1);
+      buf >>>= n; cnt -= n;
+      return v;
+    };
+    const build = (lens) => {
+      const count = new Uint16Array(16), offs = new Uint16Array(16), symbol = new Uint16Array(lens.length);
+      for (let i = 0; i < lens.length; i++) count[lens[i]]++;
+      count[0] = 0;
+      for (let i = 1, sum = 0; i < 16; i++) { offs[i] = sum; sum += count[i]; }
+      for (let i = 0; i < lens.length; i++) if (lens[i]) symbol[offs[lens[i]]++] = i;
+      return { count, symbol };
+    };
+    const decode = (h) => {
+      let code = 0, first = 0, index = 0;
+      for (let len = 1; len < 16; len++) {
+        code |= bits(1);
+        const c = h.count[len];
+        if (code - c < first) return h.symbol[index + (code - first)];
+        index += c; first += c; first <<= 1; code <<= 1;
+      }
+      throw fail(BAD_ZIP);
+    };
+    let fixL = null, fixD = null;
+    for (;;) {
+      const last = bits(1), type = bits(2);
+      if (type === 0) {
+        buf = 0; cnt = 0;
+        if (ip + 4 > src.length) throw fail(BAD_ZIP);
+        const len = src[ip] | (src[ip + 1] << 8);
+        ip += 4;
+        if (ip + len > src.length) throw fail(BAD_ZIP);
+        need(len); out.set(src.subarray(ip, ip + len), op); op += len; ip += len;
+      } else if (type === 1 || type === 2) {
+        let hl, hd;
+        if (type === 1) {
+          if (!fixL) { const l = new Uint8Array(288); l.fill(8, 0, 144); l.fill(9, 144, 256); l.fill(7, 256, 280); l.fill(8, 280, 288); fixL = build(l); fixD = build(new Uint8Array(30).fill(5)); }
+          hl = fixL; hd = fixD;
+        } else {
+          const nlen = bits(5) + 257, ndist = bits(5) + 1, ncode = bits(4) + 4;
+          const cl = new Uint8Array(19);
+          for (let i = 0; i < ncode; i++) cl[CL_ORDER[i]] = bits(3);
+          const hc = build(cl), lens = new Uint8Array(nlen + ndist);
+          for (let i = 0; i < nlen + ndist;) {
+            const sym = decode(hc);
+            if (sym < 16) lens[i++] = sym;
+            else {
+              let rep, val = 0;
+              if (sym === 16) { if (!i) throw fail(BAD_ZIP); val = lens[i - 1]; rep = 3 + bits(2); } else if (sym === 17) rep = 3 + bits(3); else rep = 11 + bits(7);
+              while (rep-- > 0 && i < nlen + ndist) lens[i++] = val;
+            }
+          }
+          hl = build(lens.subarray(0, nlen)); hd = build(lens.subarray(nlen));
+        }
+        for (;;) {
+          const sym = decode(hl);
+          if (sym < 256) { need(1); out[op++] = sym; } else if (sym === 256) break;
+          else {
+            const k = sym - 257;
+            if (k >= 29) throw fail(BAD_ZIP);
+            const len = LBASE[k] + bits(LEXT[k]), dk = decode(hd);
+            if (dk >= 30) throw fail(BAD_ZIP);
+            const dist = DBASE[dk] + bits(DEXT[dk]);
+            if (dist > op) throw fail(BAD_ZIP);
+            need(len);
+            for (let j = 0; j < len; j++) { out[op] = out[op - dist]; op++; }
+          }
+        }
+      } else throw fail(BAD_ZIP);
+      if (last) break;
+    }
+    return out.subarray(0, op);
+  }
+  async function inflateRaw(bytes, size, o = {}) {
+    const DS = o.native === false ? null : (typeof DecompressionStream === 'function' ? DecompressionStream : null);
+    if (DS && typeof Blob === 'function' && typeof Response === 'function') {
+      try {
+        const stream = new Blob([bytes]).stream().pipeThrough(new DS('deflate-raw'));
+        return new Uint8Array(await new Response(stream).arrayBuffer());
+      } catch (_) { /* 아래의 느린 방법으로 */ }
+    }
+    return inflateJS(bytes, size);
+  }
+  /** 압축파일 안의 파일 이름: UTF-8 표시가 없으면 한글 윈도우(CP949)일 수 있음 */
+  function zipName(bytes, isUtf8) {
+    let ascii = true;
+    for (let i = 0; i < bytes.length; i++) if (bytes[i] > 127) { ascii = false; break; }
+    if (ascii) return String.fromCharCode.apply(null, bytes);
+    try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch (_) { /* 다음 */ }
+    if (!isUtf8) { try { return new TextDecoder('euc-kr').decode(bytes); } catch (_) { /* 다음 */ } }
+    return utf8(bytes);
+  }
+  /** zip 풀기. want(name): 풀지 말지 (없으면 모두). 돌려주는 값: [{ name, buffer }] */
+  async function unzip(buffer, want = null, o = {}) {
+    const dv = new DataView(buffer), u8 = new Uint8Array(buffer), n = u8.length;
+    let eo = -1;
+    for (let i = n - 22; i >= Math.max(0, n - 22 - 65535); i--) if (dv.getUint32(i, true) === 0x06054b50) { eo = i; break; }
+    if (eo < 0) throw fail('압축파일(zip)이 아니거나 깨졌습니다.');
+    const count = dv.getUint16(eo + 10, true), cdOff = dv.getUint32(eo + 16, true);
+    if (cdOff === 0xffffffff || count === 0xffff) throw fail('아주 큰 압축파일(ZIP64)은 풀 수 없습니다. 압축을 풀어서 파일을 골라 주세요.');
+    const out = [];
+    let p = cdOff, total = 0, locked = 0, odd = 0;
+    for (let k = 0; k < count && p + 46 <= n; k++) {
+      if (dv.getUint32(p, true) !== 0x02014b50) break;
+      const flags = dv.getUint16(p + 8, true), method = dv.getUint16(p + 10, true), csize = dv.getUint32(p + 20, true), usize = dv.getUint32(p + 24, true);
+      const nl = dv.getUint16(p + 28, true), el = dv.getUint16(p + 30, true), cl = dv.getUint16(p + 32, true), lho = dv.getUint32(p + 42, true);
+      const name = zipName(u8.subarray(p + 46, p + 46 + nl), !!(flags & 0x800));
+      p += 46 + nl + el + cl;
+      if (!name || name.endsWith('/') || /(^|\/)(__MACOSX\/|\.)/.test(name)) continue;
+      if (want && !want(name)) continue;
+      if (flags & 1) { locked++; continue; }
+      if (lho + 30 > n || dv.getUint32(lho, true) !== 0x04034b50) continue;
+      const start = lho + 30 + dv.getUint16(lho + 26, true) + dv.getUint16(lho + 28, true);
+      if (start + csize > n) continue;
+      total += usize;
+      if (total > MAX_FILE * 2) throw fail('압축을 풀면 너무 큽니다. 필요한 파일만 풀어서 골라 주세요.');
+      const raw = u8.subarray(start, start + csize);
+      let data;
+      if (method === 0) data = raw.slice();
+      else if (method === 8) data = await inflateRaw(raw, usize, o); // eslint-disable-line no-await-in-loop
+      else { odd++; continue; }
+      out.push({ name, buffer: data.byteOffset === 0 && data.byteLength === data.buffer.byteLength ? data.buffer : data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) });
+    }
+    if (!out.length && locked) throw fail('암호가 걸린 압축파일은 풀 수 없습니다.');
+    if (!out.length && odd) throw fail(BAD_ZIP);
+    return out;
+  }
+
+  /* ── 아주 단순한 XML 읽기 (DAE·3MF용): { tag, attr, kids, text }. 요소 이름의 접두어(m: 따위)는 뗌. raw에 든 이름은 안쪽을 풀지 않고 글자 그대로(raw) 둠 ── */
+  function parseXML(text, raw = null) {
+    const root = { tag: '#root', attr: {}, kids: [], text: '' };
+    const stack = [root];
+    const local = (s) => { const i = s.indexOf(':'); return i < 0 ? s : s.slice(i + 1); };
+    const ent = (s) => (s.indexOf('&') < 0 ? s : s.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos);/gi, (_, e) => {
+      const k = e.toLowerCase();
+      if (k[0] === '#') { const c = k[1] === 'x' ? parseInt(k.slice(2), 16) : parseInt(k.slice(1), 10); return Number.isFinite(c) ? String.fromCodePoint(c) : ''; }
+      return { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }[k];
+    }));
+    const re = /<!--[\s\S]*?-->|<!\[CDATA\[([\s\S]*?)\]\]>|<\?[\s\S]*?\?>|<![^>]*>|<\/([^\s>]+)\s*>|<([^\s/>!?]+)((?:\s+[^\s=/>]+\s*=\s*(?:"[^"]*"|'[^']*'))*)\s*(\/?)>/g;
+    let last = 0, m;
+    while ((m = re.exec(text))) {
+      const top = stack[stack.length - 1];
+      if (m.index > last) top.text += text.slice(last, m.index);
+      last = re.lastIndex;
+      if (m[1] != null) { top.text += m[1]; continue; }
+      if (m[2]) {
+        const name = local(m[2]);
+        for (let i = stack.length - 1; i > 0; i--) if (stack[i].tag === name) { stack.length = i; break; }
+        continue;
+      }
+      if (!m[3]) continue;
+      const node = { tag: local(m[3]), attr: {}, kids: [], text: '' };
+      if (m[4]) { const ar = /([^\s=]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g; let a; while ((a = ar.exec(m[4]))) node.attr[a[1]] = ent(a[2] != null ? a[2] : a[3]); }
+      top.kids.push(node);
+      if (m[5]) continue;
+      if (raw && raw.has(node.tag)) { // 큰 목록(꼭짓점·삼각형)은 풀지 않고 통째로
+        const close = `</${m[3]}`, end = text.indexOf(close, last);
+        node.raw = end < 0 ? text.slice(last) : text.slice(last, end);
+        last = end < 0 ? text.length : text.indexOf('>', end) + 1;
+        re.lastIndex = last;
+        continue;
+      }
+      stack.push(node);
+    }
+    return root;
+  }
+  const kid = (n, tag) => (n ? n.kids.find((k) => k.tag === tag) : undefined);
+  const kidsOf = (n, tag) => (n ? n.kids.filter((k) => k.tag === tag) : []);
+  const numList = (t) => { const s = String(t || '').trim(); return s ? s.split(/\s+/).map(Number) : []; };
+  const clamp01 = (v) => Math.min(1, Math.max(0, Number.isFinite(v) ? v : 0));
+
+  /* ── Collada (.dae): 스케치업·3D Warehouse에서 내려받는 형식 ── */
+  async function parseDAE(text, res, warnings, decode = decodeImage) {
+    const doc = parseXML(text), C = kid(doc, 'COLLADA');
+    if (!C) throw fail('Collada(.dae) 파일의 내용을 읽지 못했습니다.');
+    const asset = kid(C, 'asset'), unitN = kid(asset, 'unit'), upN = kid(asset, 'up_axis');
+    const meter = unitN && Number(unitN.attr.meter) > 0 ? Number(unitN.attr.meter) : 1;
+    const upAxis = upN ? upN.text.trim().toUpperCase() : 'Y_UP';
+    const byId = new Map();
+    (function index(n) { if (n.attr.id) byId.set(n.attr.id, n); n.kids.forEach(index); })(C);
+    const ref = (url) => byId.get(String(url || '').replace(/^#/, ''));
+    // 그림
+    const texCache = new Map();
+    let lostTex = 0, lines = false;
+    const loadTex = async (file) => {
+      if (texCache.has(file)) return texCache.get(file);
+      let tex = null;
+      const bytes = res ? res(file) : null;
+      if (bytes) { try { tex = await decode(bytes, `image/${extOf(file) === 'jpg' ? 'jpeg' : extOf(file) || 'png'}`); } catch (_) { tex = null; } } else lostTex++;
+      if (tex) tex.repeat = true;
+      texCache.set(file, tex);
+      return tex;
+    };
+    const imageFile = (id) => {
+      const im = ref(id), init = kid(im, 'init_from');
+      if (!init) return '';
+      const r = kid(init, 'ref');
+      return (r ? r.text : init.text).trim();
+    };
+    // 재질
+    const matCache = new Map();
+    const material = async (id) => {
+      if (matCache.has(id)) return matCache.get(id);
+      const out = { color: [0.8, 0.8, 0.8], alpha: 1, tex: null };
+      matCache.set(id, out);
+      const fx = ref((kid(ref(id), 'instance_effect') || { attr: {} }).attr.url);
+      const prof = fx && (kid(fx, 'profile_COMMON') || fx.kids.find((k) => /^profile_/.test(k.tag)));
+      if (!prof) return out;
+      const params = new Map();
+      [fx, prof].forEach((n) => kidsOf(n, 'newparam').forEach((p) => params.set(p.attr.sid, p)));
+      const tech = kid(prof, 'technique'), shader = tech && tech.kids.find((k) => ['phong', 'lambert', 'blinn', 'constant'].includes(k.tag));
+      if (!shader) return out;
+      const diffuse = kid(shader, 'diffuse') || kid(shader, 'emission');
+      const c = kid(diffuse, 'color'), t = kid(diffuse, 'texture');
+      if (c) { const v = numList(c.text); if (v.length >= 3 && v.every(Number.isFinite)) out.color = [clamp01(v[0]), clamp01(v[1]), clamp01(v[2])]; }
+      if (t) {
+        let imgId = t.attr.texture;
+        const s2 = kid(params.get(imgId), 'sampler2D');
+        if (s2) {
+          const inst = kid(s2, 'instance_image'), src = kid(s2, 'source');
+          if (inst) imgId = String(inst.attr.url || '').replace(/^#/, '');
+          else if (src) { const init = kid(kid(params.get(src.text.trim()), 'surface'), 'init_from'); if (init) imgId = init.text.trim(); }
+        }
+        const file = imageFile(imgId);
+        if (file) { out.tex = await loadTex(file); if (out.tex) out.color = [1, 1, 1]; }
+      }
+      const tr = kid(shader, 'transparent'), tcy = kid(shader, 'transparency');
+      if (tr || tcy) {
+        const mode = tr && tr.attr.opaque ? tr.attr.opaque : 'A_ONE';
+        const tc = tr && kid(tr, 'color') ? numList(kid(tr, 'color').text) : null;
+        const fN = tcy && kid(tcy, 'float') ? Number(kid(tcy, 'float').text) : 1, f = Number.isFinite(fN) ? fN : 1;
+        const avg = tc && tc.length >= 3 ? (tc[0] + tc[1] + tc[2]) / 3 : null;
+        let a = 1;
+        if (mode === 'RGB_ZERO') a = avg == null ? 1 : 1 - avg * f;
+        else if (mode === 'RGB_ONE') a = avg == null ? 1 : avg * f;
+        else if (mode === 'A_ZERO') a = 1 - (tc && tc.length > 3 ? tc[3] : 1) * f;
+        else a = (tc && tc.length > 3 ? tc[3] : 1) * f;
+        out.alpha = a > 0.02 ? Math.min(1, a) : 1; // 완전히 투명하다고 적힌 것은 내보낸 프로그램의 표기 차이 → 불투명으로
+      }
+      return out;
+    };
+    // 도형: id → [{ sym, pos, nor, uv, idx }] (자기 좌표)
+    const geoCache = new Map();
+    const sourceData = (src) => {
+      const fa = kid(src, 'float_array');
+      if (!fa) return null;
+      const acc = kid(kid(src, 'technique_common'), 'accessor');
+      if (!src.data) src.data = Float64Array.from(numList(fa.text));
+      return { data: src.data, stride: acc && +acc.attr.stride > 0 ? +acc.attr.stride : 3, offset: acc && +acc.attr.offset > 0 ? +acc.attr.offset : 0 };
+    };
+    const geometry = (id) => {
+      if (geoCache.has(id)) return geoCache.get(id);
+      const out = [];
+      geoCache.set(id, out);
+      const mesh = kid(ref(id), 'mesh');
+      if (!mesh) return out;
+      const vInputs = kidsOf(kid(mesh, 'vertices'), 'input');
+      mesh.kids.forEach((prim) => {
+        if (prim.tag === 'lines' || prim.tag === 'linestrips') { lines = true; return; }
+        if (!['triangles', 'polylist', 'polygons', 'tristrips', 'trifans'].includes(prim.tag)) return;
+        let stride = 1;
+        const sem = {};
+        kidsOf(prim, 'input').forEach((inp) => {
+          const off = +inp.attr.offset || 0, s = inp.attr.semantic;
+          stride = Math.max(stride, off + 1);
+          if (s === 'VERTEX') vInputs.forEach((vi) => { if (!sem[vi.attr.semantic]) sem[vi.attr.semantic] = { off, src: sourceData(ref(vi.attr.source)) }; });
+          else if (!sem[s]) sem[s] = { off, src: sourceData(ref(inp.attr.source)) };
+        });
+        const P = sem.POSITION, N = sem.NORMAL && sem.NORMAL.src ? sem.NORMAL : null, T = sem.TEXCOORD && sem.TEXCOORD.src ? sem.TEXCOORD : null;
+        if (!P || !P.src) return;
+        const pos = [], nor = [], uv = [], idx = [], map = new Map();
+        const vert = (I, t) => {
+          const b = t * stride, pi = I[b + P.off], ni = N ? I[b + N.off] : -1, ti = T ? I[b + T.off] : -1;
+          const key = `${pi}/${ni}/${ti}`;
+          let v = map.get(key);
+          if (v != null) return v;
+          const po = P.src.offset + pi * P.src.stride;
+          if (!(pi >= 0) || po + 2 >= P.src.data.length) return -1;
+          v = pos.length / 3;
+          pos.push(P.src.data[po], P.src.data[po + 1], P.src.data[po + 2]);
+          if (N) { const q = N.src.offset + ni * N.src.stride; nor.push(N.src.data[q] || 0, N.src.data[q + 1] || 0, N.src.data[q + 2] || 0); }
+          if (T) { const q = T.src.offset + ti * T.src.stride; uv.push(T.src.data[q] || 0, 1 - (T.src.data[q + 1] || 0)); }
+          map.set(key, v);
+          return v;
+        };
+        const poly = (I, start, n, kind) => {
+          const ids = [];
+          for (let k = 0; k < n; k++) ids.push(vert(I, start + k));
+          const tri = (a, b, c) => { if (a >= 0 && b >= 0 && c >= 0) idx.push(a, b, c); };
+          if (kind === 'strip') for (let k = 0; k + 2 < ids.length; k++) { if (k % 2) tri(ids[k + 1], ids[k], ids[k + 2]); else tri(ids[k], ids[k + 1], ids[k + 2]); }
+          else for (let k = 1; k + 1 < ids.length; k++) tri(ids[0], ids[k], ids[k + 1]);
+        };
+        const ps = kidsOf(prim, 'p').map((n) => Int32Array.from(numList(n.text)));
+        if (prim.tag === 'triangles') ps.forEach((I) => { const n = Math.floor(I.length / stride / 3) * 3; for (let t = 0; t < n; t += 3) poly(I, t, 3); });
+        else if (prim.tag === 'polylist') {
+          const vc = numList((kid(prim, 'vcount') || { text: '' }).text), I = ps[0] || new Int32Array(0);
+          let t = 0;
+          vc.forEach((n) => { if (n >= 3 && (t + n) * stride <= I.length) poly(I, t, n); t += n; });
+        } else ps.forEach((I) => poly(I, 0, Math.floor(I.length / stride), prim.tag === 'tristrips' ? 'strip' : 'fan'));
+        if (idx.length) out.push({ sym: prim.attr.material || '', pos, nor: N ? nor : null, uv: T ? uv : null, idx });
+      });
+      return out;
+    };
+    // 장면: 노드의 변환을 곱해 가며 그림
+    const B = new Builder();
+    let drawn = 0;
+    const nodeM = (n) => {
+      let M = IDENT;
+      n.kids.forEach((k) => {
+        if (k.tag === 'matrix') { const a = numList(k.text); if (a.length === 16) M = mul4(M, [a[0], a[4], a[8], a[12], a[1], a[5], a[9], a[13], a[2], a[6], a[10], a[14], a[3], a[7], a[11], a[15]]); }
+        else if (k.tag === 'translate') { const a = numList(k.text); M = mul4(M, [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, a[0] || 0, a[1] || 0, a[2] || 0, 1]); }
+        else if (k.tag === 'scale') { const a = numList(k.text); M = mul4(M, [a[0] == null ? 1 : a[0], 0, 0, 0, 0, a[1] == null ? 1 : a[1], 0, 0, 0, 0, a[2] == null ? 1 : a[2], 0, 0, 0, 0, 1]); }
+        else if (k.tag === 'rotate') {
+          const a = numList(k.text), l = Math.hypot(a[0] || 0, a[1] || 0, a[2] || 0);
+          if (l > 0 && Number.isFinite(a[3])) {
+            const x = a[0] / l, y = a[1] / l, z = a[2] / l, r = (a[3] * Math.PI) / 180, c = Math.cos(r), s = Math.sin(r), t = 1 - c;
+            M = mul4(M, [t * x * x + c, t * x * y + s * z, t * x * z - s * y, 0, t * x * y - s * z, t * y * y + c, t * y * z + s * x, 0, t * x * z + s * y, t * y * z - s * x, t * z * z + c, 0, 0, 0, 0, 1]);
+          }
+        }
+      });
+      return M;
+    };
+    const emit = async (url, bindNode, M) => {
+      const prims = geometry(String(url || '').replace(/^#/, ''));
+      const bind = new Map();
+      (function find(n) { if (!n) return; n.kids.forEach((k) => { if (k.tag === 'instance_material') bind.set(k.attr.symbol, String(k.attr.target || '').replace(/^#/, '')); else find(k); }); })(bindNode);
+      for (const p of prims) {
+        const matId = bind.get(p.sym) || p.sym;
+        const m = await material(matId); // eslint-disable-line no-await-in-loop
+        const pos = Float32Array.from(p.pos), nor = p.nor ? Float32Array.from(p.nor) : null, idx = Uint32Array.from(p.idx);
+        applyMatrix(pos, nor, idx, M);
+        const g = B.group(`d:${matId}`, { color: m.color, alpha: m.alpha, tex: m.tex, repeat: !!m.tex });
+        B.add(g, pos, nor, m.tex && p.uv ? p.uv : null, null, idx);
+        drawn++;
+      }
+    };
+    const walk = async (n, parent, depth, seen) => {
+      if (depth > 64) return;
+      const M = mul4(parent, nodeM(n));
+      for (const k of n.kids) {
+        /* eslint-disable no-await-in-loop */
+        if (k.tag === 'instance_geometry') await emit(k.attr.url, k, M);
+        else if (k.tag === 'instance_controller') { const skin = kid(ref(k.attr.url), 'skin'); if (skin && skin.attr.source) await emit(skin.attr.source, k, M); }
+        else if (k.tag === 'instance_node') { const t = ref(k.attr.url); if (t && !seen.has(t)) { seen.add(t); await walk(t, M, depth + 1, seen); seen.delete(t); } }
+        else if (k.tag === 'node') await walk(k, M, depth + 1, seen);
+        /* eslint-enable no-await-in-loop */
+      }
+    };
+    const inst = kid(kid(C, 'scene'), 'instance_visual_scene');
+    const scene = (inst && ref(inst.attr.url)) || kid(kid(C, 'library_visual_scenes'), 'visual_scene');
+    if (scene) for (const n of kidsOf(scene, 'node')) await walk(n, IDENT, 0, new Set()); // eslint-disable-line no-await-in-loop
+    if (!drawn) for (const g of kidsOf(kid(C, 'library_geometries'), 'geometry')) await emit(g.attr.id, null, IDENT); // eslint-disable-line no-await-in-loop
+    const model = B.finish();
+    if (!model.groups.length) throw fail('Collada(.dae) 파일에 그릴 수 있는 면이 없습니다.');
+    const k = meter * 1000; // mm로
+    model.groups.forEach((g) => { for (let i = 0; i < g.pos.length; i++) g.pos[i] *= k; });
+    model.bbox = bboxOf(model.groups);
+    if (lostTex) warnings.add('재질의 그림 파일을 찾지 못해 색으로만 보입니다. 내려받은 압축파일(zip)을 풀지 말고 그대로 고르거나, .dae와 그림 파일을 함께 고르세요.');
+    if (lines) warnings.add('선으로 된 부분은 빼고 읽었습니다.');
+    if (upAxis === 'X_UP') warnings.add('위쪽이 X축인 파일입니다. 미리보기에서 방향을 확인해 주세요.');
+    return { model, unit: 'mm', up: upAxis === 'Z_UP' ? 'z' : 'y' };
+  }
+
+  /* ── 3MF (3D 프린트용, zip 안의 XML) ── */
+  async function parse3MF(buffer, warnings, o = {}) {
+    const files = await unzip(buffer, (name) => /\.model$/i.test(name), o);
+    const f = files.find((x) => /(^|\/)3dmodel\.model$/i.test(x.name)) || files[0];
+    if (!f) throw fail('3MF 파일에서 모델을 찾지 못했습니다.');
+    const doc = parseXML(utf8(new Uint8Array(f.buffer)), new Set(['vertices', 'triangles'])), M = kid(doc, 'model');
+    if (!M) throw fail('3MF 파일의 내용을 읽지 못했습니다.');
+    const unit = { micron: 0.001, millimeter: 1, centimeter: 10, inch: 25.4, foot: 304.8, meter: 1000 }[M.attr.unit || 'millimeter'] || 1;
+    const R = kid(M, 'resources');
+    const colors = new Map();
+    const hex = (s) => { const m = /^#([0-9a-f]{6})([0-9a-f]{2})?$/i.exec(String(s || '').trim()); if (!m) return null; const v = parseInt(m[1], 16); return [((v >> 16) & 255) / 255, ((v >> 8) & 255) / 255, (v & 255) / 255, m[2] ? parseInt(m[2], 16) / 255 : 1]; };
+    (R ? R.kids : []).forEach((r) => {
+      if (r.tag === 'basematerials') kidsOf(r, 'base').forEach((b, i) => { const c = hex(b.attr.displaycolor); if (c) colors.set(`${r.attr.id}:${i}`, c); });
+      else if (r.tag === 'colorgroup') kidsOf(r, 'color').forEach((b, i) => { const c = hex(b.attr.color); if (c) colors.set(`${r.attr.id}:${i}`, c); });
+    });
+    const objects = new Map();
+    kidsOf(R, 'object').forEach((ob) => objects.set(ob.attr.id, ob));
+    const tm = (s) => { const a = numList(s); return a.length === 12 && a.every(Number.isFinite) ? [a[0], a[1], a[2], 0, a[3], a[4], a[5], 0, a[6], a[7], a[8], 0, a[9], a[10], a[11], 1] : IDENT; };
+    const attr = (s, name) => { const m = new RegExp(`(?:^|\\s)${name}\\s*=\\s*"([^"]*)"`).exec(s); return m ? m[1] : null; };
+    const B = new Builder();
+    let outside = false;
+    const draw = (id, Mx, depth, inherit) => {
+      const ob = objects.get(id);
+      if (!ob || depth > 32) return;
+      const own = ob.attr.pid != null ? `${ob.attr.pid}:${ob.attr.pindex || 0}` : inherit;
+      const mesh = kid(ob, 'mesh'), vs = kid(mesh, 'vertices'), ts = kid(mesh, 'triangles');
+      if (vs && ts && vs.raw && ts.raw) {
+        const P = [];
+        const vre = /<(?:\w+:)?vertex\s([^>]*?)\/?>/g;
+        let m;
+        while ((m = vre.exec(vs.raw))) P.push(+attr(m[1], 'x') || 0, +attr(m[1], 'y') || 0, +attr(m[1], 'z') || 0);
+        const nv = P.length / 3, byKey = new Map();
+        const tre = /<(?:\w+:)?triangle\s([^>]*?)\/?>/g;
+        while ((m = tre.exec(ts.raw))) {
+          const a = +attr(m[1], 'v1'), b = +attr(m[1], 'v2'), c = +attr(m[1], 'v3');
+          if (!(a >= 0 && a < nv && b >= 0 && b < nv && c >= 0 && c < nv)) continue;
+          const pid = attr(m[1], 'pid'), key = pid != null ? `${pid}:${attr(m[1], 'p1') || 0}` : own || '';
+          let e = byKey.get(key);
+          if (!e) byKey.set(key, (e = { map: new Map(), pos: [], idx: [] }));
+          [a, b, c].forEach((vi) => { let v = e.map.get(vi); if (v == null) { v = e.pos.length / 3; e.pos.push(P[vi * 3], P[vi * 3 + 1], P[vi * 3 + 2]); e.map.set(vi, v); } e.idx.push(v); });
+        }
+        byKey.forEach((e, key) => {
+          const pos = Float32Array.from(e.pos), idx = Uint32Array.from(e.idx), c = colors.get(key) || [0.72, 0.74, 0.78, 1];
+          applyMatrix(pos, null, idx, Mx);
+          B.add(B.group(`c:${key}`, { color: c.slice(0, 3), alpha: c[3] }), pos, null, null, null, idx);
+        });
+      }
+      kidsOf(kid(ob, 'components'), 'component').forEach((c) => { if (c.attr['p:path'] || c.attr.path) outside = true; draw(c.attr.objectid, mul4(Mx, tm(c.attr.transform)), depth + 1, own); });
+    };
+    const items = kidsOf(kid(M, 'build'), 'item');
+    if (items.length) items.forEach((it) => { if (it.attr['p:path'] || it.attr.path) outside = true; draw(it.attr.objectid, tm(it.attr.transform), 0, ''); });
+    else objects.forEach((_, id) => draw(id, IDENT, 0, ''));
+    const model = B.finish();
+    if (!model.groups.length) throw fail(outside ? '여러 파일로 나뉜 3MF는 열 수 없습니다. 한 파일로 다시 저장하거나 STL·OBJ로 내보내 주세요.' : '3MF 파일에 그릴 수 있는 면이 없습니다.');
+    if (outside) warnings.add('다른 파일에 든 부분은 빼고 읽었습니다.');
+    if (unit !== 1) { model.groups.forEach((g) => { for (let i = 0; i < g.pos.length; i++) g.pos[i] *= unit; }); model.bbox = bboxOf(model.groups); }
+    return { model, unit: 'mm', up: 'z' };
+  }
+
+  /* ── PLY (스캔·점토 모형에서 흔한 형식): 글자·2진, 꼭짓점 색 ── */
+  const PLY_SIZE = { char: 1, int8: 1, uchar: 1, uint8: 1, short: 2, int16: 2, ushort: 2, uint16: 2, int: 4, int32: 4, uint: 4, uint32: 4, float: 4, float32: 4, double: 8, float64: 8 };
+  function parsePLY(buffer) {
+    const u8 = new Uint8Array(buffer);
+    let head = '';
+    for (let i = 0, lim = Math.min(u8.length, 65536); i < lim; i++) head += String.fromCharCode(u8[i]);
+    const hi = head.indexOf('end_header');
+    if (!/^ply\s/.test(head) || hi < 0) throw fail('PLY 파일이 아닙니다.');
+    let at = hi + 10;
+    if (u8[at] === 13) at++;
+    if (u8[at] === 10) at++;
+    let fmt = 'ascii';
+    const elements = [];
+    head.slice(0, hi).split(/\r?\n/).forEach((l) => {
+      const p = l.trim().split(/\s+/);
+      if (p[0] === 'format') fmt = p[1];
+      else if (p[0] === 'element') elements.push({ name: p[1], count: +p[2] || 0, props: [] });
+      else if (p[0] === 'property' && elements.length) elements[elements.length - 1].props.push(p[1] === 'list' ? { list: true, ct: p[2], type: p[3], name: p[4] } : { type: p[1], name: p[2] });
+    });
+    const vE = elements.find((e) => e.name === 'vertex'), fE = elements.find((e) => e.name === 'face');
+    if (!vE || !vE.count) throw fail('PLY 파일에서 꼭짓점을 찾지 못했습니다.');
+    if (!fE || !fE.count) throw fail('점만 있는 PLY(포인트 클라우드)는 열 수 없습니다. 면(메시)이 있는 파일로 내보내 주세요.');
+    let next;
+    if (fmt === 'ascii') {
+      const tok = utf8(u8.subarray(at)).trim().split(/\s+/);
+      let t = 0;
+      next = () => +tok[t++];
+    } else {
+      const le = fmt !== 'binary_big_endian', dv = new DataView(buffer), end = buffer.byteLength;
+      let p = at;
+      next = (type) => {
+        const s = PLY_SIZE[type] || 4, q = p;
+        p += s;
+        if (p > end) return 0;
+        switch (type) {
+          case 'char': case 'int8': return dv.getInt8(q);
+          case 'uchar': case 'uint8': return dv.getUint8(q);
+          case 'short': case 'int16': return dv.getInt16(q, le);
+          case 'ushort': case 'uint16': return dv.getUint16(q, le);
+          case 'int': case 'int32': return dv.getInt32(q, le);
+          case 'uint': case 'uint32': return dv.getUint32(q, le);
+          case 'double': case 'float64': return dv.getFloat64(q, le);
+          default: return dv.getFloat32(q, le);
+        }
+      };
+    }
+    const n = vE.count, pos = new Float32Array(n * 3), slot = vE.props.map((p) => ['x', 'y', 'z', 'red', 'green', 'blue', 'nx', 'ny', 'nz'].indexOf(p.name === 'r' ? 'red' : p.name === 'g' ? 'green' : p.name === 'b' ? 'blue' : p.name));
+    const hasCol = [3, 4, 5].every((k) => slot.includes(k)), hasNor = [6, 7, 8].every((k) => slot.includes(k));
+    const col = hasCol ? new Float32Array(n * 3) : null, nor = hasNor ? new Float32Array(n * 3) : null;
+    const cScale = vE.props.map((p) => (/float|double/.test(p.type) ? 1 : /short|int16/.test(p.type) ? 1 / 65535 : 1 / 255));
+    const idx = [];
+    for (const e of elements) {
+      for (let k = 0; k < e.count; k++) {
+        for (let j = 0; j < e.props.length; j++) {
+          const p = e.props[j];
+          if (p.list) {
+            const c = next(p.ct);
+            if (!(c >= 0 && c < 1e6)) throw fail('PLY 파일을 읽지 못했습니다.');
+            if (e === fE && /^vertex_ind/.test(p.name)) {
+              const ids = [];
+              for (let q = 0; q < c; q++) ids.push(next(p.type));
+              for (let q = 1; q + 1 < ids.length; q++) if (ids[0] < n && ids[q] < n && ids[q + 1] < n && ids[0] >= 0 && ids[q] >= 0 && ids[q + 1] >= 0) idx.push(ids[0], ids[q], ids[q + 1]);
+            } else for (let q = 0; q < c; q++) next(p.type);
+          } else {
+            const v = next(p.type);
+            if (e !== vE) continue;
+            const s = slot[j];
+            if (s >= 0 && s < 3) pos[k * 3 + s] = v;
+            else if (s >= 3 && s < 6 && col) col[k * 3 + s - 3] = clamp01(v * cScale[j]);
+            else if (s >= 6 && nor) nor[k * 3 + s - 6] = v;
+          }
+        }
+      }
+    }
+    if (idx.length < 3) throw fail('PLY 파일에 그릴 수 있는 면이 없습니다.');
+    return finalize({ groups: [{ pos, nor, uv: null, col, idx: Uint32Array.from(idx), color: col ? [1, 1, 1] : [0.72, 0.74, 0.78], alpha: 1, tex: null, repeat: false }] });
+  }
+
   /* ── 법선: 맞닿은 면끼리 꺾인 각이 작으면 둥글게, 크면 각지게 (꼭짓점을 삼각형마다 따로 둠) ── */
   function withNormals(g, angle = 42) {
     const pos = g.pos, idx = g.idx, tris = Math.floor(triCount(g));
@@ -679,21 +1212,42 @@
   /* ── 파일 묶음 읽기 ── */
   /** files: [{ name, buffer(ArrayBuffer) }] — 모델 파일 하나와 (있으면) .bin·.mtl·그림 파일들.
       돌려주는 값: { model(파일 단위 그대로, 자세히 보기 상한으로 줄임), format, name, tris(원래 삼각형 수), unit(어림), up(어림), warnings[] } */
+  const MODEL_EXT = ['glb', 'gltf', 'obj', 'dae', '3mf', 'ply', 'stl'];
+  const SIDE_EXT = ['bin', 'mtl', 'png', 'jpg', 'jpeg', 'webp', 'bmp', 'gif'];
+  const NO_OPEN = ['fbx', 'skp', '3ds', 'max', 'blend', 'usdz', 'usd', 'step', 'stp', 'igs', 'iges', 'c4d', 'ma', 'mb', 'rvt', 'ifc', 'x3d', 'wrl', 'lwo', 'abc'];
+  const noOpenText = (e) => (e === 'skp'
+    ? '스케치업(.skp) 파일은 바로 열 수 없습니다. 3D Warehouse에서는 내려받을 때 ‘Collada 파일’을 고르면 (받은 zip 그대로) 열 수 있고, 스케치업에서는 파일 → 내보내기 → 3D 모델에서 .dae나 .glb로 저장하면 됩니다.'
+    : `.${e} 파일은 바로 열 수 없습니다. GLB(glTF)·OBJ·Collada(DAE)·STL로 내려받거나 변환해서 넣어 주세요. (블렌더·3ds Max·스케치업 모두 GLB나 OBJ로 내보낼 수 있습니다)`);
   async function parse(files, o = {}) {
-    const list = [...files].filter((f) => f && f.buffer);
-    const main = list.find((f) => ['glb', 'gltf', 'obj', 'stl'].includes(extOf(f.name)));
+    let list = [...files].filter((f) => f && f.buffer);
+    const warnings = new Set();
+    // 압축파일은 풀어서 그 안의 모델·그림 파일을 함께 봄 (내려받은 zip을 그대로 고를 수 있게)
+    const zips = list.filter((f) => extOf(f.name) === 'zip');
+    if (zips.length) {
+      list = list.filter((f) => extOf(f.name) !== 'zip');
+      let seenNo = '';
+      for (const z of zips) {
+        if (z.buffer.byteLength > MAX_FILE) throw fail(`파일이 너무 큽니다 (${Math.round(z.buffer.byteLength / 1048576)}MB). ${Math.round(MAX_FILE / 1048576)}MB까지 읽습니다.`);
+        const inner = await unzip(z.buffer, (name) => { const e = extOf(name); if (NO_OPEN.includes(e) && !seenNo) seenNo = e; return MODEL_EXT.includes(e) || SIDE_EXT.includes(e); }, o); // eslint-disable-line no-await-in-loop
+        list.push(...inner);
+      }
+      if (!list.some((f) => MODEL_EXT.includes(extOf(f.name)))) throw fail(seenNo ? `압축파일 안에 ${noOpenText(seenNo)}` : '압축파일 안에 열 수 있는 3D 모델(GLB·glTF·OBJ·DAE·3MF·PLY·STL)이 없습니다.');
+    }
+    const cands = list.filter((f) => MODEL_EXT.includes(extOf(f.name)))
+      .sort((a, b) => MODEL_EXT.indexOf(extOf(a.name)) - MODEL_EXT.indexOf(extOf(b.name)) || b.buffer.byteLength - a.buffer.byteLength);
+    const main = cands[0];
     if (!main) {
       const e = extOf((list[0] || {}).name);
-      if (['fbx', 'skp', '3ds', 'max', 'blend', 'dae', 'usdz', '3mf', 'ply', 'step', 'stp', 'igs', 'iges'].includes(e)) throw fail(`.${e} 파일은 바로 열 수 없습니다. GLB(glTF)·OBJ·STL로 내려받거나 변환해서 넣어 주세요. (스케치업·블렌더·3ds Max 모두 GLB나 OBJ로 내보낼 수 있습니다)`);
-      throw fail('3D 모델 파일(GLB·glTF·OBJ·STL)을 골라 주세요.');
+      if (NO_OPEN.includes(e)) throw fail(noOpenText(e));
+      throw fail('3D 모델 파일(GLB·glTF·OBJ·DAE·3MF·PLY·STL 또는 그 압축파일)을 골라 주세요.');
     }
     if (main.buffer.byteLength > MAX_FILE) throw fail(`파일이 너무 큽니다 (${Math.round(main.buffer.byteLength / 1048576)}MB). ${Math.round(MAX_FILE / 1048576)}MB까지 읽습니다.`);
+    if (cands.length > 1 && zips.length) warnings.add(`압축파일에 모델이 ${cands.length}개 있어 ‘${baseName(main.name)}’을 열었습니다. 다른 것은 압축을 풀어서 고르세요.`);
     const byName = new Map();
     list.forEach((f) => byName.set(baseName(f.name).toLowerCase(), f));
-    const res = (name) => { const f = byName.get(baseName(name).toLowerCase()); return f ? new Uint8Array(f.buffer) : null; };
-    const warnings = new Set();
+    const res = (name) => { const f = byName.get(baseName(String(name).replace(/\\/g, '/')).toLowerCase()); return f ? new Uint8Array(f.buffer) : null; };
     const format = extOf(main.name);
-    let model, up = 'y';
+    let model, up = 'y', unit = null;
     if (format === 'glb') { const { json, bin } = splitGLB(main.buffer); model = await parseGLTF(json, bin, res, warnings, o.decode); }
     else if (format === 'gltf') {
       let json;
@@ -703,16 +1257,22 @@
     } else if (format === 'obj') {
       const mtls = list.filter((f) => extOf(f.name) === 'mtl').map((f) => utf8(new Uint8Array(f.buffer)));
       model = await parseOBJ(utf8(new Uint8Array(main.buffer)), mtls, res, warnings, o.decode);
-    } else { model = parseSTL(main.buffer); up = 'z'; }
+    } else if (format === 'dae') { const r = await parseDAE(utf8(new Uint8Array(main.buffer)), res, warnings, o.decode); model = r.model; unit = r.unit; up = r.up; }
+    else if (format === '3mf') { const r = await parse3MF(main.buffer, warnings, o); model = r.model; unit = r.unit; up = r.up; }
+    else if (format === 'ply') model = parsePLY(main.buffer);
+    else { model = parseSTL(main.buffer); up = 'z'; }
     const tris = stats(model).tris;
     if (!(tris > 0)) throw fail('이 파일에는 그릴 수 있는 면이 없습니다.');
     const size = [0, 1, 2].map((k) => model.bbox.max[k] - model.bbox.min[k]);
     if (!(Math.max(...size) > 0)) throw fail('모델의 크기가 0입니다.');
-    // 위쪽 축 어림: OBJ는 대개 y, 눕혀 놓은 것처럼 y가 아주 얇고 z가 크면 z
-    if (format === 'obj' && size[1] < Math.min(size[0], size[2]) * 0.02) up = 'z';
+    // 위쪽 축 어림: OBJ·PLY는 대개 y, 눕혀 놓은 것처럼 y가 아주 얇고 z가 크면 z
+    if ((format === 'obj' || format === 'ply') && size[1] < Math.min(size[0], size[2]) * 0.02) up = 'z';
     const view = ensureNormals(reduce(model, o.viewTris || VIEW_TRIS));
     if (tris > (o.viewTris || VIEW_TRIS)) warnings.add(`삼각형 ${tris.toLocaleString('ko-KR')}개를 ${stats(view).tris.toLocaleString('ko-KR')}개로 줄였습니다 (그림은 색으로 바뀜).`);
-    return { model: view, format, name: baseName(main.name).replace(/\.[a-z0-9]+$/i, ''), tris, unit: guessUnit(format, size), up, warnings: [...warnings] };
+    // 이름: 압축파일 안의 ‘model.dae’·‘scene.gltf’처럼 뜻 없는 이름이면 압축파일의 이름을 씀
+    let name = baseName(main.name).replace(/\.[a-z0-9]+$/i, '');
+    if (zips.length && /^(model|scene|untitled|mesh|object|export|output|3dmodel|doc|default|file)\d*$/i.test(name)) name = baseName(zips[0].name).replace(/\.zip$/i, '') || name;
+    return { model: view, format, name, tris, unit: unit || guessUnit(format, size), up, warnings: [...warnings], zipped: zips.length > 0 };
   }
 
   /* ── 저장용으로 줄여 담기 ── */
@@ -909,7 +1469,7 @@
   App.meshio = {
     parse, place, reduce, ensureNormals, stats, pack, unpack, toJSON, fromJSON, packedBytes, guessUnit, UNIT_MM,
     writeGLB, writeOBJ, writeSTL, fromBoxes, bboxOf,
-    VIEW_TRIS, PLACE_TRIS, MAX_FILE, extOf,
+    VIEW_TRIS, PLACE_TRIS, MAX_FILE, extOf, unzip, inflateJS, parseXML, MODEL_EXT, SIDE_EXT,
     _parseMTL: parseMTL, _splitGLB: splitGLB,
   };
 })();

@@ -128,7 +128,7 @@
           <section class="ds-kind"><h3>그 밖에</h3>
             <div class="ds-presets">
               <button type="button" class="chip" data-kind="free">자유 설계 (판·막대를 하나씩 그리기)</button>
-              <button type="button" class="chip" data-kind="model">내려받은 3D 모델 보기 (GLB·OBJ·STL)</button>
+              <button type="button" class="chip" data-kind="model">내려받은 3D 모델 보기 (GLB·OBJ·DAE·STL·zip)</button>
             </div>
           </section>
           <p class="props-meta">규격 예시를 고르면 바로 만들어지고, 오른쪽 <b>속성</b>에서 치수·자재·선반 수를 바꾸면 도면과 <b>부재표</b>(집계)가 따라 바뀝니다. 다 되면 ‘사물로 등록’해서 인테리어·조감도 도면에 놓을 수 있습니다.</p>
@@ -157,7 +157,7 @@
     const id = await App.libraryUI.register({ place: false });
     if (!id) return null;
     const m = App.library.byId(id);
-    if (!m || m.type !== 'mesh') { App.ui.toast('3D 모델 파일(GLB·OBJ·STL)을 골라 주세요. 사진은 ‘내 사물’에 등록되었습니다.'); return null; }
+    if (!m || m.type !== 'mesh') { App.ui.toast('3D 모델 파일(GLB·OBJ·DAE·STL 또는 그 압축파일)을 골라 주세요. 사진은 ‘내 사물’에 등록되었습니다.'); return null; }
     const el = D().create('model', null, m.name);
     el.objId = id;
     App.doc.transact('모델 보기', () => App.doc.add(el));
@@ -262,7 +262,7 @@
   }
   function emptyHtml() {
     return `<div class="ds-props"><div class="empty"><div class="empty-title">설계물이 없습니다</div>
-      <p>수납장·책장, 테이블, 선반, 카운터, 각파이프 틀, 전광판(LED) 틀을 치수로 만들고 재단표와 설계도면(PDF·DXF)을 뽑습니다. 내려받은 3D 모델(GLB·OBJ·STL)을 열어 볼 수도 있습니다.</p>
+      <p>수납장·책장, 테이블, 선반, 카운터, 각파이프 틀, 전광판(LED) 틀을 치수로 만들고 재단표와 설계도면(PDF·DXF)을 뽑습니다. 내려받은 3D 모델(GLB·OBJ·DAE·STL, 압축파일째로도)을 열어 볼 수도 있습니다.</p>
       <button type="button" class="btn btn-primary" data-act="ds-new">＋ 새 설계</button></div></div>`;
   }
   /** 속성 칸을 그림 (props.js가 설계 모드일 때 부름) */
