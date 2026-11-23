@@ -29,7 +29,8 @@
     };
     const maxX = Math.max(views.side.x + views.side.w, views.iso.x + views.iso.w), minY = Math.min(views.top.y, views.iso.y);
     const pad = G * 0.95;
-    return { B, s, G, min, views, rect: { minX: -pad, minY: minY - pad * 0.75, maxX: maxX + pad * 0.45, maxY: pad } };
+    const lift = B.min && B.min[2] > 1 ? B.min[2] : 0; // 바닥에서 떠 있는 높이 (벽에 붙이는 틀 따위): 바닥선·아래 치수가 그만큼 내려감
+    return { B, s, G, min, views, lift, rect: { minX: -pad, minY: minY - pad * 0.75, maxX: maxX + pad * 0.45, maxY: pad + lift } };
   }
   /** 부재 좌표 → 종이 좌표 (그림마다) */
   function projector(L) {
@@ -101,8 +102,8 @@
     ctx.strokeStyle = DIM; ctx.fillStyle = DIM; ctx.lineWidth = 1 * px; ctx.setLineDash([]);
     ctx.font = `600 ${11.5 * px}px ${FONT}`; ctx.textAlign = 'center';
   }
-  /** 가로 치수: x0~x1을 높이 y에. from: 그림 쪽 끝 y (보조선이 시작하는 곳) */
-  function dimH(ctx, x0, x1, y, from, px, text = fmt(Math.abs(x1 - x0))) {
+  /** 가로 치수: x0~x1을 높이 y에. from: 그림 쪽 끝 y (보조선이 시작하는 곳). used: 좁은 칸의 글자가 서로 겹치지 않게 적어 두는 곳 */
+  function dimH(ctx, x0, x1, y, from, px, text = fmt(Math.abs(x1 - x0)), used = null) {
     if (Math.abs(x1 - x0) < 0.5) return;
     const t = 4 * px, dir = y > from ? 1 : -1;
     ctx.beginPath();
@@ -112,12 +113,16 @@
     ctx.moveTo(x0 - t, y + t); ctx.lineTo(x0 + t, y - t);
     ctx.moveTo(x1 - t, y + t); ctx.lineTo(x1 + t, y - t);
     ctx.stroke();
-    const w = ctx.measureText(text).width;
-    if (w <= Math.abs(x1 - x0) - 4 * px) { ctx.textBaseline = 'bottom'; ctx.fillText(text, (x0 + x1) / 2, y - 2 * px); }
-    else if (w <= Math.abs(x1 - x0) * 2.6) { ctx.textBaseline = 'top'; ctx.fillText(text, (x0 + x1) / 2, y + 3 * px); } // 좁은 칸: 선 아래에
+    const w = ctx.measureText(text).width, len = Math.abs(x1 - x0), mid = (x0 + x1) / 2;
+    if (w <= len - 4 * px) { ctx.textBaseline = 'bottom'; ctx.fillText(text, mid, y - 2 * px); return; }
+    if (w > len * 2.6) return; // 너무 좁은 칸(판 두께 따위)은 글자를 빼 둠
+    const a = mid - w / 2 - 3 * px, b = mid + w / 2 + 3 * px; // 좁은 칸: 선 아래에, 옆 칸 글자와 겹치면 뺌
+    if (used && used.some((u) => a < u[1] && b > u[0])) return;
+    if (used) used.push([a, b]);
+    ctx.textBaseline = 'top'; ctx.fillText(text, mid, y + 5 * px);
   }
-  /** 세로 치수: y0~y1을 x에 (글자는 세워서) */
-  function dimV(ctx, y0, y1, x, from, px, text = fmt(Math.abs(y1 - y0))) {
+  /** 세로 치수: y0~y1을 x에 (글자는 세워서). o.out: 글자를 선 바깥에 눕혀서 (‘바닥에서 500’처럼 긴 글) */
+  function dimV(ctx, y0, y1, x, from, px, text = fmt(Math.abs(y1 - y0)), o = null) {
     if (Math.abs(y1 - y0) < 0.5) return;
     const t = 4 * px, dir = x > from ? 1 : -1;
     ctx.beginPath();
@@ -127,14 +132,27 @@
     ctx.moveTo(x - t, y0 + t); ctx.lineTo(x + t, y0 - t);
     ctx.moveTo(x - t, y1 + t); ctx.lineTo(x + t, y1 - t);
     ctx.stroke();
-    const w = ctx.measureText(text).width, len = Math.abs(y1 - y0);
-    if (w > len * 2.4) return;
-    ctx.save();
-    ctx.translate(x - (w <= len - 4 * px ? 2 : -13) * px, (y0 + y1) / 2);
-    ctx.rotate(-Math.PI / 2);
-    ctx.textBaseline = 'bottom';
-    ctx.fillText(text, 0, 0);
-    ctx.restore();
+    const w = ctx.measureText(text).width, len = Math.abs(y1 - y0), mid = (y0 + y1) / 2;
+    if (o && o.out) { // 선 바깥에 눕혀서
+      ctx.save(); ctx.textAlign = dir > 0 ? 'left' : 'right'; ctx.textBaseline = 'middle';
+      ctx.fillText(text, x + dir * 8 * px, mid); ctx.restore();
+      return;
+    }
+    if (w <= len - 4 * px) {
+      ctx.save();
+      ctx.translate(x - 2 * px, mid);
+      ctx.rotate(-Math.PI / 2);
+      ctx.textBaseline = 'bottom';
+      ctx.fillText(text, 0, 0);
+      ctx.restore();
+      return;
+    }
+    // 좁은 칸: 선과 그림 사이에 눕혀서 (보조선 사이에 들어갈 때만)
+    if (len >= 13 * px && w <= Math.abs(from - x) - 6 * px) {
+      ctx.save(); ctx.textBaseline = 'middle';
+      ctx.fillText(text, (x + from) / 2 + dir * -1.5 * px, mid + 0.5 * px);
+      ctx.restore();
+    }
   }
   /** 연속 치수에 쓸 자리들: 뼈대가 되는 부재(문짝·선반 빼고)의 면. 너무 많으면 막대만, 그래도 많으면 없음 */
   function chain(L, axis) {
@@ -215,12 +233,12 @@
   function drawSheet(ctx, el, o = {}) {
     const px = o.px || 1, model = el.kind === 'model';
     const L = model ? modelLayout(el) : layout(el);
-    const V = L.views, s = L.s;
+    const V = L.views, s = L.s, base = model ? 0 : L.lift;
     ctx.lineJoin = 'round';
     ctx.lineCap = 'butt';
     const caption = (v, extra = '') => {
       ctx.fillStyle = MUTE; ctx.font = `600 ${11 * px}px ${FONT}`; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-      ctx.fillText(`${v.name}${extra}`, v.x, v.y + v.h + (v === V.front || v === V.side ? 74 : 10) * px);
+      ctx.fillText(`${v.name}${extra}`, v.x, v.y + v.h + (v === V.front || v === V.side ? base + 80 * px : 10 * px));
     };
     if (model) {
       const pics = modelShots(el);
@@ -260,23 +278,21 @@
       });
       paint(isoFaces(L), true);
     }
-    // 바닥선 (정면도·측면도)
+    // 바닥선 (정면도·측면도). 떠 있으면 그만큼 아래에 긋고, 아래쪽 치수는 바닥선 밑으로
     ctx.strokeStyle = MUTE; ctx.lineWidth = 1.6 * px; ctx.setLineDash([]);
-    const lift = model ? 0 : L.B.min[2];
-    if (!(lift > 1)) {
-      ctx.beginPath();
-      ctx.moveTo(V.front.x - 30 * px, 0); ctx.lineTo(V.front.x + V.front.w + 30 * px, 0);
-      ctx.moveTo(V.side.x - 30 * px, 0); ctx.lineTo(V.side.x + V.side.w + 30 * px, 0);
-      ctx.stroke();
-    }
+    ctx.beginPath();
+    ctx.moveTo(V.front.x - 30 * px, base); ctx.lineTo(V.front.x + V.front.w + 30 * px, base);
+    ctx.moveTo(V.side.x - 30 * px, base); ctx.lineTo(V.side.x + V.side.w + 30 * px, base);
+    ctx.stroke();
     caption(V.front); caption(V.top); caption(V.side); caption(V.iso, ' (비율만 맞춤)');
     if (o.dims !== false) {
       dimStyle(ctx, px);
-      const g1 = 26 * px, g2 = 52 * px;
+      const g1 = 30 * px, g2 = 58 * px;
       const cx = model ? null : chain(L, 'x'), cz = model ? null : chain(L, 'z'), cy = model ? null : chain(L, 'y');
       // 정면도: 아래 폭, 왼쪽 높이
-      if (cx) for (let i = 0; i + 1 < cx.length; i++) dimH(ctx, cx[i], cx[i + 1], g1, 0, px);
-      dimH(ctx, 0, s.w, cx ? g2 : g1, 0, px);
+      const usedX = [];
+      if (cx) for (let i = 0; i + 1 < cx.length; i++) dimH(ctx, cx[i], cx[i + 1], base + g1, 0, px, undefined, usedX);
+      dimH(ctx, 0, s.w, base + (cx ? g2 : g1), 0, px);
       if (cz) for (let i = 0; i + 1 < cz.length; i++) dimV(ctx, -cz[i], -cz[i + 1], -g1, 0, px);
       dimV(ctx, 0, -s.h, cz ? -g2 : -g1, 0, px);
       // 평면도: 왼쪽 깊이
@@ -284,13 +300,9 @@
       if (cy) for (let i = 0; i + 1 < cy.length; i++) dimV(ctx, ty - cy[i], ty - cy[i + 1], -g1, 0, px);
       dimV(ctx, ty, ty - s.d, cy ? -g2 : -g1, 0, px);
       // 우측면도: 아래 깊이
-      dimH(ctx, V.side.x, V.side.x + s.d, g1, 0, px);
-      if (lift > 1) { // 바닥에서 떠 있는 높이
-        ctx.setLineDash([4 * px, 3 * px]);
-        ctx.beginPath(); ctx.moveTo(V.front.x - 30 * px, lift); ctx.lineTo(V.side.x + V.side.w + 30 * px, lift); ctx.stroke();
-        ctx.setLineDash([]);
-        dimV(ctx, 0, lift, V.front.x + V.front.w + g1, V.front.x + V.front.w, px, `바닥에서 ${fmt(lift)}`);
-      }
+      dimH(ctx, V.side.x, V.side.x + s.d, base + g1, 0, px);
+      // 바닥에서 떠 있는 높이: 우측면도 오른쪽에
+      if (base > 0) dimV(ctx, 0, base, V.side.x + V.side.w + g1 * 0.7, V.side.x + V.side.w, px, `바닥에서 ${fmt(base)}`, { out: true });
     }
     return L;
   }
@@ -308,13 +320,15 @@
     App.draw.worldTransform(plan);
     const px = 1 / plan.view.scale;
     const L = drawSheet(ctx, el, { px, sel: App.designUI ? App.designUI.selected() : null, hidden: App.current.designHidden !== false, dims: App.current.designDims !== false });
-    // 제목: 이름과 전체 크기
-    const r = L.rect;
+    // 제목: 이름과 전체 크기 — 가장 위에 있는 그림보다 화면 픽셀로 일정하게 위에 (작게 봐도 그림과 겹치지 않게)
+    const top = Math.min(L.views.top.y, L.views.iso.y);
     ctx.fillStyle = plan.colors.fg || INK; ctx.font = `700 ${15 * px}px ${FONT}`; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-    ctx.fillText(el.name || '설계', r.minX + 14 * px, r.minY + 10 * px);
+    ctx.fillText(el.name || '설계', -(EDGE.l - 6) * px, top - TITLE_H * px);
     ctx.fillStyle = MUTE; ctx.font = `500 ${11.5 * px}px ${FONT}`;
-    ctx.fillText(`폭 ${fmt(L.s.w)} × 깊이 ${fmt(L.s.d)} × 높이 ${fmt(L.s.h)} mm · 치수 단위 mm`, r.minX + 14 * px, r.minY + 31 * px);
+    ctx.fillText(`폭 ${fmt(L.s.w)} × 깊이 ${fmt(L.s.d)} × 높이 ${fmt(L.s.h)} mm · 치수 단위 mm`, -(EDGE.l - 6) * px, top - (TITLE_H - 21) * px);
   }
+  const TITLE_H = 52; // 제목 두 줄이 차지하는 높이 (화면 픽셀)
+  const EDGE = { l: 76, r: 34, t: TITLE_H + 6, b: 98 }; // 그림 둘레에 치수선·제목·이름이 차지하는 자리 (화면 픽셀)
 
   /** 종이 좌표의 점이 어느 그림의 어느 부재 위인지. 돌려주는 값: { view, part, at: [a, b](그 그림의 두 축 값, 부재 좌표) } 또는 { view, part: null, at } 또는 null */
   function hit(el, pt, pad = 0) {
@@ -345,10 +359,23 @@
     if (view === 'top') return { x: a - m[0], y: -(L.s.h + L.G) - (b - m[1]) };
     return { x: L.s.w + L.G + (a - m[1]), y: -(b - m[2]) };
   }
-  /** 화면 맞춤에 쓰는 범위 */
+  /** 화면 맞춤에 쓰는 범위. 치수선·제목·그림 이름이 들어갈 둘레를 화면 픽셀로 잡음 (화면이 작을수록 mm로는 더 넓게) */
   function bounds(el = D().current()) {
     if (!el) return null;
-    return (el.kind === 'model' ? modelLayout(el) : layout(el)).rect;
+    const L = el.kind === 'model' ? modelLayout(el) : layout(el), V = L.views;
+    const plan = App.plan;
+    const W = Math.max(V.side.x + V.side.w, V.iso.x + V.iso.w), top = Math.min(V.top.y, V.iso.y), base = el.kind === 'model' ? 0 : L.lift, H = -top + base;
+    if (!plan || !(plan.width > 0)) return L.rect;
+    const i = plan.insets || { top: 0, right: 0, bottom: 0, left: 0 }, pad = Math.min(48, Math.min(plan.width, plan.height) * 0.08);
+    const vw = plan.width - i.left - i.right - pad * 2, vh = plan.height - i.top - i.bottom - pad * 2;
+    const k = Math.min((vw - EDGE.l - EDGE.r) / W, (vh - EDGE.t - EDGE.b) / H);
+    if (!(k > 0) || !isFinite(k)) return L.rect;
+    return { minX: -EDGE.l / k, minY: top - EDGE.t / k, maxX: W + EDGE.r / k, maxY: base + EDGE.b / k };
+  }
+  /** 그림 네 개가 차지하는 자리 (mm): x는 0~W, y는 top~0. 치수선·이름이 차지하는 둘레(EDGE, 화면 픽셀)는 따로 */
+  function frame(el) {
+    const L = el.kind === 'model' ? modelLayout(el) : layout(el), V = L.views;
+    return { W: Math.max(V.side.x + V.side.w, V.iso.x + V.iso.w), top: Math.min(V.top.y, V.iso.y), base: el.kind === 'model' ? 0 : L.lift, L };
   }
   /** DXF·시험용: 세 그림의 테두리 선과 치수 값. { lines: [{ view, n, pts }], size } */
   function outlines(el) {
@@ -359,7 +386,7 @@
   }
 
   App.designDraw = {
-    layout, drawSheet, scene, hit, toPaper, bounds, outlines, AXES, fmt, modelShots, isoFaces, orthoShapes, chain,
+    layout, drawSheet, scene, hit, toPaper, bounds, frame, EDGE, outlines, AXES, fmt, modelShots, isoFaces, orthoShapes, chain,
     /** 끄는 동안 그림 기준을 붙박음 (el을 주면 지금 기준으로, null이면 풂) */
     freeze(el) { if (!el) { frozen = null; return; } const L = layout(el); frozen = { id: el.id, min: L.min.slice(), s: { ...L.s } }; },
   };

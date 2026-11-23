@@ -250,7 +250,7 @@
       notify();
       return id;
     },
-    /** 이름·크기·가격·링크 고치기. 이름이 바뀌면 지금 도면에 놓인 것도 새 이름으로 */
+    /** 이름·크기·가격·링크 고치기. 이름·크기가 바뀌면 지금 도면에 놓인 것도 따라 바뀜 (크기를 따로 바꾼 것은 그대로) */
     update(id, patch) {
       const list = load(), i = list.findIndex((m) => m.id === id);
       if (i < 0) return null;
@@ -260,11 +260,19 @@
       if (!next) return null;
       list[i] = next;
       saveIndex();
-      if (next.name !== old.name && App.doc) {
-        // 지금 도면에 놓인 것은 새 이름으로 (다른 도면의 것은 예전 이름(aka)으로 계속 찾음)
-        const hit = [...App.doc.all()].filter((e) => e.type === 'item' && (e.kind === old.name || old.aka.includes(e.kind)));
-        if (hit.length) App.doc.transact('사물 이름 바꾸기', () => hit.forEach((e) => App.doc.update(e.id, { kind: next.name })));
-        ['furnKind', 'eventKind'].forEach((k) => { if (App.current[k] === old.name) App.current[k] = next.name; });
+      const renamed = next.name !== old.name, sized = next.w !== old.w || next.d !== old.d || next.h !== old.h;
+      if ((renamed || sized) && App.doc) {
+        // 지금 도면에 놓인 것: 새 이름으로 (다른 도면의 것은 예전 이름(aka)으로 계속 찾음), 크기를 따로 바꾸지 않은 것은 새 크기로
+        const names = [old.name, ...old.aka];
+        const todo = [...App.doc.all()].filter((e) => e.type === 'item' && names.includes(e.kind)).map((e) => {
+          const p = {};
+          if (renamed) p.kind = next.name;
+          if (sized && e.size === old.w && (e.depth == null || e.depth === old.d)) { p.size = next.w; if (e.depth != null) p.depth = next.d; }
+          if (sized && e.h3 != null && e.h3 === old.h) p.h3 = next.h;
+          return [e, p];
+        }).filter(([, p]) => Object.keys(p).length);
+        if (todo.length) App.doc.transact(renamed ? '사물 이름 바꾸기' : '사물 크기 바꾸기', () => todo.forEach(([e, p]) => App.doc.update(e.id, p)));
+        if (renamed) ['furnKind', 'eventKind'].forEach((k) => { if (App.current[k] === old.name) App.current[k] = next.name; });
       }
       library.embed();
       notify();

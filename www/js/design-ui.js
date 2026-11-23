@@ -33,7 +33,18 @@
     setCurrent(el.id);
     return el;
   }
-  const patch = (el, label, p) => App.doc.transact(label, () => App.doc.update(el.id, p));
+  /** 값을 바꿔 도면이 화면 밖으로 나갔거나 너무 작아졌으면 다시 맞춤 */
+  function keepInView() {
+    if (!isMode() || !cur() || !App.plan) return;
+    const b = DD().bounds(), vr = App.plan.view.worldRect(App.plan.width, App.plan.height);
+    if (!b) return;
+    const out = b.minX < vr.minX || b.maxX > vr.maxX || b.minY < vr.minY || b.maxY > vr.maxY;
+    const small = b.maxX - b.minX < (vr.maxX - vr.minX) * 0.3 && b.maxY - b.minY < (vr.maxY - vr.minY) * 0.3;
+    if (out || small) App.plan.fitToContent();
+  }
+  let viewTimer = 0;
+  const keepSoon = () => { clearTimeout(viewTimer); viewTimer = setTimeout(keepInView, 0); };
+  const patch = (el, label, p) => { App.doc.transact(label, () => App.doc.update(el.id, p)); keepSoon(); };
   function setParam(el, k, v) {
     patch(el, '설계 값 바꾸기', { p: { ...el.p, [k]: v } });
   }
@@ -466,7 +477,7 @@
     up(ev) {
       const g = this.drag, press = this.press;
       this.pan = null; this.drag = null; this.press = null;
-      if (g && g.started) { DD().freeze(null); App.doc.commit(); refreshPanes(); render(); return; }
+      if (g && g.started) { DD().freeze(null); App.doc.commit(); refreshPanes(); keepSoon(); render(); return; }
       if (!press || dragged(ev, press)) return;
       const el = cur();
       const h = el ? DD().hit(el, ev.world) : null;

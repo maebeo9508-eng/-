@@ -25,17 +25,18 @@
   /* ── 도면 쪽 (A4 가로) ── */
   function sheetCanvas(el, o = {}) {
     const cv = newCanvas(LAND), ctx = cv.getContext('2d'), W = LAND.W, H = LAND.H, M = 70, TB = 150;
-    const rect = DD().bounds(el);
     const area = { x: M, y: M, w: W - 2 * M, h: H - 2 * M - TB - 16 };
-    const rw = Math.max(1, rect.maxX - rect.minX), rh = Math.max(1, rect.maxY - rect.minY);
-    const need = Math.max(rw / (area.w / PX_MM), rh / (area.h / PX_MM)); // 종이 1mm에 실물 몇 mm
+    // 그림 둘레에 치수선·그림 이름이 차지하는 자리(종이 픽셀)를 빼고 남는 곳에 맞는 표준 축척을 고름
+    const F = DD().frame(el), Z = 2.25, E = { l: DD().EDGE.l * Z, r: DD().EDGE.r * Z, t: 14 * Z, b: DD().EDGE.b * Z };
+    const fw = Math.max(1, F.W), fh = Math.max(1, -F.top + F.base);
+    const need = Math.max(fw / (Math.max(1, area.w - E.l - E.r) / PX_MM), fh / (Math.max(1, area.h - E.t - E.b) / PX_MM)); // 종이 1mm에 실물 몇 mm
     const N = SCALES.find((s) => s >= need) || Math.ceil(need / 100) * 100;
     const k = PX_MM / N;
     ctx.save();
     ctx.beginPath(); ctx.rect(area.x, area.y, area.w, area.h); ctx.clip();
-    ctx.setTransform(k, 0, 0, k, area.x + (area.w - rw * k) / 2 - rect.minX * k, area.y + (area.h - rh * k) / 2 - rect.minY * k);
+    ctx.setTransform(k, 0, 0, k, area.x + (area.w - (E.l + fw * k + E.r)) / 2 + E.l, area.y + (area.h - (E.t + fh * k + E.b)) / 2 + E.t - F.top * k);
     const B = el.kind === 'model' ? null : D().build(el);
-    DD().drawSheet(ctx, el, { px: 2.25 / k, hidden: o.hidden !== false, dims: o.dims !== false });
+    DD().drawSheet(ctx, el, { px: Z / k, hidden: o.hidden !== false, dims: o.dims !== false });
     ctx.restore();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     // 테두리와 표제란
@@ -119,7 +120,7 @@
     // 제원
     heading('제원');
     table([{ w: 0.26, head: '항목' }, { w: 0.34, head: '값' }, { w: 0.4, head: '덧말' }],
-      [['전체 크기', `${fmt(B.size.w)} × ${fmt(B.size.d)} × ${fmt(B.size.h)} mm`, '폭 × 깊이 × 높이'], ...(B.info || []).map((r) => [r[0], r[1], r[2] || '']), ['무게', `약 ${b.kg} kg`, '철물 빼고 · 자재 무게 어림']]);
+      [['전체 크기', `${fmt(B.size.w)} × ${fmt(B.size.d)} × ${fmt(B.size.h)} mm`, '폭 × 깊이 × 높이'], ...(B.info || []).map((r) => [r[0], r[1], r[2] || '']), ...((B.info || []).some((r) => r[0] === '무게') ? [] : [['무게', `약 ${b.kg} kg`, '철물 빼고 · 자재 무게 어림']])]);
     if (b.panels.length) {
       heading('판재', '재단 치수 (맞댐 이음 기준)');
       const rows = [];
@@ -280,15 +281,24 @@
       w.text('D-DIMS', { x: x - h * 0.3, y: (y0 + y1) / 2 }, Math.min(h, Math.abs(y1 - y0) * 0.4 + 6), fmt(Math.abs(y1 - y0)).replace(/,/g, ''), { ha: 1, rot: 90 });
     };
     const cx = O.chains.x, cz = O.chains.z, cy = O.chains.y;
-    if (cx) for (let i = 0; i + 1 < cx.length; i++) dimH(cx[i], cx[i + 1], g1, 0);
-    dimH(0, s.w, cx ? g2 : g1, 0);
+    const base = O.lift > 1 ? O.lift : 0; // 바닥에서 떠 있으면 바닥선과 아래 치수가 그만큼 내려감
+    w.line('D-FLOOR', { x: -h, y: base }, { x: s.w + h, y: base }, { color: 8 });
+    w.line('D-FLOOR', { x: V.side.x - h, y: base }, { x: V.side.x + s.d + h, y: base }, { color: 8 });
+    if (cx) for (let i = 0; i + 1 < cx.length; i++) dimH(cx[i], cx[i + 1], base + g1, 0);
+    dimH(0, s.w, base + (cx ? g2 : g1), 0);
     if (cz) for (let i = 0; i + 1 < cz.length; i++) dimV(-cz[i], -cz[i + 1], -g1, 0);
     dimV(0, -s.h, cz ? -g2 : -g1, 0);
     const ty = V.top.y + V.top.h;
     if (cy) for (let i = 0; i + 1 < cy.length; i++) dimV(ty - cy[i], ty - cy[i + 1], -g1, 0);
     dimV(ty, ty - s.d, cy ? -g2 : -g1, 0);
-    dimH(V.side.x, V.side.x + s.d, g1, 0);
-    ['front', 'top', 'side', 'iso'].forEach((k) => { const v = V[k]; w.text('D-TEXT', { x: v.x, y: v.y + v.h + (k === 'front' || k === 'side' ? g2 + h * 2.2 : h * 1.6) }, h, v.name); });
+    dimH(V.side.x, V.side.x + s.d, base + g1, 0);
+    if (base > 0) { // 바닥에서 뜬 높이: 우측면도 오른쪽에
+      const x = V.side.x + s.d + g1;
+      w.line('D-DIMS', { x: V.side.x + s.d, y: 0 }, { x: x + h * 0.4, y: 0 }, { color: 4 });
+      w.line('D-DIMS', { x, y: 0 }, { x, y: base }, { color: 4 });
+      w.text('D-DIMS', { x: x + h * 0.5, y: base / 2 }, h, `바닥에서 ${fmt(base).replace(/,/g, '')}`);
+    }
+    ['front', 'top', 'side', 'iso'].forEach((k) => { const v = V[k]; w.text('D-TEXT', { x: v.x, y: v.y + v.h + (k === 'front' || k === 'side' ? base + g2 + h * 2.2 : h * 1.6) }, h, v.name); });
     w.text('D-TEXT', { x: 0, y: Math.min(V.top.y, V.iso.y) - h * 3 }, h * 1.4, `${el.name}  ${fmt(s.w)} x ${fmt(s.d)} x ${fmt(s.h)} mm`);
     return { text: App.dxfout.assemble(w), count: w.count, layers: [...w.used] };
   }
