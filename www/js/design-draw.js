@@ -61,10 +61,10 @@
   const colorOf = (q) => q.c || (D().mat(q.m) || {}).color || '#cccccc';
 
   /** 한 그림(정면·평면·측면)에 보이는 부재들: 멀리 있는 것부터. 돌려주는 값: [{ q, poly: [[u, v]…] }] */
-  function orthoShapes(L, view) {
+  function orthoShapes(L, view, vis = null) {
     const P = projector(L)[view];
     const near = view === 'front' ? (q, c) => -Math.min(...c.map((p) => p[1])) : view === 'top' ? (q, c) => Math.max(...c.map((p) => p[2])) : (q, c) => Math.max(...c.map((p) => p[0]));
-    return L.B.parts.map((q) => {
+    return (vis ? L.B.parts.filter(vis) : L.B.parts).map((q) => {
       const c = D().corners(q);
       return { q, key: near(q, c), poly: q.s === 'bar' ? hull(c.map(P)) : rectOf(c.map(P)) };
     }).sort((a, b) => a.key - b.key);
@@ -75,11 +75,11 @@
     return [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
   }
   /** 입체도의 보이는 면들: 멀리 있는 것부터. [{ q, poly, shade(−1 어둡게 … 1 밝게) }] */
-  function isoFaces(L) {
+  function isoFaces(L, vis = null) {
     const P = projector(L).iso, out = [];
     const view = [1, -1, 1]; // 보는 사람 쪽 (오른쪽·앞·위)
     const F = [[0, 1, 2, 3], [4, 7, 6, 5], [0, 4, 5, 1], [1, 5, 6, 2], [2, 6, 7, 3], [3, 7, 4, 0]]; // corners 차례 [아래 4, 위 4] 기준의 여섯 면 (바깥에서 봐서 반시계가 아닐 수도 있어 법선으로 가림)
-    L.B.parts.forEach((q) => {
+    (vis ? L.B.parts.filter(vis) : L.B.parts).forEach((q) => {
       const c = D().corners(q);
       const faces = q.s === 'bar' ? [[0, 1, 2, 3], [4, 5, 6, 7], [0, 1, 5, 4], [1, 2, 6, 5], [2, 3, 7, 6], [3, 0, 4, 7]] : F;
       const cen = [0, 1, 2].map((k) => c.reduce((t, p) => t + p[k], 0) / 8);
@@ -160,8 +160,11 @@
     }
   }
   /** 연속 치수에 쓸 자리들: 뼈대가 되는 부재(문짝·선반 빼고)의 면. 너무 많으면 막대만, 그래도 많으면 없음 */
+  const many = (c) => (c && c.length >= 3 ? c : null); // 한 칸짜리 연속 치수는 전체 치수와 같으므로 뺌
   function chain(L, axis) {
     const k = axis === 'x' ? 0 : axis === 'y' ? 1 : 2, m = L.min[k], size = [L.s.w, L.s.d, L.s.h][k];
+    const given = L.B.chain && L.B.chain[axis];
+    if (given && given.length >= 2) return given.map((v) => Math.round((v - m) * 10) / 10).filter((v) => v >= -0.5 && v <= size + 0.5);
     const pick = (parts) => {
       const set = [];
       parts.forEach((q) => { const c = D().corners(q); const lo = Math.min(...c.map((p) => p[k])) - m, hi = Math.max(...c.map((p) => p[k])) - m; set.push(lo, hi); });
@@ -170,7 +173,7 @@
       s.forEach((v) => { if (!out.length || v - out[out.length - 1] > 2.5) out.push(v); });
       return out;
     };
-    const body = L.B.parts.filter((q) => !q.door && q.n !== '선반' && q.s !== 'bar' && !q.thin);
+    const body = L.B.parts.filter((q) => !q.door && !q.dr && q.role !== 'fix' && q.n !== '선반' && q.s !== 'bar' && !q.thin);
     const leds = body.filter((q) => q.role === 'led');
     for (const set of [leds.length ? leds : body.filter((q) => q.role !== 'led'), body.filter((q) => q.role === 'bar')]) {
       if (!set.length) continue;
@@ -178,6 +181,29 @@
       if (c.length >= 3 && c.length <= 16) return c;
     }
     return null;
+  }
+
+  /** 모듈 이름표 (‘개수대 900’ 따위): 정면도·측면도의 그 모듈 위에. 좁으면 세워서, 그래도 안 들어가면 뺌 */
+  function drawLabels(ctx, L, px) {
+    const m = L.min, s = L.s;
+    (L.B.labels || []).forEach((lb) => {
+      const side = lb.view === 'side', off = side ? s.w + L.G - m[1] : -m[0];
+      const x0 = lb.a0 + off, x1 = lb.a1 + off, y0 = -(lb.z1 - m[2]), y1 = -(lb.z0 - m[2]);
+      ctx.font = `700 ${10.5 * px}px ${FONT}`;
+      const w = ctx.measureText(lb.text).width, bw = x1 - x0, bh = y1 - y0, pad = 5 * px, th = 15 * px;
+      let rot = false;
+      if (w + pad * 2 > bw - 4 * px) { if (w + pad * 2 <= bh - 4 * px && th <= bw - 2 * px) rot = true; else return; }
+      ctx.save();
+      ctx.translate((x0 + x1) / 2, rot ? (y0 + y1) / 2 : y0 + bh * 0.6);
+      if (rot) ctx.rotate(-Math.PI / 2);
+      ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.strokeStyle = 'rgba(43,49,56,0.4)'; ctx.lineWidth = 0.8 * px; ctx.setLineDash([]);
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(-w / 2 - pad, -th / 2, w + pad * 2, th, 4 * px); else ctx.rect(-w / 2 - pad, -th / 2, w + pad * 2, th);
+      ctx.fill(); ctx.stroke();
+      ctx.fillStyle = INK; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(lb.text, 0, 0.5 * px);
+      ctx.restore();
+    });
   }
 
   /* ── 내려받은 3D 모델: 네 방향 그림 ── */
@@ -271,8 +297,9 @@
           ctx.stroke();
         });
       };
+      const vis = o.doors === false ? (q) => !q.door : null; // 문짝을 떼고 속을 봄
       ['front', 'top', 'side'].forEach((k) => {
-        const shapes = orthoShapes(L, k);
+        const shapes = orthoShapes(L, k, vis);
         paint(shapes, false);
         if (o.hidden !== false) {
           ctx.save();
@@ -281,7 +308,8 @@
           ctx.restore();
         }
       });
-      paint(isoFaces(L), true);
+      paint(isoFaces(L, vis), true);
+      if (o.dims !== false) drawLabels(ctx, L, px);
     }
     // 바닥선 (정면도·측면도). 떠 있으면 그만큼 아래에 긋고, 아래쪽 치수는 바닥선 밑으로
     ctx.strokeStyle = MUTE; ctx.lineWidth = 1.6 * px; ctx.setLineDash([]);
@@ -293,7 +321,7 @@
     if (o.dims !== false) {
       dimStyle(ctx, px);
       const g1 = 30 * px, g2 = 58 * px;
-      const cx = model ? null : chain(L, 'x'), cz = model ? null : chain(L, 'z'), cy = model ? null : chain(L, 'y');
+      const cx = model ? null : many(chain(L, 'x')), cz = model ? null : many(chain(L, 'z')), cy = model ? null : many(chain(L, 'y'));
       // 정면도: 아래 폭, 왼쪽 높이
       if (cx) for (let i = 0; i + 1 < cx.length; i++) dimH(ctx, cx[i], cx[i + 1], base + g1, 0, px);
       dimH(ctx, 0, s.w, base + (cx ? g2 : g1), 0, px);
@@ -303,8 +331,10 @@
       const ty = V.top.y + V.top.h;
       if (cy) for (let i = 0; i + 1 < cy.length; i++) dimV(ctx, ty - cy[i], ty - cy[i + 1], -g1, 0, px);
       dimV(ctx, ty, ty - s.d, cy ? -g2 : -g1, 0, px);
-      // 우측면도: 아래 깊이
-      dimH(ctx, V.side.x, V.side.x + s.d, base + g1, 0, px);
+      // 우측면도: 아래 깊이 (ㄱ자 주방처럼 옆줄의 모듈 자리가 있으면 연속 치수도)
+      const cyS = !model && L.B.chain && L.B.chain.y && cy && cy.length > 2 ? cy : null;
+      if (cyS) for (let i = 0; i + 1 < cyS.length; i++) dimH(ctx, V.side.x + cyS[i], V.side.x + cyS[i + 1], base + g1, 0, px);
+      dimH(ctx, V.side.x, V.side.x + s.d, base + (cyS ? g2 : g1), 0, px);
       // 바닥에서 떠 있는 높이: 우측면도 오른쪽에
       if (base > 0) dimV(ctx, 0, base, V.side.x + V.side.w + g1 * 0.7, V.side.x + V.side.w, px, `바닥에서 ${fmt(base)}`, { out: true });
     }
@@ -323,14 +353,37 @@
     }
     App.draw.worldTransform(plan);
     const px = 1 / plan.view.scale;
-    const L = drawSheet(ctx, el, { px, sel: App.designUI ? App.designUI.selected() : null, hidden: App.current.designHidden !== false, dims: App.current.designDims !== false });
+    const L = drawSheet(ctx, el, { px, sel: App.designUI ? App.designUI.selected() : null, hidden: App.current.designHidden !== false, dims: App.current.designDims !== false, doors: App.current.designDoors !== false });
     // 제목: 이름과 전체 크기 — 가장 위에 있는 그림보다 화면 픽셀로 일정하게 위에 (작게 봐도 그림과 겹치지 않게)
-    const top = Math.min(L.views.top.y, L.views.iso.y);
+    // 마감사양은 화면 폭에 맞춰 여러 줄로 (휴대폰에서 오른쪽으로 넘치지 않게)
+    const tx = -(EDGE.l - 6) * px, right = plan.view.worldRect(plan.width, plan.height).maxX - ((plan.insets && plan.insets.right) || 0) * px;
+    const specs = specLines(L, Math.max(160, (right - tx) / px - 12));
+    const top = Math.min(L.views.top.y, L.views.iso.y), th = TITLE_H + 17 * specs.length;
     ctx.fillStyle = plan.colors.fg || INK; ctx.font = `700 ${15 * px}px ${FONT}`; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-    ctx.fillText(el.name || '설계', -(EDGE.l - 6) * px, top - TITLE_H * px);
+    ctx.fillText(el.name || '설계', -(EDGE.l - 6) * px, top - th * px);
     ctx.fillStyle = MUTE; ctx.font = `500 ${11.5 * px}px ${FONT}`;
-    ctx.fillText(`폭 ${fmt(L.s.w)} × 깊이 ${fmt(L.s.d)} × 높이 ${fmt(L.s.h)} mm · 치수 단위 mm`, -(EDGE.l - 6) * px, top - (TITLE_H - 21) * px);
+    ctx.fillText(`폭 ${fmt(L.s.w)} × 깊이 ${fmt(L.s.d)} × 높이 ${fmt(L.s.h)} mm · 치수 단위 mm`, -(EDGE.l - 6) * px, top - (th - 21) * px);
+    specs.forEach((line, i) => ctx.fillText(line, tx, top - (th - 38 - 17 * i) * px));
   }
+  const specOf = (L) => (L.B.spec && L.B.spec.length ? L.B.spec.join(' · ') : '');
+  /** 제목 줄들이 차지하는 높이 (화면 픽셀): 마감사양이 있으면 한 줄 더 */
+  let meter = null;
+  /** 마감사양을 폭(화면 픽셀)에 맞춰 줄로 나눔: ‘ · ’에서 끊음 */
+  function specLines(L, maxPx) {
+    const items = L.B.spec && L.B.spec.length ? L.B.spec : [];
+    if (!items.length) return [];
+    if (!meter && typeof document !== 'undefined') { meter = document.createElement('canvas').getContext('2d'); }
+    const wide = (s) => { if (!meter) return s.length * 8; meter.font = `500 11.5px ${FONT}`; return meter.measureText(s).width; };
+    const lines = [];
+    let cur = '마감사양 — ';
+    items.forEach((it, i) => {
+      const add = (cur === '마감사양 — ' || cur === '' ? '' : ' · ') + it;
+      if (cur !== '마감사양 — ' && cur !== '' && wide(cur + add) > maxPx) { lines.push(cur); cur = it; } else cur += add;
+      if (i === items.length - 1) lines.push(cur);
+    });
+    return lines.slice(0, 4);
+  }
+  const titleH = (L, maxPx = 4000) => TITLE_H + 17 * specLines(L, maxPx).length;
   const TITLE_H = 52; // 제목 두 줄이 차지하는 높이 (화면 픽셀)
   const EDGE = { l: 76, r: 34, t: TITLE_H + 6, b: 98 }; // 그림 둘레에 치수선·제목·이름이 차지하는 자리 (화면 픽셀)
 
@@ -342,7 +395,7 @@
     const view = ['front', 'top', 'side'].find((k) => inside(V[k]));
     if (!view) return null;
     const at = view === 'front' ? [pt.x + m[0], -pt.y + m[2]] : view === 'top' ? [pt.x + m[0], -(pt.y + L.s.h + L.G) + m[1]] : [pt.x - L.s.w - L.G + m[1], -pt.y + m[2]];
-    const shapes = orthoShapes(L, view);
+    const shapes = orthoShapes(L, view, App.current && App.current.designDoors === false ? (q) => !q.door : null);
     for (let i = shapes.length - 1; i >= 0; i--) {
       const poly = shapes[i].poly;
       let inPoly = false;
@@ -372,9 +425,10 @@
     if (!plan || !(plan.width > 0)) return L.rect;
     const i = plan.insets || { top: 0, right: 0, bottom: 0, left: 0 }, pad = Math.min(48, Math.min(plan.width, plan.height) * 0.08);
     const vw = plan.width - i.left - i.right - pad * 2, vh = plan.height - i.top - i.bottom - pad * 2;
-    const k = Math.min((vw - EDGE.l - EDGE.r) / W, (vh - EDGE.t - EDGE.b) / H);
+    const nSpec = specLines(L, Math.max(160, vw - 18)).length;
+    const k = Math.min((vw - EDGE.l - EDGE.r) / W, (vh - EDGE.t - 17 * nSpec - EDGE.b) / H);
     if (!(k > 0) || !isFinite(k)) return L.rect;
-    return { minX: -EDGE.l / k, minY: top - EDGE.t / k, maxX: W + EDGE.r / k, maxY: base + EDGE.b / k };
+    return { minX: -EDGE.l / k, minY: top - (EDGE.t + 17 * nSpec) / k, maxX: W + EDGE.r / k, maxY: base + EDGE.b / k };
   }
   /** 그림 네 개가 차지하는 자리 (mm): x는 0~W, y는 top~0. 치수선·이름이 차지하는 둘레(EDGE, 화면 픽셀)는 따로 */
   function frame(el) {
@@ -382,15 +436,17 @@
     return { W: Math.max(V.side.x + V.side.w, V.iso.x + V.iso.w), top: Math.min(V.top.y, V.iso.y), base: el.kind === 'model' ? 0 : L.lift, L };
   }
   /** DXF·시험용: 세 그림의 테두리 선과 치수 값. { lines: [{ view, n, pts }], size } */
-  function outlines(el) {
-    const L = layout(el), out = [];
-    ['front', 'top', 'side'].forEach((view) => orthoShapes(L, view).forEach(({ q, poly }) => out.push({ view, n: q.n, m: q.m, pts: poly })));
-    isoFaces(L).forEach(({ q, poly }) => out.push({ view: 'iso', n: q.n, m: q.m, pts: poly }));
-    return { lines: out, size: L.s, views: L.views, chains: { x: chain(L, 'x'), y: chain(L, 'y'), z: chain(L, 'z') }, lift: L.B.min[2] };
+  function outlines(el, o = {}) {
+    const L = layout(el), out = [], vis = o.doors === false ? (q) => !q.door : null;
+    ['front', 'top', 'side'].forEach((view) => orthoShapes(L, view, vis).forEach(({ q, poly }) => out.push({ view, n: q.n, m: q.m, pts: poly })));
+    isoFaces(L, vis).forEach(({ q, poly }) => out.push({ view: 'iso', n: q.n, m: q.m, pts: poly }));
+    // 모듈 이름표: 종이 좌표의 가운데 자리
+    const labels = (L.B.labels || []).map((lb) => { const off = lb.view === 'side' ? L.s.w + L.G - L.min[1] : -L.min[0]; return { text: lb.text, x: (lb.a0 + lb.a1) / 2 + off, y: -((lb.z0 + lb.z1) / 2 - L.min[2]), w: lb.a1 - lb.a0 }; });
+    return { lines: out, size: L.s, views: L.views, chains: { x: many(chain(L, 'x')), y: many(chain(L, 'y')), z: many(chain(L, 'z')) }, sideChain: !!(L.B.chain && L.B.chain.y), lift: L.B.min[2], labels, spec: L.B.spec || [] };
   }
 
   App.designDraw = {
-    layout, drawSheet, scene, hit, toPaper, bounds, frame, EDGE, outlines, AXES, fmt, modelShots, isoFaces, orthoShapes, chain,
+    layout, drawSheet, scene, hit, toPaper, bounds, frame, EDGE, outlines, specOf, specLines, titleH, AXES, fmt, modelShots, isoFaces, orthoShapes, chain,
     /** 끄는 동안 그림 기준을 붙박음 (el을 주면 지금 기준으로, null이면 풂) */
     freeze(el) { if (!el) { frozen = null; return; } const L = layout(el); frozen = { id: el.id, min: L.min.slice(), s: { ...L.s } }; },
   };

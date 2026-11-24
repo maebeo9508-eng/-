@@ -636,7 +636,7 @@
       const old = kept.get(l.name);
       const trade = old && TRADES.includes(old.trade) ? old.trade : l.trade; // 사람이 바꿔 둔 공종은 이어받음
       const nx = { id: `x${stamp}${k}`, name: l.name, qty: l.qty, unit: l.unit || '식', price: 0, src, ...(trade ? { trade } : {}) };
-      nx.price = old ? old.price : memory()[extraKey(nx)] || 0;
+      nx.price = old && old.price ? old.price : memory()[extraKey(nx)] || Math.max(0, Math.round(Number(l.price) || 0)); // 사람이 넣은 단가 → 단가표 → 넘겨받은 단가
       xs.push(nx);
     });
     save();

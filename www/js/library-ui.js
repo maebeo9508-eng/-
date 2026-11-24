@@ -189,10 +189,28 @@
       const b = scene.bounds, c = [(b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, (b.min[2] + b.max[2]) / 2];
       const r = Math.hypot(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]) / 2 || 0.5;
       this.R.setGround(App.gl3d.MAT.concrete, App.gl3d.hex('#e6e8eb'), [c[0], c[2]], Math.max(4, r * 6));
-      this.cam.target = c;
-      this.cam.r = r;
-      if (!keep) this.cam.dist = (r / Math.sin(0.5 / 2)) * 1.08;
+      if (!keep) { // keep: 움직이는 장면(문 열기)에서 보는 곳이 흔들리지 않게
+        this.cam.target = c; this.cam.r = r;
+        this.cam.dist = Math.max((r / Math.sin(0.5 / 2)) * 1.08, this.fitDist(b, c) * 1.06);
+      }
       this.draw();
+    }
+    /** 지금 보는 방향에서 상자(bounds)가 창에 다 들어오는 거리 (창이 세로로 길면 가로가 잘리지 않게) */
+    fitDist(b, c) {
+      const { yaw, pitch } = this.cam, cp = Math.cos(pitch);
+      const dir = [cp * Math.sin(yaw), Math.sin(pitch), cp * Math.cos(yaw)];           // 보는 곳 → 눈
+      const rl = Math.hypot(dir[2], dir[0]) || 1, right = [dir[2] / rl, 0, -dir[0] / rl];
+      const up = [dir[1] * right[2] - dir[2] * right[1], dir[2] * right[0] - dir[0] * right[2], dir[0] * right[1] - dir[1] * right[0]];
+      const asp = Math.max(0.3, Math.min(3, (this.canvas.clientWidth || 1) / (this.canvas.clientHeight || 1)));
+      const tv = Math.tan(0.25), th = tv * asp;
+      let d = 0;
+      for (let i = 0; i < 8; i++) {
+        const p = [(i & 1 ? b.max[0] : b.min[0]) - c[0], (i & 2 ? b.max[1] : b.min[1]) - c[1], (i & 4 ? b.max[2] : b.min[2]) - c[2]];
+        const along = p[0] * dir[0] + p[1] * dir[1] + p[2] * dir[2];
+        const x = Math.abs(p[0] * right[0] + p[1] * right[1] + p[2] * right[2]), y = Math.abs(p[0] * up[0] + p[1] * up[1] + p[2] * up[2]);
+        d = Math.max(d, x / th + along, y / tv + along);
+      }
+      return d;
     }
     resize() {
       const c = this.canvas, dpr = Math.min(2, window.devicePixelRatio || 1);

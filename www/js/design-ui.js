@@ -63,12 +63,21 @@
   /** 값으로 만든 부재를 하나씩 고칠 수 있게 풀어 놓음 (자유 설계로 바뀜) */
   function explode(el) {
     const B = D().build(el);
-    const parts = B.parts.filter((q) => q.role !== 'led').map((q) => {
-      const c = { id: uid(), s: q.s, n: q.n, m: q.m };
+    const face = (v) => (v && v[0] > 0.5 ? 'r' : v && v[0] < -0.5 ? 'l' : v && v[1] > 0.5 ? 'b' : null);
+    const parts = B.parts.filter((q) => q.role === 'panel' || q.role === 'bar' || q.role === 'slab' || (q.role === 'fix' && !q.hd)).map((q) => {
+      const c = { id: uid(), s: q.s, n: q.n, m: q.m, ...(q.c ? { c: q.c, fin: q.fin || '' } : {}) };
       if (q.s === 'bar') Object.assign(c, { a: q.a.slice(), b: q.b.slice() }); else Object.assign(c, { x: q.x, y: q.y, z: q.z, w: q.w, d: q.d, h: q.h });
+      if (q.role === 'slab' || q.role === 'fix') Object.assign(c, { role: q.role, ...(q.mn ? { mn: q.mn } : {}), ...(q.gl ? { gl: true } : {}), ...(q.metal ? { metal: true } : {}) });
+      if (q.eb > 0) c.eb = q.eb;
+      if (q.an && q.s !== 'bar') { // 3D에서 열리는 것은 풀어도 열리게
+        const mo = face(q.an.t === 'door' ? q.an.out : q.an.v);
+        if (q.an.t === 'door') c.mv = q.an.dir < 0 ? 'dl' : 'dr'; else { c.mv = q.front && q.role === 'panel' && !/^속서랍/.test(q.n) ? 'df' : 'dw'; c.mx = q.an.max; }
+        if (mo) c.mo = mo;
+      }
       return c;
     });
-    patch(el, '부재로 풀기', { kind: 'free', p: {}, parts });
+    const keepP = { ...(el.p && el.p.handle === 'none' ? { handle: 'none' } : {}), ...(B.spec && B.spec.length ? { spec: B.spec.slice() } : {}), ...(typeof B.cam === 'number' ? { cam: B.cam } : {}) };
+    patch(el, '부재로 풀기', { kind: 'free', p: keepP, parts });
     sel = null; formKey = '';
     refreshPanes();
   }
@@ -106,6 +115,8 @@
     const dims = document.getElementById('btnDsDims'), hid = document.getElementById('btnDsHidden');
     if (dims) dims.setAttribute('aria-pressed', String(App.current.designDims !== false));
     if (hid) hid.setAttribute('aria-pressed', String(App.current.designHidden !== false));
+    const drs = document.getElementById('btnDsDoors');
+    if (drs) { drs.setAttribute('aria-pressed', String(App.current.designDoors !== false)); drs.hidden = !(el && el.kind !== 'model' && D().movable(el).doors); }
   }
   function refreshPanes() {
     if (!isMode()) return;
@@ -121,7 +132,7 @@
       title: '새 설계',
       html: `
         <div class="ds-new" data-keys="local">
-          ${['cabinet', 'table', 'shelf', 'counter', 'frame', 'led'].map((k) => `
+          ${['kitchen', 'closet', 'cabinet', 'table', 'shelf', 'counter', 'frame', 'led'].filter((k) => K[k]).map((k) => `
             <section class="ds-kind"><h3>${esc(K[k].label)}</h3>
               <div class="ds-presets">${K[k].presets.map(([name], i) => `<button type="button" class="chip" data-kind="${k}" data-preset="${i}">${esc(name)}</button>`).join('')}</div>
             </section>`).join('')}
@@ -175,16 +186,56 @@
       control = `<select data-p="${f.k}">${f.none ? `<option value="none" ${!v || v === 'none' ? 'selected' : ''}>${esc(f.none)}</option>` : ''}${list.map((s) => `<option value="${s.id}" ${s.id === v ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select>`;
     } else if (f.type === 'bar') {
       control = `<select data-p="${f.k}">${D().BARS.filter((b) => b.id !== 'rod25').map((b) => `<option value="${b.id}" ${b.id === v ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</select>`;
+    } else if (f.type === 'finish') { // 마감 색
+      const cur = v == null ? (f.same ? 'same' : 'none') : v;
+      control = `<select data-p="${f.k}">${f.same ? `<option value="same" ${cur === 'same' ? 'selected' : ''}>${esc(f.same)}</option>` : ''}${D().FINISHES.map((x) => `<option value="${x.id}" ${x.id === cur ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>`;
     } else if (f.type === 'select') {
-      control = `<select data-p="${f.k}" ${f.num ? 'data-num="1"' : ''}>${f.options.map(([val, label]) => `<option value="${esc(val)}" ${String(val) === String(v) ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select>`;
+      control = `<select data-p="${f.k}" ${f.num ? 'data-num="1"' : ''} ${f.rebuild ? 'data-rebuild="1"' : ''}>${f.options.map(([val, label]) => `<option value="${esc(val)}" ${String(val) === String(v) ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select>`;
     } else {
       control = `<input type="text" inputmode="decimal" data-p="${f.k}" ${f.int ? 'data-int="1"' : ''} ${f.optional ? 'data-optional="1"' : ''} value="${v == null ? '' : esc(v)}" autocomplete="off">${f.unit ? `<span class="field-unit">${esc(f.unit)}</span>` : ''}`;
     }
-    const isSelect = f.type === 'sheet' || f.type === 'bar' || f.type === 'select';
+    const isSelect = f.type === 'sheet' || f.type === 'bar' || f.type === 'select' || f.type === 'finish';
     // 글이 긴 고르기 칸(파이프 규격·세우는 방식 등)은 한 줄을 다 써서 잘리지 않게
-    const wide = f.type === 'bar' || (f.type === 'select' && Math.max(...f.options.map((o) => String(o[1]).length)) > 9);
+    const wide = f.type === 'bar' || (f.type === 'finish' && !!f.same) || (f.type === 'select' && Math.max(...f.options.map((o) => String(o[1]).length)) > 9);
     return `<div class="field${wide ? ' field-wide' : ''}"><label class="field-label">${esc(f.label)}</label><div class="${isSelect ? 'field-row' : 'field-box'}">${isSelect ? control.replace('<select ', '<select class="field-select" ') : control}</div></div>`;
   }
+  /** 목록 칸 (붙박이장의 칸, 주방의 모듈): 줄마다 종류·폭(·위쪽), 차례 바꾸기·지우기 */
+  function listHtml(el, f) {
+    const list = Array.isArray(el.p[f.k]) ? el.p[f.k] : [];
+    const tall = new Set(f.tall || []);
+    // 한 칸 = 두 줄: (종류 · 폭) / (위에 올리는 것 · 차례 바꾸기·지우기) — 좁은 속성 칸에서도 종류 이름이 다 보이게
+    const ctl = (it, c) => {
+      if (c.options) {
+        if (c.k === 'u' && tall.has(it.t)) return '<span class="ds-li-na">위까지 한 통</span>';
+        const pre = c.label ? `${c.label}: ` : '';
+        return `<select class="field-select ds-li-${c.k}" data-li="${c.k}" aria-label="${esc(c.label || '종류')}">${c.options.map(([val, label]) => `<option value="${esc(val)}" ${String(val) === String(it[c.k] == null ? c.options[0][0] : it[c.k]) ? 'selected' : ''}>${esc(pre + label)}</option>`).join('')}</select>`;
+      }
+      return `<span class="field-box ds-li-w"><input type="text" inputmode="numeric" data-li="${c.k}" value="${it[c.k] == null ? '' : esc(it[c.k])}" autocomplete="off" aria-label="폭 (mm)" title="폭 (mm)"></span>`;
+    };
+    const row = (it, i) => `
+      <div class="ds-li" data-i="${i}">
+        <span class="ds-li-no">${i + 1}</span>
+        <div class="ds-li-main">${f.item.filter((c) => c.k !== 'u').map((c) => ctl(it, c)).join('')}</div>
+        <div class="ds-li-sub">${f.item.filter((c) => c.k === 'u').map((c) => ctl(it, c)).join('')}
+          <span class="ds-li-btns">
+            <button type="button" class="btn ds-li-btn" data-act="ds-li-up" title="앞으로" aria-label="앞으로" ${i ? '' : 'disabled'}>▲</button>
+            <button type="button" class="btn ds-li-btn" data-act="ds-li-down" title="뒤로" aria-label="뒤로" ${i < list.length - 1 ? '' : 'disabled'}>▼</button>
+            <button type="button" class="btn ds-li-btn" data-act="ds-li-del" title="지우기" aria-label="지우기">✕</button>
+          </span>
+        </div>
+      </div>`;
+    const total = list.reduce((t, it) => t + (Number(it.w) || 0), 0);
+    return `<div class="ds-list" data-list="${f.k}">
+        <div class="field-group-label">${esc(f.label)} <small>${esc(f.hint || '')} · 폭 합 ${fmt(total)} mm</small></div>
+        ${list.map(row).join('')}
+        <button type="button" class="btn ds-li-add" data-act="ds-li-add">＋ ${f.k === 'cols' ? '칸' : '모듈'} 추가</button>
+        ${f.note ? `<p class="props-meta ds-li-note">${esc(f.note)}</p>` : ''}
+      </div>`;
+  }
+  /** 지금 값에서 보여 줄 칸들 */
+  const fieldsOf = (el) => (D().KINDS[el.kind] || D().KINDS.free).fields.filter((f) => !f.when || f.when(el.p || {}, el));
+  const listSig = (el) => fieldsOf(el).filter((f) => f.type === 'list').map((f) => `${f.k}:${(Array.isArray(el.p[f.k]) ? el.p[f.k] : []).map((it) => it.t).join(',')}`).join(';');
+
   function infoHtml(el) {
     if (el.kind === 'model') {
       const m = el.objId ? App.library.byId(el.objId) : null;
@@ -213,14 +264,25 @@
         <div class="stats"><div class="stat"><span class="stat-label">${esc(q.n)}</span><span class="stat-value">${esc(sizeText)}</span><small>${esc(M.name || '')} · 자리 X ${fmt(q.s === 'bar' ? q.a[0] : q.x)} · Y ${fmt(q.s === 'bar' ? q.a[1] : q.y)} · Z ${fmt(q.s === 'bar' ? q.a[2] : q.z)}</small></div></div>
         <p class="props-meta">값으로 만든 부재입니다. 크기·자리는 위 값에서 바꾸세요. 하나씩 고치려면 ‘부재로 풀기’.</p>`;
     }
+    const special = q.role === 'slab' || q.role === 'fix'; // 풀어 놓은 상판·기기: 자재·색은 그대로 두고 자리·크기만
+    const panel = q.s !== 'bar' && q.role === 'panel';
+    const fins = D().FINISHES, finNow = q.c ? (fins.find((x) => x.color && x.color.toLowerCase() === String(q.c).toLowerCase()) || { id: 'keep' }).id : 'none';
+    const MV = [['', '움직이지 않음'], ['dl', '문 — 왼쪽 경첩'], ['dr', '문 — 오른쪽 경첩'], ['df', '서랍 앞판 (앞으로 나옴)'], ['dw', '서랍 통 (앞판과 함께)']];
+    const sel2 = (k, opts, now) => `<select class="field-select" data-part="${k}">${opts.map(([v, l]) => `<option value="${esc(v)}" ${v === now ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
     return `<div class="field-group-label">고른 부재 <small>${esc(sizeText)}</small></div>
       <div class="field"><label class="field-label">이름</label><div class="field-box"><input type="text" data-part="n" maxlength="30" value="${esc(q.n)}" autocomplete="off"></div></div>
-      <div class="field"><label class="field-label">자재</label><div class="field-row">${mats.replace('<select ', '<select class="field-select" ')}</div></div>
+      ${special ? `<p class="props-meta">${q.role === 'slab' ? `상판 — ${esc(q.mn || '')}` : '사 오는 기기·철물 (부재표에는 안 들어감)'}</p>` : `<div class="field"><label class="field-label">자재</label><div class="field-row">${mats.replace('<select ', '<select class="field-select" ')}</div></div>`}
+      ${panel ? `<div class="field-grid ds-fields">
+        <div class="field"><label class="field-label">마감 색</label><div class="field-row">${sel2('fin', [...fins.map((x) => [x.id, x.name]), ...(finNow === 'keep' ? [['keep', '지금 색 그대로']] : [])], finNow)}</div></div>
+        <div class="field"><label class="field-label">3D에서 움직임</label><div class="field-row">${sel2('mv', MV, q.mv || '')}</div></div>
+      </div>` : ''}
       ${q.s === 'bar' ? `
         <div class="field-group-label">시작 점 <small>mm</small></div><div class="field-grid ds-3">${f('a0', 'X', q.a[0])}${f('a1', 'Y (깊이)', q.a[1])}${f('a2', 'Z (높이)', q.a[2])}</div>
         <div class="field-group-label">끝 점 <small>mm</small></div><div class="field-grid ds-3">${f('b0', 'X', q.b[0])}${f('b1', 'Y (깊이)', q.b[1])}${f('b2', 'Z (높이)', q.b[2])}</div>` : `
         <div class="field-group-label">자리 <small>왼쪽·앞·아래 구석, mm</small></div><div class="field-grid ds-3">${f('x', 'X', q.x)}${f('y', 'Y (깊이)', q.y)}${f('z', 'Z (높이)', q.z)}</div>
         <div class="field-group-label">크기 <small>mm</small></div><div class="field-grid ds-3">${f('w', '폭 (X)', q.w)}${f('d', '깊이 (Y)', q.d)}${f('h', '높이 (Z)', q.h)}</div>`}
+      ${q.s === 'bar' ? '' : `<div class="field-group-label">돌리기 <small>가운데는 그대로, 두 치수를 맞바꿈</small></div>
+      <div class="btn-row ds-rot"><button type="button" class="btn" data-act="ds-part-rot" data-ax="z" title="위에서 봐서 90° (폭 ↔ 깊이)">폭 ↔ 깊이</button><button type="button" class="btn" data-act="ds-part-rot" data-ax="x" title="세우기·눕히기 (깊이 ↔ 높이)">깊이 ↔ 높이</button><button type="button" class="btn" data-act="ds-part-rot" data-ax="y" title="세우기·눕히기 (폭 ↔ 높이)">폭 ↔ 높이</button></div>`}
       <div class="btn-row"><button type="button" class="btn" data-act="ds-part-copy">부재 복제</button><button type="button" class="btn btn-danger" data-act="ds-part-del">부재 지우기</button></div>`;
   }
   function toolHtml() {
@@ -236,13 +298,15 @@
   function propsHtml(el) {
     const K = D().KINDS[el.kind] || D().KINDS.free;
     const param = el.kind !== 'free' && el.kind !== 'model';
-    const grid = K.fields.filter((f) => f.type !== 'check'), checks = K.fields.filter((f) => f.type === 'check');
+    const F = fieldsOf(el), lists = F.filter((f) => f.type === 'list');
+    const grid = F.filter((f) => f.type !== 'check' && f.type !== 'list'), checks = F.filter((f) => f.type === 'check');
     return `
       <div class="ds-props">
         <div class="props-head"><h2>설계</h2><small>${esc(K.label)}</small></div>
         <div class="field"><label class="field-label" for="dsName">이름</label><div class="field-box"><input id="dsName" type="text" maxlength="30" value="${esc(el.name)}" autocomplete="off"></div></div>
         ${toolHtml()}
         ${param && K.presets.length ? `<div class="field"><label class="field-label">규격 예시</label><div class="field-row"><select class="field-select" id="dsPreset"><option value="">고르면 그 치수로 바뀝니다</option>${K.presets.map(([n], i) => `<option value="${i}">${esc(n)}</option>`).join('')}</select></div></div>` : ''}
+        ${lists.map((f) => listHtml(el, f)).join('')}
         ${grid.length ? `<div class="field-grid ds-fields">${grid.map((f) => fieldHtml(el, f)).join('')}</div>` : ''}
         ${checks.map((f) => fieldHtml(el, f)).join('')}
         <div id="dsInfo">${infoHtml(el)}</div>
@@ -270,7 +334,7 @@
   /** 속성 칸을 그림 (props.js가 설계 모드일 때 부름) */
   function renderProps(pane) {
     const el = cur();
-    const key = el ? `${el.id}|${el.kind}|${sel || ''}|${App.ui.tool}|${userParts(el).length}` : 'none';
+    const key = el ? `${el.id}|${el.kind}|${sel || ''}|${App.ui.tool}|${userParts(el).length}|${listSig(el)}|${fieldsOf(el).map((f) => f.k).join(',')}` : 'none';
     const badge = document.getElementById('propsBadge');
     if (badge) { badge.hidden = true; }
     if (key !== formKey || !pane.querySelector('.ds-props')) {
@@ -291,6 +355,15 @@
       else if (inp.tagName === 'SELECT') inp.value = v == null ? (inp.querySelector('option[value="none"]') ? 'none' : inp.value) : String(v);
       else inp.value = v == null ? '' : v;
     });
+    pane.querySelectorAll('[data-list]').forEach((box) => { // 목록의 폭·종류 값 (실행 취소로 바뀐 것도 따라오게)
+      const list = Array.isArray(el.p[box.dataset.list]) ? el.p[box.dataset.list] : [];
+      box.querySelectorAll('[data-i]').forEach((row) => {
+        const it = list[+row.dataset.i];
+        if (it) row.querySelectorAll('[data-li]').forEach((inp) => { if (inp !== active && it[inp.dataset.li] != null) inp.value = it[inp.dataset.li]; });
+      });
+      const sm = box.querySelector('.field-group-label small');
+      if (sm) sm.textContent = sm.textContent.replace(/폭 합 [\d,.]+ mm/, `폭 합 ${fmt(list.reduce((t, it) => t + (Number(it.w) || 0), 0))} mm`);
+    });
     const nm = pane.querySelector('#dsName');
     if (nm && nm !== active) nm.value = el.name;
     const info = pane.querySelector('#dsInfo');
@@ -310,8 +383,9 @@
     const sec = (title, sub, rows, cls = '') => (rows.length ? `<section class="sum-sec${cls}"><h3 class="sum-title">${esc(title)}${sub ? ` <small>${esc(sub)}</small>` : ''}</h3><table class="sum-table"><tbody>${rows.join('')}</tbody></table></section>` : '');
     const tr = (label, value, note = '', cls = '') => `<tr${cls ? ` class="is-${cls}"` : ''}><th scope="row">${esc(label)}</th><td>${esc(value)}${note ? `<small>${esc(note)}</small>` : ''}</td></tr>`;
     let html = head;
+    if (b.spec.length) html += sec('마감사양', '', b.spec.map((t) => { const i = t.indexOf(':'); return tr(i > 0 ? t.slice(0, i) : t, i > 0 ? t.slice(i + 1).trim() : ''); }));
     b.sheets.forEach((s) => {
-      const rows = b.panels.filter((r) => r.m === s.m).map((r) => tr(r.n, `${r.q}장`, `${fmt(r.l)} × ${fmt(r.w)} × ${fmt(r.t)} mm`));
+      const rows = b.panels.filter((r) => r.g === s.g).map((r) => tr(r.n, `${r.q}장`, `${fmt(r.l)} × ${fmt(r.w)} × ${fmt(r.t)} mm`));
       rows.push(tr('원장 (1220 × 2440)', `${s.count}장`, `넓이 ${s.area}㎡ · 약 ${s.kg}kg · 톱날 3mm 어림`, 'total'));
       html += sec(s.mat, '재단 치수: 길이 × 폭 × 두께', rows);
     });
@@ -320,13 +394,26 @@
       rows.push(tr(`원자재 ${s.stock / 1000}m`, `${s.count}본`, `모두 ${(s.total / 1000).toFixed(1)}m · 자투리 ${(s.waste / 1000).toFixed(1)}m · 약 ${s.kg}kg${s.joined ? ` · 원자재보다 긴 것 ${s.joined}개 (이어야 함)` : ''}`, 'total'));
       html += sec(s.mat, `1m에 약 ${s.kgm}kg`, rows);
     });
+    if (b.tops.length) html += sec('상판', '길이 × 깊이 × 두께', b.tops.map((t) => tr(`${t.n} · ${t.mat}`, `${t.q}개`, `${fmt(t.l)} × ${fmt(t.w)} × ${fmt(t.t)} mm`)));
     if (b.led) html += sec('전광판', '제품마다 다르니 사양서로 확인', [tr('LED 캐비닛', `${b.led.count}개`, `${b.led.cab.name} mm · ${b.led.cols} × ${b.led.rows}`), tr('화면 무게', `약 ${Math.round(b.led.kgScreen)}kg`), tr('최대 전력', `${(b.led.maxW / 1000).toFixed(1)}kW`, `20A 회로 ${b.led.circuits}개 넘게`)]);
-    if (b.hw.length) html += sec('철물·부속', '', b.hw.map((h) => tr(h.n, `${h.q}개`)));
+    if (b.hw.length || b.edge) html += sec('철물·부속', '', [...(b.edge ? [tr('엣지 밴딩', `약 ${b.edge}m`, '보이는 마구리 · 여유 10% 더함')] : []), ...b.hw.map((h) => tr(h.n, `${h.q}개`))]);
     html += sec('총계', '', [tr('전체 크기', `${fmt(b.size.w)} × ${fmt(b.size.d)} × ${fmt(b.size.h)} mm`), tr('무게', `약 ${b.kg}kg`, '철물 빼고 · 자재 무게 어림')], ' is-grand');
-    html += `<div class="btn-row ds-sum-acts"><button type="button" class="btn" data-act="ds-estimate" title="원장·원자재 수와 철물을 견적의 기타 항목으로 넣음 (단가는 견적에서)">견적에 넣기</button><button type="button" class="btn" data-act="ds-dxf">CAD 도면 (DXF)</button><button type="button" class="btn" data-act="ds-glb" title="다른 3D 프로그램에서 열 수 있는 모델 파일">3D 파일 (GLB)</button></div>
+    // 재료비: 단가를 적으면 합계가 나옴 (단가는 이 기기에 기억)
+    const c = D().cost(el), won = (v) => `${Math.round(v).toLocaleString('ko-KR')}원`;
+    html += `<details class="est-info ds-cost" ${c.priced || costOpen ? 'open' : ''}>
+        <summary>재료비 ${c.priced ? `<b>${won(c.total)}</b>` : '<small>단가를 넣으면 계산됩니다</small>'}</summary>
+        <table class="sum-table ds-cost-table"><tbody>
+          ${c.lines.map((l) => `<tr><th scope="row">${esc(l.name)}<small>${l.qty}${esc(l.unit)}</small></th>
+            <td><span class="field-box ds-price"><input type="text" inputmode="numeric" data-dprice="${esc(l.key)}" value="${l.price ? l.price.toLocaleString('ko-KR') : ''}" placeholder="단가" autocomplete="off" aria-label="${esc(l.name)} 단가"><span class="field-unit">원</span></span><small class="ds-amt">${l.price ? won(l.amount) : ''}</small></td></tr>`).join('')}
+          <tr class="is-total"><th scope="row">재료비 합계</th><td id="dsCostTotal">${c.priced ? won(c.total) : '-'}</td></tr>
+        </tbody></table>
+        <p class="props-meta">단가는 원장 한 장·원자재 한 본·상판과 엣지 1m·철물 하나 값입니다 (이 기기에 기억되어 다른 설계에도 쓰임). 인건비·운반비는 견적에서 더하세요.</p>
+      </details>`;
+    html += `<div class="btn-row ds-sum-acts"><button type="button" class="btn" data-act="ds-estimate" title="원장·원자재 수와 철물을 견적의 기타 항목으로 넣음 (적어 둔 단가도 함께)">견적에 넣기</button><button type="button" class="btn" data-act="ds-dxf">CAD 도면 (DXF)</button><button type="button" class="btn" data-act="ds-glb" title="다른 3D 프로그램에서 열 수 있는 모델 파일">3D 파일 (GLB)</button></div>
       <p class="props-meta">재단 치수는 맞댐 이음 기준입니다. 원장·원자재 수는 톱날 3mm로 어림한 것이라 결 방향·여유는 따로 보세요.</p>`;
     return html;
   }
+  let costOpen = false;
   function renderSummary(pane) {
     const top = pane.scrollTop;
     pane.innerHTML = summaryHtml(cur());
@@ -334,12 +421,15 @@
   }
   /** 부재표를 견적의 기타 항목으로 */
   function toEstimate(el) {
-    const b = D().bom(el), list = [];
-    const furn = ['cabinet', 'table', 'shelf', 'counter'].includes(el.kind);
-    b.sheets.forEach((s) => list.push({ name: `${el.name} · ${s.mat} 원장`, qty: s.count, unit: '장', trade: furn ? '가구' : '목공' }));
-    b.stocks.forEach((s) => list.push({ name: `${el.name} · ${s.mat} ${s.stock / 1000}m`, qty: s.count, unit: '본', trade: furn ? '가구' : /각재|구조목/.test(s.mat) ? '목공' : '기타' }));
-    if (b.led) list.push({ name: `${el.name} · LED 캐비닛 ${b.led.cab.name}`, qty: b.led.count, unit: '개', trade: '기타' });
-    b.hw.forEach((h) => list.push({ name: `${el.name} · ${h.n}`, qty: h.q, unit: '개', trade: furn ? '가구' : '기타' }));
+    const b = D().bom(el), P = D().prices(), list = [];
+    const furn = ['cabinet', 'table', 'shelf', 'counter', 'closet', 'kitchen'].includes(el.kind);
+    const hwKey = (n) => `hw:${n.replace(/\s*\d+mm/, '')}`;
+    b.sheets.forEach((s) => list.push({ name: `${el.name} · ${s.mat} 원장`, qty: s.count, unit: '장', trade: furn ? '가구' : '목공', price: P[`sheet:${s.g}`] || 0 }));
+    b.stocks.forEach((s) => list.push({ name: `${el.name} · ${s.mat} ${s.stock / 1000}m`, qty: s.count, unit: '본', trade: furn ? '가구' : /각재|구조목/.test(s.mat) ? '목공' : '기타', price: P[`bar:${s.m}`] || 0 }));
+    b.tops.forEach((t) => list.push({ name: `${el.name} · ${t.n} ${t.mat}`, qty: Math.round((t.l * t.q) / 100) / 10, unit: 'm', trade: '가구', price: P[`top:${t.mat}`] || 0 }));
+    if (b.edge) list.push({ name: `${el.name} · 엣지 밴딩`, qty: b.edge, unit: 'm', trade: '가구', price: P.edge || 0 });
+    if (b.led) list.push({ name: `${el.name} · LED 캐비닛 ${b.led.cab.name}`, qty: b.led.count, unit: '개', trade: '기타', price: P[`led:${b.led.cab.id}`] || 0 });
+    b.hw.forEach((h) => list.push({ name: `${el.name} · ${h.n}`, qty: h.q, unit: '개', trade: furn ? '가구' : '기타', price: P[hwKey(h.n)] || 0 }));
     list.push({ name: `${el.name} · 제작·설치 인건비`, qty: 1, unit: '식', trade: furn ? '가구' : '기타' });
     const n = App.estimate.putExtras(`design:${el.id}`, list);
     App.ui.toast(`견적의 기타 항목에 ${n}줄을 넣었습니다. 인테리어·조감도 모드의 집계 → 견적에서 단가를 넣으세요.`);
@@ -348,36 +438,73 @@
 
   /* ── 3D 보기 ── */
   let orbit = null;
+  let st3d = null; // 3D 창의 움직임 상태 (시험·디버그용으로도 읽음)
   async function open3d(el = cur()) {
     if (!el) return false;
+    const isModel = el.kind === 'model';
     let model = null;
-    if (el.kind === 'model') {
+    if (isModel) {
       const m = el.objId ? App.library.byId(el.objId) : null;
       if (m) { await App.library.ready(m.id); const e = App.library.data(m.id); model = e ? e.view || e.mesh : null; }
     } else model = D().toModel(el, { pick: sel });
     if (!model) { App.ui.toast('보여 줄 부재가 없습니다.'); return false; }
+    const mv = isModel ? { doors: false, drawers: false } : D().movable(el);
+    const openLabel = mv.doors && mv.drawers ? '문·서랍 열기' : mv.doors ? '문 열기' : '서랍 열기';
+    const st = (st3d = { open: 0, to: 0, hide: false, ex: 0, exTo: 0, raf: 0, last: 0 });
     await App.ui.dialog({
       title: `${el.name} — 3D`,
       html: `<div class="ds-3d" data-keys="local"><canvas class="obj-canvas ds-3d-canvas" id="ds3dCanvas" aria-label="3D 보기 (끌어서 돌리기)"></canvas>
-        <div class="btn-row"><button type="button" class="btn" data-act="ds3d-png">사진 저장 (PNG)</button>${el.kind === 'model' ? '' : '<button type="button" class="btn" data-act="ds-glb">3D 파일 (GLB)</button>'}</div>
-        <p class="props-meta">끌어서 돌리고 휠·두 손가락으로 확대합니다.${sel && el.kind !== 'model' ? ' 고른 부재는 주황색으로 보입니다.' : ''}</p></div>`,
+        ${isModel ? '' : `<div class="btn-row ds-3d-moves">
+          ${mv.doors || mv.drawers ? `<button type="button" class="btn btn-primary" data-act="ds3d-open" aria-pressed="false">${openLabel}</button>` : ''}
+          ${mv.doors ? '<button type="button" class="btn" data-act="ds3d-hide" aria-pressed="false">문 떼고 속 보기</button>' : ''}
+          <button type="button" class="btn" data-act="ds3d-explode" aria-pressed="false">분해도</button>
+        </div>`}
+        <div class="btn-row"><button type="button" class="btn" data-act="ds3d-png">사진 저장 (PNG)</button>${isModel ? '' : '<button type="button" class="btn" data-act="ds-glb">3D 파일 (GLB)</button>'}</div>
+        <p class="props-meta">끌어서 돌리고 휠·두 손가락으로 확대합니다.${sel && !isModel ? ' 고른 부재는 주황색으로 보입니다.' : ''}</p></div>`,
       actions: [{ id: 'close', label: '닫기', primary: true }],
       onOpen(body) {
         const cv = body.querySelector('#ds3dCanvas');
         orbit = new App.libraryUI.Orbit(cv);
+        const cam0 = isModel ? null : D().build(el).cam; // ㄱ자 주방은 오른쪽 앞에서 (모듈 앞면이 보이게)
+        if (typeof cam0 === 'number') orbit.cam.yaw = cam0;
         if (orbit.ok) orbit.set(App.library.sceneOf(model));
         else cv.insertAdjacentHTML('afterend', '<p class="obj-nogl">이 기기에서는 3D 보기를 쓸 수 없습니다.</p>');
+        const show = () => {
+          if (!orbit || !orbit.ok || isModel) return;
+          const m = D().toModel(el, { pick: sel, open: st.open, hideDoors: st.hide, explode: st.ex });
+          if (m) orbit.set(App.library.sceneOf(m), true);
+        };
+        // 문·서랍이 스르륵 열리게: 0.55초에 걸쳐
+        const step = (now) => {
+          st.raf = 0;
+          const dt = Math.min(250, now - (st.last || now - 16)); // 느린 기기에서도 걸리는 시간은 비슷하게 (프레임만 줄어듦)
+          st.last = now;
+          const go = (v, to) => (Math.abs(to - v) < 0.002 ? to : v + Math.sign(to - v) * Math.min(Math.abs(to - v), dt / 550));
+          st.open = go(st.open, st.to);
+          const ex0 = st.ex;
+          st.ex = go(st.ex, st.exTo);
+          if (orbit && st.ex !== ex0) orbit.cam.dist *= (1 + 0.55 * st.ex) / (1 + 0.55 * ex0); // 분해도는 벌어진 만큼 물러나서 봄
+          show();
+          if (st.open !== st.to || st.ex !== st.exTo) st.raf = requestAnimationFrame(step); else st.last = 0;
+        };
+        const kick = () => { if (!st.raf) { st.last = 0; st.raf = requestAnimationFrame(step); } };
         body.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); document.querySelector('#dialogFoot [data-id="close"]').click(); } });
         body.addEventListener('click', (e) => {
           const b = e.target.closest('[data-act]');
           if (!b) return;
-          if (b.dataset.act === 'ds3d-png' && orbit && orbit.ok) {
+          const a = b.dataset.act;
+          if (a === 'ds3d-png' && orbit && orbit.ok) {
             orbit.now();
             cv.toBlob((blob) => { if (blob) { const name = `${el.name.replace(/[\\/:*?"<>|]+/g, '_')}_3D_${App.exporter.stamp()}.png`; App.exporter.saved(App.exporter.download(name, blob, 'image/png'), `‘${name}’을 저장했습니다.`); } }, 'image/png');
-          } else if (b.dataset.act === 'ds-glb') App.designOut.exportGlb(el);
+          } else if (a === 'ds-glb') App.designOut.exportGlb(el);
+          else if (a === 'ds3d-open') { st.to = st.to ? 0 : 1; b.setAttribute('aria-pressed', String(!!st.to)); b.textContent = st.to ? '닫기' : openLabel; kick(); }
+          else if (a === 'ds3d-hide') { st.hide = !st.hide; b.setAttribute('aria-pressed', String(st.hide)); b.textContent = st.hide ? '문 달기' : '문 떼고 속 보기'; show(); }
+          else if (a === 'ds3d-explode') { st.exTo = st.exTo ? 0 : 1; b.setAttribute('aria-pressed', String(!!st.exTo)); b.textContent = st.exTo ? '다시 모으기' : '분해도'; kick(); }
         });
       },
     });
+    if (st.raf) cancelAnimationFrame(st.raf);
+    st3d = null;
     if (orbit) { orbit.dispose(); orbit = null; }
     return true;
   }
@@ -385,14 +512,26 @@
   /* ── 내 사물로 등록 ── */
   async function toObject(el = cur()) {
     if (!el || el.kind === 'model') return null;
-    const model = D().toModel(el);
+    let look = {}, lookName = '';
+    if (D().movable(el).doors) { // 문짝이 있으면 도면에 놓을 모습을 고름
+      const r = await App.ui.dialog({
+        title: '사물로 등록',
+        html: '<p>문짝이 있는 설계입니다. 도면에 놓을 모습을 고르세요.</p><p class="props-meta">문을 떼면 3D에서 속의 선반·서랍·옷걸이 봉이 보입니다. 다시 ‘사물로 등록’을 누르면 언제든 바꿀 수 있습니다.</p>',
+        actions: [{ id: 'cancel', label: '취소' }, { id: 'open', label: '문 연 모습' }, { id: 'nodoor', label: '문 뗀 모습' }, { id: 'closed', label: '문 닫힌 모습', primary: true }],
+      });
+      if (!['open', 'nodoor', 'closed'].includes(r.id)) return null;
+      if (r.id === 'open') { look = { open: 1 }; lookName = ' (문 연 모습)'; } else if (r.id === 'nodoor') { look = { hideDoors: true }; lookName = ' (문 뗀 모습)'; }
+    }
+    const model = D().toModel(el, look);
     if (!model) { App.ui.toast('등록할 부재가 없습니다.'); return null; }
     App.ui.busy('사물로 등록하는 중…');
     let id = null, again = false;
     try {
       const M = App.meshio, low = M.reduce(model, M.PLACE_TRIS), B = D().build(el);
       const data = { mesh: M.pack(low), view: low === model ? null : M.pack(model), thumb: null };
-      const meta = { name: el.name, type: 'mesh', w: Math.round(B.size.w), d: Math.round(B.size.d), h: Math.round(B.size.h), tris: M.stats(low).tris, src: '설계', lift: model.lift || 0, design: el.id };
+      // 크기: 문을 열거나 뗀 모습은 그 모형의 실제 범위로 (문이 앞으로 나온 만큼 깊어짐)
+      const ms = M.stats(model).size, sz = look.open || look.hideDoors ? { w: ms[0], h: ms[1], d: ms[2] } : B.size; // 닫힌 모습은 설계 치수 그대로 (손잡이는 그 안에 들어가게 맞춰짐)
+      const meta = { name: el.name, type: 'mesh', w: Math.round(sz.w), d: Math.round(sz.d), h: Math.round(sz.h), tris: M.stats(low).tris, src: '설계', lift: model.lift || 0, design: el.id };
       const old = App.library.list().find((m) => m.design === el.id);
       if (old) { again = true; id = old.id; await App.library.replaceData(id, data, { w: meta.w, d: meta.d, h: meta.h, tris: meta.tris, lift: meta.lift, name: el.name }); }
       else id = await App.library.add(meta, data);
@@ -408,7 +547,7 @@
     const m = App.library.byId(id);
     const r = await App.ui.dialog({
       title: again ? '내 사물을 새로 고쳤습니다' : '내 사물에 등록했습니다',
-      html: `<p>‘${esc(m.name)}’ (${fmt(m.w)} × ${fmt(m.d)} × ${fmt(m.h)} mm)${again ? '을 지금 설계대로 바꿨습니다. 이미 도면에 놓인 것도 새 모양으로 보입니다.' : '을 내 사물에 넣었습니다.'}</p>
+      html: `<p>‘${esc(m.name)}’${esc(lookName)} (${fmt(m.w)} × ${fmt(m.d)} × ${fmt(m.h)} mm)${again ? '을 지금 설계대로 바꿨습니다. 이미 도면에 놓인 것도 새 모양으로 보입니다.' : '을 내 사물에 넣었습니다.'}</p>
         <p class="props-meta">인테리어의 <b>가구</b>, 조감도의 <b>물건</b> 도구 → <b>내 사물</b>에서 골라 도면에 놓고 3D로 볼 수 있습니다. 설계를 고친 뒤 다시 ‘사물로 등록’을 누르면 놓인 것까지 바뀝니다.</p>`,
       actions: [{ id: 'close', label: '닫기' }, { id: 'event', label: '조감도에 놓기' }, { id: 'interior', label: '인테리어에 놓기', primary: true }],
     });
@@ -571,9 +710,21 @@
   }
 
   /* ── 눌린 버튼·바뀐 칸 처리 (속성·집계 칸, 위쪽 막대) ── */
-  async function act(name) {
+  async function act(name, btn = null) {
     const el = cur();
     switch (name) {
+      case 'ds-li-add': case 'ds-li-del': case 'ds-li-up': case 'ds-li-down': { // 칸·모듈 목록
+        const box = btn && btn.closest('[data-list]');
+        if (!el || !box) return null;
+        const k = box.dataset.list, f = fieldsOf(el).find((x) => x.k === k), row = btn.closest('[data-i]'), i = row ? +row.dataset.i : -1;
+        const list = (Array.isArray(el.p[k]) ? el.p[k] : []).map((x) => ({ ...x }));
+        if (name === 'ds-li-add') { if (list.length >= 24) { App.ui.toast('더 넣을 수 없습니다 (24개까지).'); return null; } list.push({ ...(f ? f.add : { t: 'door', w: 600 }) }); }
+        else if (name === 'ds-li-del') list.splice(i, 1);
+        else { const j = name === 'ds-li-up' ? i - 1 : i + 1; if (j < 0 || j >= list.length) return null; [list[i], list[j]] = [list[j], list[i]]; }
+        patch(el, name === 'ds-li-add' ? '모듈 넣기' : name === 'ds-li-del' ? '모듈 지우기' : '모듈 차례 바꾸기', { p: { ...el.p, [k]: list } });
+        formKey = ''; refreshPanes();
+        return null;
+      }
       case 'ds-new': return newDialog();
       case 'ds-3d': return open3d(el);
       case 'ds-pdf': return el ? App.designOut.exportPdf() : null;
@@ -596,6 +747,15 @@
         return null;
       }
       case 'ds-part-del': return deletePart();
+      case 'ds-part-rot': { // 가운데를 지키며 두 치수를 맞바꿈
+        const q = el && userParts(el).find((x) => x.id === sel);
+        if (!q || q.s === 'bar') return null;
+        const ax = btn && btn.dataset.ax, [a, b] = ax === 'z' ? ['w', 'd'] : ax === 'x' ? ['d', 'h'] : ['w', 'h'], pos = { w: 'x', d: 'y', h: 'z' };
+        const r = (v) => Math.round(v * 10) / 10;
+        setPart(el, sel, { [a]: q[b], [b]: q[a], [pos[a]]: r(q[pos[a]] + (q[a] - q[b]) / 2), [pos[b]]: r(q[pos[b]] + (q[b] - q[a]) / 2) }, '부재 돌리기');
+        formKey = ''; refreshPanes();
+        return null;
+      }
       case 'ds-part-copy': {
         const q = el && userParts(el).find((x) => x.id === sel);
         if (!q) return null;
@@ -611,6 +771,32 @@
     const t = e.target, el = cur();
     if (t.dataset.draw) { App.current[t.dataset.draw] = t.value; App.ui.emit('current'); return; }
     if (!el) return;
+    if (t.dataset.dprice != null) { // 재료비 단가 (이 기기에 기억)
+      D().setPrice(t.dataset.dprice, numIn(t.value) || 0);
+      costOpen = true;
+      refreshPanes();
+      return;
+    }
+    if (t.dataset.li) { // 칸·모듈 목록의 값
+      const box = t.closest('[data-list]'), row = t.closest('[data-i]');
+      if (!box || !row) return;
+      const k = box.dataset.list, i = +row.dataset.i, f = fieldsOf(el).find((x) => x.k === k);
+      const list = (Array.isArray(el.p[k]) ? el.p[k] : []).map((x) => ({ ...x }));
+      if (!list[i]) return;
+      if (t.dataset.li === 'w') {
+        const v = numIn(t.value);
+        if (Number.isNaN(v) || v < 20) { t.value = list[i].w; return; }
+        list[i].w = Math.round(v);
+      } else {
+        // 종류를 바꾸면: 폭이 예전 종류의 기본 폭 그대로였으면 새 종류의 기본 폭으로
+        if (t.dataset.li === 't' && f && f.defw && list[i].w === f.defw[list[i].t] && f.defw[t.value]) list[i].w = f.defw[t.value];
+        list[i][t.dataset.li] = t.value;
+        formKey = '';
+      }
+      patch(el, '모듈 바꾸기', { p: { ...el.p, [k]: list } });
+      refreshPanes();
+      return;
+    }
     if (t.id === 'dsName') { const v = t.value.replace(/\s+/g, ' ').trim().slice(0, 30); if (v && v !== el.name) { patch(el, '이름 바꾸기', { name: v }); syncBar(); } else t.value = el.name; return; }
     if (t.id === 'dsPreset') {
       const pr = (D().KINDS[el.kind].presets || [])[+t.value];
@@ -630,6 +816,7 @@
       }
       if (v === el.p[k]) return;
       setParam(el, k, v);
+      if (t.dataset.rebuild) { formKey = ''; refreshPanes(); } // 모양(일자·ㄱ자)처럼 칸 구성이 달라지는 값
       return;
     }
     if (t.dataset.part && sel) {
@@ -637,6 +824,13 @@
       if (!q) return;
       const k = t.dataset.part;
       if (k === 'n') { setPart(el, sel, { n: t.value.trim().slice(0, 30) || q.n }); return; }
+      if (k === 'fin') { // 마감 색
+        if (t.value === 'keep') return;
+        const f = D().finish(t.value);
+        setPart(el, sel, f.color ? { c: f.color, fin: f.name } : { c: undefined, fin: undefined }, '마감 색 바꾸기');
+        return;
+      }
+      if (k === 'mv') { setPart(el, sel, { mv: t.value || undefined, ...(t.value === 'dl' || t.value === 'dr' || !t.value ? { mx: undefined } : {}) }, '움직임 바꾸기'); formKey = ''; refreshPanes(); syncBar(); return; }
       if (k === 'm') {
         const isBar = !!D().BARS.find((b) => b.id === t.value);
         if (q.s !== 'bar' && isBar !== !!D().BARS.find((b) => b.id === q.m)) {
@@ -671,11 +865,12 @@
     const toggle = (id, key) => { const b = document.getElementById(id); if (b) b.addEventListener('click', () => { App.current[key] = App.current[key] === false; App.ui.emit('current'); syncBar(); render(); }); };
     toggle('btnDsDims', 'designDims');
     toggle('btnDsHidden', 'designHidden');
+    toggle('btnDsDoors', 'designDoors');
     ['pane-props', 'pane-summary'].forEach((id) => {
       const pane = document.getElementById(id);
-      pane.addEventListener('click', (e) => { if (!isMode()) return; const b = e.target.closest('[data-act^="ds"]'); if (b) act(b.dataset.act); });
-      pane.addEventListener('change', (e) => { if (isMode() && e.target.closest('.ds-props')) onChange(e); });
-      pane.addEventListener('keydown', (e) => { if (isMode() && e.key === 'Enter' && e.target.tagName === 'INPUT' && e.target.closest('.ds-props') && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); e.target.blur(); } });
+      pane.addEventListener('click', (e) => { if (!isMode()) return; const b = e.target.closest('[data-act^="ds"]'); if (b) act(b.dataset.act, b); });
+      pane.addEventListener('change', (e) => { if (isMode() && (e.target.closest('.ds-props') || e.target.dataset.dprice != null)) onChange(e); });
+      pane.addEventListener('keydown', (e) => { if (isMode() && e.key === 'Enter' && e.target.tagName === 'INPUT' && (e.target.closest('.ds-props') || e.target.dataset.dprice != null) && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); e.target.blur(); } });
     });
     App.ui.on('mode', () => {
       sel = null; formKey = '';
@@ -698,6 +893,8 @@
   App.designUI = {
     init, renderProps, renderSummary, newDialog, openModel, open3d, toObject, toEstimate, add, remove, duplicate, explode, setCurrent, deletePart, addPart, setParam, act,
     selected: () => sel,
+    /** 3D 창의 지금 상태 (시험·예시용): 여는 정도·문 떼기·분해 정도와 보는 방향·거리 */
+    state3d: () => (st3d ? { ...st3d, dist: orbit ? orbit.cam.dist : null, yaw: orbit ? orbit.cam.yaw : null } : null),
     select(id) { sel = id; formKey = ''; refreshPanes(); render(); },
   };
 })();

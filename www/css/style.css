@@ -1749,7 +1749,42 @@ body:has(> .view3d:not([hidden])) .toast { bottom: auto; top: 36%; }
 .ds-props .stat-value { word-break: keep-all; }
 .ds-props .stat > small { grid-column: 1 / -1; text-align: right; color: var(--fg-muted); font-size: 12px; word-break: keep-all; }
 .ds-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.ds-rot .btn { flex: 1 1 0; min-width: 0; padding: 0 4px; font-size: 12.5px; white-space: nowrap; }
 #dsPart, #dsInfo { display: flex; flex-direction: column; gap: 10px; }
+/* 설계: 칸·모듈 목록 (종류·폭·위쪽, 차례 바꾸기·지우기) */
+.ds-list { display: flex; flex-direction: column; gap: 6px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2, #f6f7f8); }
+.ds-list .field-group-label { margin: 0 0 2px; }
+.ds-list .field-group-label small { font-weight: 500; color: var(--fg-muted); margin-left: 4px; }
+.ds-li { display: grid; grid-template-columns: 18px minmax(0, 1fr); column-gap: 4px; row-gap: 4px; padding-top: 8px; border-top: 1px dashed var(--line); }
+.ds-list .field-group-label + .ds-li { border-top: 0; padding-top: 0; }
+.ds-li-no { grid-row: 1 / span 2; align-self: start; line-height: 38px; font-size: 11px; font-weight: 700; color: var(--fg-muted); text-align: center; }
+.ds-li-main { display: grid; grid-template-columns: minmax(0, 1fr) 70px; gap: 4px; min-width: 0; }
+.ds-li-sub { grid-column: 2; display: flex; align-items: center; gap: 4px; min-width: 0; }
+.ds-li .field-select { min-height: 38px; padding: 0 24px 0 8px; font-size: 13px; min-width: 0; width: 100%; }
+.ds-li-sub .field-select { flex: 1 1 0; }
+.ds-li .field-box { min-height: 38px; padding: 0 6px; min-width: 0; }
+.ds-li .field-box input { min-height: 34px; font-size: 14px; text-align: right; min-width: 0; width: 100%; }
+.ds-li .field-unit { margin-left: 3px; font-size: 11px; }
+.ds-li-na { flex: 1 1 0; font-size: 12px; color: var(--fg-muted); padding-left: 8px; }
+.ds-li-btns { display: inline-flex; gap: 2px; margin-left: auto; flex: none; }
+.ds-li-btn { min-height: 34px; min-width: 32px; padding: 0 6px; font-size: 12px; }
+.ds-li-btn[disabled] { opacity: 0.35; }
+.ds-li-add { align-self: flex-start; min-height: 36px; }
+.ds-li-note { margin: 2px 0 0; font-size: 11.5px; line-height: 1.5; }
+@media (max-width: 768px) {
+  .ds-li-main { grid-template-columns: minmax(0, 1fr) 84px; }
+  .ds-li-btn { min-height: 38px; min-width: 40px; }
+}
+/* 설계 3D: 움직임 버튼 */
+.ds-3d-moves .btn[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+/* 재료비 */
+.ds-cost summary b { margin-left: 6px; color: var(--accent); }
+.ds-cost summary small { margin-left: 6px; font-weight: 400; color: var(--fg-muted); }
+.ds-cost-table th small { display: block; font-weight: 400; color: var(--fg-muted); font-size: 12px; }
+.ds-cost-table td { text-align: right; }
+.ds-price { display: inline-flex; width: 132px; min-height: 36px; }
+.ds-price input { min-height: 32px; text-align: right; font-size: 14px; }
+.ds-amt { display: block; font-size: 12px; color: var(--fg-muted); min-height: 16px; }
 #dsPart:empty { display: none; }
 #dsPart .field-group-label { margin: 4px 0 -4px; }
 .ds-check { padding: 2px 0; min-height: 36px; align-items: center; }

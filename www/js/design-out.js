@@ -27,7 +27,8 @@
     const cv = newCanvas(LAND), ctx = cv.getContext('2d'), W = LAND.W, H = LAND.H, M = 70, TB = 150;
     const area = { x: M, y: M, w: W - 2 * M, h: H - 2 * M - TB - 16 };
     // 그림 둘레에 치수선·그림 이름이 차지하는 자리(종이 픽셀)를 빼고 남는 곳에 맞는 표준 축척을 고름
-    const F = DD().frame(el), Z = 2.25, E = { l: DD().EDGE.l * Z, r: DD().EDGE.r * Z, t: 14 * Z, b: DD().EDGE.b * Z };
+    const spec = el.kind === 'model' ? [] : (D().build(el).spec || []);
+    const F = DD().frame(el), Z = 2.25, E = { l: DD().EDGE.l * Z, r: DD().EDGE.r * Z, t: 14 * Z + (spec.length ? 44 + spec.length * 30 : 0), b: DD().EDGE.b * Z };
     const fw = Math.max(1, F.W), fh = Math.max(1, -F.top + F.base);
     const need = Math.max(fw / (Math.max(1, area.w - E.l - E.r) / PX_MM), fh / (Math.max(1, area.h - E.t - E.b) / PX_MM)); // 종이 1mm에 실물 몇 mm
     const N = SCALES.find((s) => s >= need) || Math.ceil(need / 100) * 100;
@@ -36,9 +37,14 @@
     ctx.beginPath(); ctx.rect(area.x, area.y, area.w, area.h); ctx.clip();
     ctx.setTransform(k, 0, 0, k, area.x + (area.w - (E.l + fw * k + E.r)) / 2 + E.l, area.y + (area.h - (E.t + fh * k + E.b)) / 2 + E.t - F.top * k);
     const B = el.kind === 'model' ? null : D().build(el);
-    DD().drawSheet(ctx, el, { px: Z / k, hidden: o.hidden !== false, dims: o.dims !== false });
+    DD().drawSheet(ctx, el, { px: Z / k, hidden: o.hidden !== false, dims: o.dims !== false, doors: o.doors !== false });
     ctx.restore();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
+    // 마감사양 (왼쪽 위)
+    if (spec.length) {
+      text(ctx, '마감사양', M + 10, M + 18, 24, 800, INK);
+      spec.forEach((line, i) => text(ctx, `· ${line}`, M + 10, M + 54 + i * 30, 21, 500, MUTE, 'left', W * 0.6));
+    }
     // 테두리와 표제란
     ctx.strokeStyle = INK; ctx.lineWidth = 3;
     ctx.strokeRect(M - 20, M - 20, W - 2 * M + 40, H - 2 * M + 40);
@@ -125,7 +131,7 @@
       heading('판재', '재단 치수 (맞댐 이음 기준)');
       const rows = [];
       b.sheets.forEach((s) => {
-        b.panels.filter((r) => r.m === s.m).forEach((r) => rows.push([r.n, s.mat, fmt(r.l), fmt(r.w), fmt(r.t), `${r.q}`]));
+        b.panels.filter((r) => r.g === s.g).forEach((r) => rows.push([r.n, s.mat, fmt(r.l), fmt(r.w), fmt(r.t), `${r.q}`]));
         rows.push({ total: true, cells: [`${s.mat} 원장`, '1220 × 2440', '', '', '', `${s.count}장`] });
       });
       table([{ w: 0.26, head: '이름' }, { w: 0.26, head: '자재' }, { w: 0.13, head: '길이', align: 'right' }, { w: 0.12, head: '폭', align: 'right' }, { w: 0.11, head: '두께', align: 'right' }, { w: 0.12, head: '수량', align: 'right' }], rows);
@@ -143,9 +149,25 @@
       heading('전광판', '제품마다 다르니 사양서로 확인');
       table([{ w: 0.4, head: '항목' }, { w: 0.6, head: '값' }], [['LED 캐비닛', `${b.led.cab.name} mm × ${b.led.count}개 (${b.led.cols} × ${b.led.rows})`], ['화면', `${fmt(b.led.W)} × ${fmt(b.led.H)} mm · ${b.led.px[0].toLocaleString('ko-KR')} × ${b.led.px[1].toLocaleString('ko-KR')} px`], ['화면 무게', `약 ${Math.round(b.led.kgScreen)} kg`], ['최대 전력', `${(b.led.maxW / 1000).toFixed(1)} kW · 20A 회로 ${b.led.circuits}개 넘게`]]);
     }
-    if (b.hw.length) {
+    if (b.tops.length) {
+      heading('상판', '길이 × 깊이 × 두께');
+      table([{ w: 0.2, head: '이름' }, { w: 0.38, head: '자재' }, { w: 0.14, head: '길이', align: 'right' }, { w: 0.1, head: '깊이', align: 'right' }, { w: 0.08, head: '두께', align: 'right' }, { w: 0.1, head: '수량', align: 'right' }],
+        b.tops.map((t) => [t.n, t.mat, fmt(t.l), fmt(t.w), fmt(t.t), `${t.q}`]));
+    }
+    if (b.hw.length || b.edge) {
       heading('철물·부속');
-      table([{ w: 0.76, head: '이름' }, { w: 0.24, head: '수량', align: 'right' }], b.hw.map((h) => [h.n, `${h.q}개`]));
+      table([{ w: 0.76, head: '이름' }, { w: 0.24, head: '수량', align: 'right' }], [...(b.edge ? [['엣지 밴딩 (보이는 마구리 · 여유 10% 더함)', `약 ${b.edge}m`]] : []), ...b.hw.map((h) => [h.n, `${h.q}개`])]);
+    }
+    if (b.spec.length) {
+      heading('마감사양');
+      table([{ w: 0.3, head: '곳' }, { w: 0.7, head: '마감' }], b.spec.map((t) => { const i = t.indexOf(':'); return i > 0 ? [t.slice(0, i), t.slice(i + 1).trim()] : [t, '']; }));
+    }
+    const c = D().cost(el);
+    if (c.priced) { // 재료비: 단가를 적어 둔 줄이 있을 때만
+      const won = (v) => `${Math.round(v).toLocaleString('ko-KR')}원`;
+      heading('재료비', '적어 둔 단가로 계산 · 인건비·운반비는 빠짐');
+      table([{ w: 0.46, head: '항목' }, { w: 0.14, head: '수량', align: 'right' }, { w: 0.18, head: '단가', align: 'right' }, { w: 0.22, head: '금액', align: 'right' }],
+        [...c.lines.map((l) => [l.name, `${l.qty}${l.unit}`, l.price ? won(l.price) : '-', l.price ? won(l.amount) : '-']), { total: true, cells: ['재료비 합계', '', '', won(c.total)] }]);
     }
     // 재단 배치도: 원장마다 판을 놓은 그림 (어림)
     b.sheets.forEach((s) => {
@@ -205,7 +227,7 @@
   function pagesOf(els) {
     const out = [];
     els.forEach((el) => {
-      const s = sheetCanvas(el, { hidden: App.current.designHidden !== false, dims: App.current.designDims !== false });
+      const s = sheetCanvas(el, { hidden: App.current.designHidden !== false, dims: App.current.designDims !== false, doors: App.current.designDoors !== false });
       out.push({ kind: 'sheet', canvas: s.canvas, w: LAND.W, h: LAND.H, scale: s.scale, name: el.name });
       bomCanvases(el).forEach((cv) => out.push({ kind: 'bom', canvas: cv, w: PORT.W, h: PORT.H, name: el.name }));
     });
@@ -236,7 +258,7 @@
   }
   function exportPng(el = D().current()) {
     if (!el) { App.ui.toast('설계물이 없습니다.'); return false; }
-    const { canvas } = sheetCanvas(el, { hidden: App.current.designHidden !== false, dims: App.current.designDims !== false });
+    const { canvas } = sheetCanvas(el, { hidden: App.current.designHidden !== false, dims: App.current.designDims !== false, doors: App.current.designDoors !== false });
     const name = `${safe(el.name)}_설계도면_${App.exporter.stamp()}.png`;
     canvas.toBlob((blob) => { if (blob) App.exporter.saved(App.exporter.download(name, blob, 'image/png'), `‘${name}’을 저장했습니다.`); }, 'image/png');
     return name;
@@ -261,7 +283,7 @@
   /* ── CAD 도면 (DXF): 세 그림과 입체도의 테두리, 치수(선과 글자), 그림 이름 ── */
   function buildDxf(el) {
     const w = App.dxfout.writer();
-    const O = DD().outlines(el), V = O.views, s = O.size;
+    const O = DD().outlines(el, { doors: App.current.designDoors !== false }), V = O.views, s = O.size;
     const LAYER = { front: 'D-FRONT', top: 'D-TOP', side: 'D-SIDE', iso: 'D-ISO' };
     const P = (p) => ({ x: p[0], y: p[1] });
     O.lines.forEach((l) => w.poly(LAYER[l.view], l.pts.map(P), true, l.view === 'iso' ? { color: 8 } : null));
@@ -291,7 +313,10 @@
     const ty = V.top.y + V.top.h;
     if (cy) for (let i = 0; i + 1 < cy.length; i++) dimV(ty - cy[i], ty - cy[i + 1], -g1, 0);
     dimV(ty, ty - s.d, cy ? -g2 : -g1, 0);
-    dimH(V.side.x, V.side.x + s.d, base + g1, 0);
+    if (O.sideChain && cy && cy.length > 2) { for (let i = 0; i + 1 < cy.length; i++) dimH(V.side.x + cy[i], V.side.x + cy[i + 1], base + g1, 0); dimH(V.side.x, V.side.x + s.d, base + g2, 0); }
+    else dimH(V.side.x, V.side.x + s.d, base + g1, 0);
+    O.labels.forEach((lb) => w.text('D-TEXT', { x: lb.x, y: lb.y }, Math.max(12, Math.min(h * 0.8, lb.w * 0.16)), lb.text, { ha: 1 }));
+    O.spec.forEach((line, i) => w.text('D-TEXT', { x: 0, y: Math.min(V.top.y, V.iso.y) - h * 5 - i * h * 1.5 }, h, line));
     if (base > 0) { // 바닥에서 뜬 높이: 우측면도 오른쪽에
       const x = V.side.x + s.d + g1;
       w.line('D-DIMS', { x: V.side.x + s.d, y: 0 }, { x: x + h * 0.4, y: 0 }, { color: 4 });

@@ -19,8 +19,8 @@
     { id: 'mdf18', name: 'MDF 18T', t: 18, color: '#c7a97f', dens: 720 },
     { id: 'mdf9', name: 'MDF 9T', t: 9, color: '#c7a97f', dens: 720 },
     { id: 'pb18', name: 'PB 18T', t: 18, color: '#cdbb97', dens: 650 },
-    { id: 'lpm18', name: 'LPM 18T (화이트)', t: 18, color: '#f2f1ec', dens: 680 },
-    { id: 'lpm15', name: 'LPM 15T (화이트)', t: 15, color: '#f2f1ec', dens: 680 },
+    { id: 'lpm18', name: 'LPM 18T', t: 18, color: '#f2f1ec', dens: 680 },
+    { id: 'lpm15', name: 'LPM 15T', t: 15, color: '#f2f1ec', dens: 680 },
     { id: 'acryl5', name: '아크릴 5T', t: 5, color: '#dcecf5', dens: 1190, alpha: 0.45 },
     { id: 'pvc5', name: '포맥스 5T', t: 5, color: '#f5f5f3', dens: 550 },
   ];
@@ -64,37 +64,140 @@
   const num = (v, def, lo, hi) => { const n = Number(v); return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : def; };
   const int = (v, def, lo, hi) => Math.round(num(v, def, lo, hi));
 
+  /* 마감 색 (몸통·문짝): 자재는 그대로 두고 겉 색만 — 도면·3D·부재표(색마다 따로 묶음)에 쓰임 */
+  const FINISHES = [
+    { id: 'none', name: '자재 색 그대로', color: null },
+    { id: 'white', name: '화이트', color: '#f4f3ef' }, { id: 'ivory', name: '아이보리', color: '#ece5d6' }, { id: 'beige', name: '베이지', color: '#d9cdb8' },
+    { id: 'lgray', name: '라이트 그레이', color: '#cfd2d4' }, { id: 'gray', name: '그레이', color: '#8f969c' }, { id: 'dgray', name: '다크 그레이', color: '#555b61' }, { id: 'black', name: '블랙', color: '#2b2e31' },
+    { id: 'maple', name: '메이플', color: '#e3c99a' }, { id: 'oak', name: '오크', color: '#cfa46c' }, { id: 'walnut', name: '월넛', color: '#7a5235' },
+    { id: 'navy', name: '네이비', color: '#2f3e57' }, { id: 'green', name: '딥 그린', color: '#3d5547' },
+  ];
+  const finish = (id) => FINISHES.find((f) => f.id === id) || FINISHES[0];
+  /** 부재에 마감 색을 입힘 (자재 색 그대로면 손대지 않음) */
+  const paint = (q, f) => (f && f.color ? { ...q, c: f.color, fin: f.name } : q);
+  /** 문짝 한 장의 경첩 수: 높이에 따라 (900까지 2 · 1600까지 3 · 2000까지 4 · 그 위 5) */
+  const hingesFor = (h) => (h <= 900 ? 2 : h <= 1600 ? 3 : h <= 2000 ? 4 : 5);
+  /** 서랍 레일 길이: 몸통 깊이에 들어가는 규격 (250~600, 50 단위) */
+  const slideFor = (depth) => Math.max(250, Math.min(600, Math.floor((depth - 10) / 50) * 50));
+  const addHw = (hw, n, q) => { if (!(q > 0)) return; const e = hw.find((h) => h.n === n); if (e) e.q += q; else hw.push({ n, q }); };
+  /** 문짝 (여닫이): 3D에서 경첩 쪽으로 열림. hinge 'l'(왼쪽 경첩)|'r' */
+  function doorPart(S, f, x, y, z, w, h, hinge, o = {}) {
+    return paint(box('문짝', S.id, x, y, z, w, S.t, h, { door: true, eb: 2 * (w + h), an: { t: 'door', ax: [hinge === 'l' ? x : x + w, y], dir: hinge === 'l' ? -1 : 1, out: [0, -1] }, ...o }), f);
+  }
+  /** 서랍 하나: 앞판 + 통(옆판 2·앞뒤판 2·밑판) + 레일. 안쪽 폭 wi(몸통 옆판 사이), 앞판은 fx~fx+fw. inner: 문 뒤에 숨는 속서랍
+      돌려주는 값: 부재들 (같은 dr 번호끼리 3D에서 함께 나옴) */
+  let drawerSeq = 0;
+  function drawerParts(o) {
+    const { S, fDoor, xi, wi, yb, Dc, z, h, fx, fw, fy, hw, inner } = o; // 서랍 통(옆판·앞뒤판·밑판)은 자재 색 그대로
+    const id = ++drawerSeq, T = sheet('ply15'), tb = T.t, B5 = sheet('ply5');
+    const len = slideFor(Dc), boxW = wi - 26, boxH = Math.max(60, Math.min(h - 56, 250)), bx = xi + 13, by = yb + (inner ? 22 : 2), bz = z + 26;
+    const an = { t: 'drawer', v: [0, -1], max: Math.min(len * 0.8, 420) };
+    const tag = { dr: id, an };
+    const out = [
+      paint(box(inner ? '속서랍 앞판' : '서랍 앞판', S.id, fx, fy, z, fw, S.t, h, { front: true, eb: 2 * (fw + h), ...tag }), fDoor),
+      box('서랍 옆판', T.id, bx, by, bz, tb, len, boxH, { eb: len, ...tag }), box('서랍 옆판', T.id, bx + boxW - tb, by, bz, tb, len, boxH, { eb: len, ...tag }),
+      box('서랍 앞뒤판', T.id, bx + tb, by, bz, boxW - 2 * tb, tb, boxH, { eb: boxW - 2 * tb, ...tag }), box('서랍 앞뒤판', T.id, bx + tb, by + len - tb, bz, boxW - 2 * tb, tb, boxH, { eb: boxW - 2 * tb, ...tag }),
+      box('서랍 밑판', B5.id, bx, by, bz - B5.t, boxW, len, B5.t, tag),
+    ];
+    addHw(hw, `서랍 레일 ${len}mm (1조)`, 1);
+    addHw(hw, '손잡이', inner ? 0 : 1);
+    return out;
+  }
+
+  /** 손잡이: 문짝·서랍 앞판마다 막대 손잡이 하나. 사 오는 철물이라 그림·3D에만 나오고 부재표에는 ‘손잡이’ 개수로만 들어감.
+      문짝과 함께 열리고(같은 an) 문을 떼면 같이 사라짐(door). 전체 크기에는 넣지 않음(hd) */
+  const lum = (hex) => { const v = parseInt(String(hex || '#dddddd').replace('#', ''), 16) || 0; return (0.299 * ((v >> 16) & 255) + 0.587 * ((v >> 8) & 255) + 0.114 * (v & 255)) / 255; };
+  function handles(parts) {
+    const out = [], P = 20, T = 12; // 앞으로 나온 길이, 굵기
+    parts.forEach((q) => {
+      if (q.s !== 'box' || !q.an || q.role !== 'panel') return;
+      const isDoor = !!q.door, isFront = !!q.front && !/^속서랍/.test(q.n);
+      if (!isDoor && !isFront) return;
+      const o = q.an.t === 'door' ? q.an.out || [0, -1] : q.an.v;         // 앞면이 보는 쪽
+      const alongX = Math.abs(o[1]) > 0.5;                                 // 앞면이 X와 나란한가 (뒷벽 줄·보통 가구)
+      const fw = alongX ? q.w : q.d, fh = q.h, u0 = alongX ? q.x : q.y;    // 앞면 폭·높이·시작
+      let hu, hz, hl, hh;
+      if (isDoor) { // 세로 손잡이: 경첩 반대쪽 끝에서 40 안쪽. 상부장은 아래쪽, 키 큰 문은 손 닿는 높이(1,050), 하부장은 위쪽
+        const L = Math.min(160, fh - 80);
+        if (L < 40 || fw < 90) return;
+        const hingeAtStart = Math.abs((alongX ? q.an.ax[0] : q.an.ax[1]) - u0) < 1;
+        hu = hingeAtStart ? u0 + fw - 40 - T : u0 + 40;
+        const top = q.z + fh, zc = q.z >= 1250 ? q.z + 50 + L / 2 : fh > 1250 ? Math.min(Math.max(1050, q.z + 60 + L / 2), top - 60 - L / 2) : top - 50 - L / 2;
+        hz = zc - L / 2; hl = T; hh = L;
+      } else if (fw < 160) { // 좁은 앞판 (망장): 세로로, 위쪽
+        const L = Math.min(160, fh - 80);
+        if (L < 40 || fw < 40) return;
+        hu = u0 + fw / 2 - T / 2; hz = q.z + fh - 60 - L; hl = T; hh = L;
+      } else { // 서랍: 가로로, 앞판 위쪽 가운데
+        const L = Math.min(160, fw - 60);
+        if (fh < 50) return;
+        hu = u0 + fw / 2 - L / 2; hz = q.z + fh - Math.min(50, fh / 2) - T / 2; hl = L; hh = T;
+      }
+      const b = alongX ? { x: hu, y: o[1] < 0 ? q.y - P : q.y + q.d, z: hz, w: hl, d: P, h: hh } : { x: o[0] > 0 ? q.x + q.w : q.x - P, y: hu, z: hz, w: P, d: hl, h: hh };
+      const c0 = [q.x + q.w / 2, q.y + q.d / 2, q.z + q.h / 2];
+      out.push({ s: 'box', n: '손잡이', m: 'fix', role: 'fix', hd: true, c: lum(q.c || (mat(q.m) || {}).color) < 0.4 ? '#c9ced3' : '#565c63', metal: true,
+        x: r1(b.x), y: r1(b.y), z: r1(b.z), w: r1(b.w), d: r1(b.d), h: r1(b.h), an: q.an, pc: c0.map(r1), ...(isDoor ? { door: true } : { front: true }), ...(q.dr != null ? { dr: q.dr } : {}) });
+    });
+    return out;
+  }
+  const HANDLES = [['bar', '막대 손잡이'], ['none', '없음 (푸시·홈)']];
+  /** 만든 부재에 손잡이를 닮. ‘없음’이면 철물표의 손잡이를 푸시 래치로 바꿔 셈 */
+  function withHandles(parts, hw, p) {
+    if (p && p.handle === 'none') { hw.forEach((h) => { if (h.n === '손잡이') h.n = '푸시 래치 (누르면 열림)'; }); return; }
+    parts.push(...handles(parts));
+  }
+
   function cabinet(p) {
     const W = num(p.W, 800, 200, 4000), H = num(p.H, 850, 200, 3000), D = num(p.D, 400, 150, 1200);
     const S = sheet(p.mat), t = S.t, back = p.back && p.back !== 'none' ? sheet(p.back) : null, tb = back ? back.t : 0;
     const doors = int(p.doors, 0, 0, 6), shelves = int(p.shelves, 1, 0, 12), dividers = int(p.dividers, 0, 0, 8);
     const plinth = num(p.plinth, 0, 0, 300);
-    const td = doors ? t : 0, y0 = doors ? td + 2 : 0;            // 문짝이 있으면 몸통은 문 두께 + 2mm 뒤에서 시작
+    const fB = finish(p.body), fD = finish(p.doorc);
+    const Hc0 = H - plinth - 2 * t;
+    // 서랍: 아래에서부터 n단 (한 단 높이 어림 180, 몸통 안 높이의 70%까지)
+    let nd = int(p.drawers, 0, 0, 8);
+    const dzone = nd ? Math.min(Hc0 * 0.7, nd * 180) : 0;
+    if (nd && dzone / nd < 90) nd = Math.max(0, Math.floor(dzone / 90));
+    const fronts = doors || nd;
+    const td = fronts ? t : 0, y0 = fronts ? td + 2 : 0;          // 문짝·서랍이 있으면 몸통은 앞판 두께 + 2mm 뒤에서 시작
     const Dc = D - y0 - tb;                                        // 몸통 판의 깊이 (뒤판은 뒤에 덧댐)
     const parts = [], hw = [];
-    if (Dc < 50 || W - 2 * t < 50 || H - plinth - 2 * t < 50) return { parts, hw, info: [['치수', '너무 작음', '폭·높이·깊이를 키워 주세요']] };
-    parts.push(box('옆판', S.id, 0, y0, 0, t, Dc, H), box('옆판', S.id, W - t, y0, 0, t, Dc, H));
-    parts.push(box('지판', S.id, t, y0, plinth, W - 2 * t, Dc, t), box('천판', S.id, t, y0, H - t, W - 2 * t, Dc, t));
-    if (plinth >= 30) parts.push(box('걸레받이', S.id, t, y0 + 40, 0, W - 2 * t, t, plinth));
+    if (Dc < 50 || W - 2 * t < 50 || Hc0 < 50) return { parts, hw, info: [['치수', '너무 작음', '폭·높이·깊이를 키워 주세요']] };
+    const P = (q) => paint(q, fB);
+    parts.push(P(box('옆판', S.id, 0, y0, 0, t, Dc, H, { eb: H })), P(box('옆판', S.id, W - t, y0, 0, t, Dc, H, { eb: H })));
+    parts.push(P(box('지판', S.id, t, y0, plinth, W - 2 * t, Dc, t, { eb: W - 2 * t })), P(box('천판', S.id, t, y0, H - t, W - 2 * t, Dc, t, { eb: W - 2 * t })));
+    if (plinth >= 30) parts.push(P(box('걸레받이', S.id, t, y0 + 40, 0, W - 2 * t, t, plinth)));
     if (back) parts.push(box('뒤판', back.id, 0, y0 + Dc, plinth, W, tb, H - plinth));
-    const Wc = W - 2 * t, Hc = H - plinth - 2 * t, bw = (Wc - dividers * t) / (dividers + 1);
-    for (let i = 0; i < dividers; i++) parts.push(box('칸막이', S.id, t + bw * (i + 1) + t * i, y0, plinth + t, t, Dc, Hc));
-    const sd = Math.max(50, Dc - 20), gap = (Hc - shelves * t) / (shelves + 1);
+    const Wc = W - 2 * t, Hc = Hc0, bw = (Wc - dividers * t) / (dividers + 1);
+    for (let i = 0; i < dividers; i++) parts.push(P(box('칸막이', S.id, t + bw * (i + 1) + t * i, y0, plinth + t, t, Dc, Hc, { eb: Hc })));
+    // 서랍 칸 위에 가로 판(서랍 덮개) → 그 위가 선반 칸
+    const zs0 = plinth + t + (nd ? dzone : 0);
+    const Hs = H - t - zs0 - (nd ? t : 0);
+    const sd = Math.max(50, Dc - 20), gap = (Hs - shelves * t) / (shelves + 1);
     for (let b = 0; b <= dividers; b++) {
-      for (let j = 0; j < shelves; j++) parts.push(box('선반', S.id, t + (bw + t) * b + 1, y0 + (Dc - sd), plinth + t + gap * (j + 1) + t * j, bw - 2, sd, t));
+      const bx = t + (bw + t) * b;
+      if (nd) {
+        parts.push(P(box('서랍 덮개판', S.id, bx, y0, zs0, bw, Dc, t, { eb: bw })));
+        const g = 3, fh = dzone / nd, fx = b === 0 ? g : bx - t / 2 + g / 2, fx1 = b === dividers ? W - g : bx + bw + t / 2 - g / 2;
+        for (let j = 0; j < nd; j++) parts.push(...drawerParts({ S, fDoor: fD, fBody: fB, xi: bx, wi: bw, yb: y0, Dc, z: plinth + (j ? fh * j + g / 2 : g), h: fh - (j ? g : g * 1.5), fx, fw: fx1 - fx, fy: 0, hw }));
+      }
+      if (gap >= 40) for (let j = 0; j < shelves; j++) parts.push(P(box('선반', S.id, bx + 1, y0 + (Dc - sd), zs0 + (nd ? t : 0) + gap * (j + 1) + t * j, bw - 2, sd, t, { eb: bw - 2 })));
     }
     if (p.rod) parts.push(rail('옷걸이 봉', 'rod25', 'x', t, y0 + Dc / 2 - 12.5, H - t - 80 - 25, bw, { thin: true }));
     if (doors) {
-      const g = 3, dw = (W - g * (doors + 1)) / doors, dh = H - plinth - 2 * g;
-      for (let i = 0; i < doors; i++) parts.push(box('문짝', S.id, g + (dw + g) * i, 0, plinth + g, dw, td, dh, { door: true }));
-      const per = dh <= 900 ? 2 : dh <= 1600 ? 3 : dh <= 2000 ? 4 : 5;
-      hw.push({ n: '경첩 (싱크 경첩)', q: per * doors }, { n: '손잡이', q: doors });
+      const g = 3, dw = (W - g * (doors + 1)) / doors, z0 = plinth + (nd ? dzone + t / 2 : 0) + g, dh = H - z0 - g;
+      for (let i = 0; i < doors; i++) parts.push(doorPart(S, fD, g + (dw + g) * i, 0, z0, dw, dh, doors === 1 ? 'l' : i % 2 ? 'r' : 'l'));
+      addHw(hw, '경첩 (싱크 경첩)', hingesFor(dh) * doors);
+      addHw(hw, '손잡이', doors);
     }
-    if (shelves) hw.push({ n: '선반 다보', q: shelves * (dividers + 1) * 4 });
-    if (p.rod) hw.push({ n: '봉 브래킷', q: 2 });
+    if (shelves && gap >= 40) addHw(hw, '선반 다보', shelves * (dividers + 1) * 4);
+    if (p.rod) addHw(hw, '봉 브래킷', 2);
+    withHandles(parts, hw, p);
+    const spec = [fB.color ? `몸통: ${fB.name}` : '', fD.color && fronts ? `문짝·서랍 앞판: ${fD.name}` : ''].filter(Boolean);
     return {
-      parts, hw,
-      info: [['안쪽 폭', `${r1(bw)} mm`, dividers ? `${dividers + 1}칸` : ''], ['선반 사이', shelves ? `${r1(gap)} mm` : '-', shelves ? `칸마다 ${shelves}장` : '선반 없음'], ['몸통 깊이', `${r1(Dc)} mm`, doors ? `문짝 ${td}T + 2 뺌` : '']],
+      parts, hw, spec,
+      info: [['안쪽 폭', `${r1(bw)} mm`, dividers ? `${dividers + 1}칸` : ''], ['선반 사이', shelves && gap >= 40 ? `${r1(gap)} mm` : '-', shelves ? `칸마다 ${shelves}장` : '선반 없음'], ['몸통 깊이', `${r1(Dc)} mm`, fronts ? `문짝 ${td}T + 2 뺌` : ''],
+        ...(nd ? [['서랍', `${nd * (dividers + 1)}개`, `앞판 높이 약 ${Math.round(dzone / nd)} mm · 레일 ${slideFor(Dc)} mm`]] : [])],
     };
   }
 
@@ -275,19 +378,24 @@
   const KINDS = {
     cabinet: {
       label: '수납장·책장', make: cabinet,
-      defaults: { W: 800, H: 850, D: 400, mat: 'ply18', back: 'ply5', shelves: 1, dividers: 0, doors: 2, plinth: 80, rod: false },
+      defaults: { W: 800, H: 850, D: 400, mat: 'ply18', back: 'ply5', shelves: 1, dividers: 0, doors: 2, drawers: 0, plinth: 80, rod: false, body: 'none', doorc: 'none', handle: 'bar' },
       presets: [
         ['하부장 (문 2짝)', { W: 800, H: 850, D: 550, shelves: 1, dividers: 0, doors: 2, plinth: 100 }],
         ['책장', { W: 800, H: 1800, D: 300, shelves: 4, dividers: 0, doors: 0, plinth: 60 }],
         ['옷장 (봉)', { W: 1000, H: 2100, D: 600, shelves: 1, dividers: 0, doors: 2, plinth: 80, rod: true }],
         ['TV장', { W: 1600, H: 450, D: 400, shelves: 0, dividers: 2, doors: 0, plinth: 0 }],
         ['신발장', { W: 900, H: 1200, D: 350, shelves: 5, dividers: 1, doors: 2, plinth: 80 }],
+        ['서랍장 4단', { W: 800, H: 900, D: 450, shelves: 0, dividers: 0, doors: 0, drawers: 4, plinth: 60, mat: 'lpm18', body: 'white', doorc: 'oak' }],
+        ['하부장 (서랍 2단 + 문)', { W: 900, H: 850, D: 550, shelves: 1, dividers: 0, doors: 2, drawers: 2, plinth: 100 }],
       ],
       fields: [
         { k: 'W', label: '폭', unit: 'mm' }, { k: 'H', label: '높이', unit: 'mm' }, { k: 'D', label: '깊이', unit: 'mm' },
         { k: 'mat', label: '판재', type: 'sheet', min: 12 }, { k: 'back', label: '뒤판', type: 'sheet', none: '없음', max: 9 },
         { k: 'shelves', label: '선반 (칸마다)', unit: '장', int: true }, { k: 'dividers', label: '세로 칸막이', unit: '개', int: true },
-        { k: 'doors', label: '문짝', unit: '짝', int: true }, { k: 'plinth', label: '걸레받이 높이', unit: 'mm' },
+        { k: 'doors', label: '문짝', unit: '짝', int: true }, { k: 'drawers', label: '서랍 (아래부터)', unit: '단', int: true },
+        { k: 'plinth', label: '걸레받이 높이', unit: 'mm' },
+        { k: 'body', label: '몸통 색', type: 'finish' }, { k: 'doorc', label: '문짝·서랍 색', type: 'finish' },
+        { k: 'handle', label: '손잡이 (문짝·서랍)', type: 'select', options: HANDLES },
         { k: 'rod', label: '옷걸이 봉', type: 'check' },
       ],
     },
@@ -353,7 +461,13 @@
         { k: 'cabKg', label: '캐비닛 1개 무게 (비우면 규격값)', unit: 'kg', optional: true },
       ],
     },
-    free: { label: '자유 설계 (부재를 하나씩)', make: () => ({ parts: [], hw: [], info: [] }), defaults: {}, presets: [], fields: [] },
+    free: {
+      label: '자유 설계 (부재를 하나씩)',
+      // ‘부재로 풀기’로 넘어온 마감사양·3D 보는 방향은 그대로 지님
+      make: (p) => ({ parts: [], hw: [], info: [], ...(Array.isArray(p.spec) && p.spec.length ? { spec: p.spec.slice(0, 6).map((s) => String(s).slice(0, 60)) } : {}), ...(typeof p.cam === 'number' ? { cam: p.cam } : {}) }),
+      defaults: {}, presets: [],
+      fields: [{ k: 'handle', label: '손잡이 (문·서랍 앞판으로 정한 부재)', type: 'select', options: HANDLES, when: (p, el) => !!el && (el.parts || []).some((q) => q && ['dl', 'dr', 'df'].includes(q.mv)) }],
+    },
     model: { label: '내려받은 3D 모델 보기', make: () => ({ parts: [], hw: [], info: [] }), defaults: {}, presets: [], fields: [] },
   };
 
@@ -364,17 +478,38 @@
     return { id: newId(), type: 'design', layer: 'design', room: null, memo: '', createdAt: new Date().toISOString(), kind: KINDS[kind] ? kind : 'free', name: name || K.label.replace(/\s*\(.*$/, ''), p: { ...K.defaults, ...(preset || {}) }, parts: [] };
   }
   /** 직접 넣은 부재를 깨끗하게 (저장된 데이터가 깨져 있어도 안전하게) */
+  const MOVES = ['dl', 'dr', 'df', 'dw'], FACES = ['r', 'l', 'b'];
+  /** 직접 넣은 부재의 움직임(mv)을 3D용 값(an)으로: 문은 마주 보고 선 사람의 왼쪽/오른쪽 끝·바깥 면이 경첩 자리, 서랍은 보는 쪽으로 나옴.
+      보는 쪽(mo)이 없으면 — 얇은 쪽이 X인 판은 바깥쪽(가운데에서 먼 쪽), 그 밖에는 앞 */
+  function moveOf(q, b) {
+    const thinX = q.w < q.d && q.w <= q.h;
+    const face = q.mo || (thinX ? (q.x + q.w / 2 < (b.min[0] + b.max[0]) / 2 ? 'l' : 'r') : 'f');
+    const out = face === 'f' ? [0, -1] : face === 'b' ? [0, 1] : face === 'r' ? [1, 0] : [-1, 0];
+    if (q.mv === 'dl' || q.mv === 'dr') {
+      const L = q.mv === 'dl';
+      const ax = face === 'f' ? [L ? q.x : q.x + q.w, q.y] : face === 'b' ? [L ? q.x + q.w : q.x, q.y + q.d] : face === 'r' ? [q.x + q.w, L ? q.y : q.y + q.d] : [q.x, L ? q.y + q.d : q.y];
+      return { ...q, door: true, an: { t: 'door', ax: ax.map(r1), dir: L ? -1 : 1, out } };
+    }
+    const depth = face === 'f' || face === 'b' ? b.max[1] - b.min[1] : b.max[0] - b.min[0];
+    return { ...q, dr: 'u', ...(q.mv === 'df' ? { front: true } : {}), an: { t: 'drawer', v: out, max: q.mx || Math.max(120, Math.min(420, Math.round(depth * 0.7))) } };
+  }
   function cleanPart(q, i) {
     if (!q || typeof q !== 'object') return null;
     const f = (v) => (Number.isFinite(+v) ? r1(+v) : 0);
-    const m = mat(q.m) ? q.m : 'ply18', n = String(q.n || '부재').slice(0, 30), id = typeof q.id === 'string' ? q.id : `u${i}`;
+    const keep = q.s !== 'bar' && (q.role === 'slab' || q.role === 'fix') ? q.role : null; // ‘부재로 풀기’로 넘어온 상판·기기(싱크볼 따위)
+    const m = keep ? (keep === 'slab' ? 'top' : 'fix') : mat(q.m) ? q.m : 'ply18', n = String(q.n || '부재').slice(0, 30), id = typeof q.id === 'string' ? q.id : `u${i}`;
     if (q.s === 'bar' && Array.isArray(q.a) && Array.isArray(q.b)) {
       const M = BARS.find((b) => b.id === m) ? m : 'sq50';
       return { id, s: 'bar', n, m: M, role: 'bar', a: q.a.slice(0, 3).map(f), b: q.b.slice(0, 3).map(f), user: true };
     }
     const w = Math.max(1, f(q.w)), d = Math.max(1, f(q.d)), h = Math.max(1, f(q.h));
-    const isBar = !!BARS.find((b) => b.id === m);
-    return { id, s: 'box', n, m, role: isBar ? 'bar' : 'panel', ...(isBar ? { axis: w >= d && w >= h ? 'x' : d >= h ? 'y' : 'z' } : {}), x: f(q.x), y: f(q.y), z: f(q.z), w, d, h, user: true };
+    const isBar = !keep && !!BARS.find((b) => b.id === m);
+    const col = /^#[0-9a-f]{6}$/i.test(q.c || '') ? { c: q.c, fin: String(q.fin || '').slice(0, 20) } : {}; // 마감 색
+    // 3D에서의 움직임: 문(왼쪽·오른쪽 경첩)·서랍 앞판·서랍 통. mo: 앞면이 보는 쪽(없으면 앞), mx: 서랍이 나오는 길이
+    const mv = !isBar && MOVES.includes(q.mv) ? { mv: q.mv, ...(FACES.includes(q.mo) ? { mo: q.mo } : {}), ...(Number.isFinite(+q.mx) && +q.mx > 0 ? { mx: Math.min(900, r1(+q.mx)) } : {}) } : {};
+    const more = keep ? { ...(q.mn ? { mn: String(q.mn).slice(0, 40) } : {}), ...(q.gl ? { gl: true } : {}), ...(q.metal ? { metal: true } : {}) } : {};
+    const eb = Number.isFinite(+q.eb) && +q.eb > 0 ? { eb: r1(+q.eb) } : {};
+    return { id, s: 'box', n, m, role: keep || (isBar ? 'bar' : 'panel'), ...(isBar ? { axis: w >= d && w >= h ? 'x' : d >= h ? 'y' : 'z' } : {}), x: f(q.x), y: f(q.y), z: f(q.z), w, d, h, ...col, ...mv, ...more, ...eb, user: true };
   }
   const cache = new WeakMap(); // 설계물 → { key, out }
   /** 설계물의 부재 전체(값으로 만든 것 + 직접 넣은 것)와 크기. 돌려주는 값: { parts, hw, info, size: { w, d, h }, min: [x, y, z] } */
@@ -388,6 +523,16 @@
     const parts = made.parts.map((q, i) => ({ id: `g${i}`, ...q }));
     (Array.isArray(el.parts) ? el.parts : []).forEach((q, i) => { const c = cleanPart(q, i); if (c) parts.push(c); });
     const b = bounds(parts);
+    // 직접 넣은 부재 가운데 문·서랍으로 정한 것: 움직임 값을 달고, 경첩·레일·손잡이를 철물에 더함
+    const hw = (made.hw || []).map((h) => ({ ...h })), moved = [];
+    parts.forEach((q, i) => { if (q.user && q.mv && q.s === 'box') { parts[i] = moveOf(q, b); moved.push(parts[i]); } });
+    if (moved.length) {
+      moved.forEach((q) => { if (q.door) addHw(hw, '경첩 (싱크 경첩)', hingesFor(q.h)); else if (q.mv === 'df') addHw(hw, '서랍 레일 (1조)', 1); });
+      const grips = moved.filter((q) => q.mv !== 'dw').length;
+      if ((el.p || {}).handle === 'none') addHw(hw, '푸시 래치 (누르면 열림)', grips);
+      else { const hs = handles(moved); hs.forEach((h, i) => parts.push({ id: `h${i}`, ...h })); addHw(hw, '손잡이', hs.length); }
+    }
+    made.hw = hw;
     const out = { ...made, parts, size: { w: r1(b.max[0] - b.min[0]), d: r1(b.max[1] - b.min[1]), h: r1(b.max[2] - b.min[2]) }, min: b.min, max: b.max };
     cache.set(el, { key, out });
     return out;
@@ -415,7 +560,7 @@
   }
   function bounds(parts) {
     const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
-    parts.forEach((q) => corners(q).forEach((c) => { for (let k = 0; k < 3; k++) { if (c[k] < min[k]) min[k] = c[k]; if (c[k] > max[k]) max[k] = c[k]; } }));
+    parts.forEach((q) => { if (q.hd) return; corners(q).forEach((c) => { for (let k = 0; k < 3; k++) { if (c[k] < min[k]) min[k] = c[k]; if (c[k] > max[k]) max[k] = c[k]; } }); }); // 손잡이(hd)는 크기에 안 넣음
     if (min[0] === Infinity) return { min: [0, 0, 0], max: [0, 0, 0] };
     return { min, max };
   }
@@ -468,18 +613,26 @@
     });
     return sheets.map((s) => ({ rects: s.rects }));
   }
-  /** 재단표: 판재(자재·크기별), 막대(자재·길이별), 전광판, 철물, 무게 */
+  /** 재단표: 판재(자재·마감 색·크기별), 막대(자재·길이별), 상판, 전광판, 철물, 엣지 길이, 무게 */
   function bom(el) {
     const B = build(el);
-    const panels = new Map(), bars = new Map();
-    let leds = 0;
+    const panels = new Map(), bars = new Map(), tops = new Map();
+    let leds = 0, edge = 0, topKg = 0;
     B.parts.forEach((q) => {
       if (q.role === 'led') { leds++; return; }
+      if (q.eb > 0) edge += q.eb;
       if (q.role === 'panel') {
-        const S = sheet(q.m), dims = [q.w, q.d, q.h].sort((a, b) => b - a), key = `${S.id}|${dims[0]}|${dims[1]}|${q.n}`;
-        const cur = panels.get(key) || { m: S.id, mat: S.name, n: q.n, l: dims[0], w: dims[1], t: dims[2], q: 0 };
+        const S = sheet(q.m), dims = [q.w, q.d, q.h].sort((a, b) => b - a), fin = q.fin || '', key = `${S.id}|${fin}|${dims[0]}|${dims[1]}|${q.n}`;
+        const cur = panels.get(key) || { m: S.id, g: `${S.id}|${fin}`, mat: fin ? `${S.name} · ${fin}` : S.name, fin, n: q.n, l: dims[0], w: dims[1], t: dims[2], q: 0, eb: 0 };
         cur.q++;
+        cur.eb += q.eb || 0;
         panels.set(key, cur);
+      } else if (q.role === 'slab') {
+        const dims = [q.w, q.d, q.h].sort((a, b) => b - a), key = `${q.n}|${q.mn || ''}|${dims[0]}|${dims[1]}|${dims[2]}`;
+        const cur = tops.get(key) || { n: q.n, mat: q.mn || '상판', l: dims[0], w: dims[1], t: dims[2], q: 0 };
+        cur.q++;
+        tops.set(key, cur);
+        topKg += ((q.w * q.d * q.h) / 1e9) * (q.dens || 1700);
       } else if (q.role === 'bar') {
         const M = bar(q.m), len = r1(lenOf(q)), key = `${M.id}|${len}|${q.n}|${q.s === 'bar' ? 'x' : ''}`;
         const cur = bars.get(key) || { m: M.id, mat: M.name, n: q.n, len, q: 0, slant: q.s === 'bar' };
@@ -489,13 +642,14 @@
     });
     const panelRows = [...panels.values()].sort((a, b) => a.mat.localeCompare(b.mat, 'ko') || b.l * b.w - a.l * a.w);
     const barRows = [...bars.values()].sort((a, b) => a.mat.localeCompare(b.mat, 'ko') || b.len - a.len);
+    const topRows = [...tops.values()].sort((a, b) => b.l - a.l);
     const sheets = [], stocks = [];
-    [...new Set(panelRows.map((r) => r.m))].forEach((m) => {
-      const rows = panelRows.filter((r) => r.m === m), S = sheet(m);
+    [...new Set(panelRows.map((r) => r.g))].forEach((g) => {
+      const rows = panelRows.filter((r) => r.g === g), S = sheet(rows[0].m);
       const pieces = rows.flatMap((r) => Array.from({ length: r.q }, () => ({ l: r.l, w: r.w, n: r.n })));
       const layout = nest2d(pieces);
       const area = rows.reduce((t, r) => t + (r.l * r.w * r.q) / 1e6, 0);
-      sheets.push({ m, mat: S.name, count: layout.length, area: r1(area * 100) / 100, layout, kg: r1(rows.reduce((t, r) => t + ((r.l * r.w * r.t * r.q) / 1e9) * S.dens, 0)) });
+      sheets.push({ m: S.id, g, mat: rows[0].mat, fin: rows[0].fin, count: layout.length, area: Math.round(area * 100) / 100, layout, kg: r1(rows.reduce((t, r) => t + ((r.l * r.w * r.t * r.q) / 1e9) * S.dens, 0)) });
     });
     [...new Set(barRows.map((r) => r.m))].forEach((m) => {
       const rows = barRows.filter((r) => r.m === m), M = bar(m);
@@ -503,61 +657,123 @@
       const total = rows.reduce((t, r) => t + r.len * r.q, 0);
       stocks.push({ m, mat: M.name, stock: M.stock, count: cut.bars.length, total: Math.round(total), waste: cut.waste, joined: cut.joined, layout: cut.bars, kg: r1((total / 1000) * M.kgm), kgm: M.kgm });
     });
-    const kg = sheets.reduce((t, s) => t + s.kg, 0) + stocks.reduce((t, s) => t + s.kg, 0) + (B.led ? B.led.kgScreen : 0);
-    return { panels: panelRows, bars: barRows, sheets, stocks, leds, led: B.led || null, hw: B.hw || [], kg: r1(kg), size: B.size };
+    const kg = sheets.reduce((t, s) => t + s.kg, 0) + stocks.reduce((t, s) => t + s.kg, 0) + (B.led ? B.led.kgScreen : 0) + topKg;
+    // 엣지 밴딩: 보이는 마구리 길이 (자르고 붙일 때의 여유 10%를 더함), m로
+    const edgeM = edge > 0 ? Math.ceil((edge * 1.1) / 100) / 10 : 0;
+    return { panels: panelRows, bars: barRows, tops: topRows, sheets, stocks, leds, led: B.led || null, hw: B.hw || [], edge: edgeM, kg: r1(kg), size: B.size, spec: B.spec || [] };
+  }
+  /** 재료비: 이 기기에 적어 둔 단가(원장 한 장·원자재 한 본·엣지 1m·철물 하나)로. 돌려주는 값: { lines: [{ key, name, qty, unit, price, amount }], total, priced } */
+  const PRICE_KEY = 'hjdm.dprices';
+  const prices = () => { const v = App.storage && App.storage.read ? App.storage.read(PRICE_KEY, {}) : {}; return v && typeof v === 'object' ? v : {}; };
+  function setPrice(key, value) {
+    const all = { ...prices() }, n = Math.max(0, Math.round(Number(value) || 0));
+    if (n) all[key] = n; else delete all[key];
+    if (App.storage && App.storage.write) App.storage.write(PRICE_KEY, all);
+    return n;
+  }
+  function cost(el) {
+    const b = bom(el), P = prices(), lines = [];
+    const add = (key, name, qty, unit) => { const price = P[key] || 0; lines.push({ key, name, qty, unit, price, amount: Math.round(price * qty) }); };
+    b.sheets.forEach((s) => add(`sheet:${s.g}`, `${s.mat} 원장`, s.count, '장'));
+    b.stocks.forEach((s) => add(`bar:${s.m}`, `${s.mat} ${s.stock / 1000}m`, s.count, '본'));
+    const topLen = new Map(); // 상판은 재질마다 한 줄 (길이 합, m)
+    b.tops.forEach((t) => topLen.set(t.mat, (topLen.get(t.mat) || 0) + t.l * t.q));
+    topLen.forEach((len, mat) => add(`top:${mat}`, `상판 (${mat})`, Math.round(len / 100) / 10, 'm'));
+    if (b.edge) add('edge', '엣지 밴딩', b.edge, 'm');
+    if (b.led) add(`led:${b.led.cab.id}`, `LED 캐비닛 ${b.led.cab.name}`, b.led.count, '개');
+    b.hw.forEach((h) => add(`hw:${h.n.replace(/\s*\d+mm/, '')}`, h.n, h.q, '개'));
+    return { lines, total: lines.reduce((t, l) => t + l.amount, 0), priced: lines.filter((l) => l.price > 0).length };
   }
   /** 재단표를 표(CSV·PDF용 줄)로 */
   function bomRows(el) {
     const b = bom(el), rows = [['구분', '자재', '이름', '길이(mm)', '폭(mm)', '두께(mm)', '수량', '비고']];
-    b.panels.forEach((r) => rows.push(['판재', r.mat, r.n, r.l, r.w, r.t, r.q, '']));
+    b.panels.forEach((r) => rows.push(['판재', r.mat, r.n, r.l, r.w, r.t, r.q, r.eb ? `엣지 ${Math.round(r.eb / r.q)}mm씩` : '']));
     b.sheets.forEach((s) => rows.push(['판재 합계', s.mat, '원장 1220×2440', '', '', '', s.count, `넓이 ${s.area}㎡ · 약 ${s.kg}kg · 톱날 ${KERF}mm 어림`]));
     b.bars.forEach((r) => rows.push(['각재·파이프', r.mat, r.n, r.len, '', '', r.q, r.slant ? '비스듬히 (끝을 각도에 맞춰 자름)' : '']));
     b.stocks.forEach((s) => rows.push(['각재·파이프 합계', s.mat, `원자재 ${s.stock / 1000}m`, s.total, '', '', s.count, `자투리 ${s.waste}mm · 약 ${s.kg}kg${s.joined ? ` · 원자재보다 긴 것 ${s.joined}개 (이어야 함)` : ''}`]));
+    b.tops.forEach((t) => rows.push(['상판', t.mat, t.n, t.l, t.w, t.t, t.q, '']));
+    if (b.edge) rows.push(['엣지 밴딩', '', '보이는 마구리', Math.round(b.edge * 1000), '', '', '', `약 ${b.edge}m (여유 10% 더함)`]);
     if (b.led) rows.push(['전광판', 'LED 캐비닛', `${b.led.cab.name} mm`, b.led.cab.w, b.led.cab.h, b.led.cab.depth, b.led.count, `${b.led.cols}×${b.led.rows} · 약 ${Math.round(b.led.kgScreen)}kg · 최대 ${r1(b.led.maxW / 1000)}kW`]);
     b.hw.forEach((h) => rows.push(['철물·부속', '', h.n, '', '', '', h.q, '']));
+    if (b.spec.length) rows.push(['마감사양', '', b.spec.join(' / '), '', '', '', '', '']);
     rows.push(['무게 합계', '', '', '', '', '', '', `약 ${b.kg}kg (철물 빼고)`]);
     return rows;
   }
 
   /* ── 3D 모형용 상자들 (위 +y, 앞 +z로 바꿈) ── */
   const hexRgb = (s) => { const v = parseInt(String(s).replace('#', ''), 16) || 0; return [((v >> 16) & 255) / 255, ((v >> 8) & 255) / 255, (v & 255) / 255]; };
+  /** o: { pick(강조할 부재 id), open(0~1: 문·서랍을 여는 정도), hideDoors(문짝을 뗌), explode(0~1: 부재를 벌림), base(닫힌 상태의 범위) } */
   function toBoxes(parts, o = {}) {
-    const b = bounds(parts), depth = b.max[1] + b.min[1];
+    const b = o.base || bounds(parts), depth = b.max[1] + b.min[1];
+    const cen = [(b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, (b.min[2] + b.max[2]) / 2];
     const MAT = (App.gl3d && App.gl3d.MAT) || {};
     const conv = (c) => [c[0], c[2], depth - c[1]]; // (x, y, z) → (x, 높이, 앞이 +)
-    return parts.map((q) => {
+    const open = Math.max(0, Math.min(1, o.open || 0)), ex = Math.max(0, Math.min(1, o.explode || 0));
+    const out = [];
+    parts.forEach((q) => {
+      if (o.hideDoors && q.door) return;
       const M = mat(q.m) || SHEETS[0];
-      const c = corners(q).map(conv);
+      let cs = corners(q);
+      const pc = q.pc || [0, 1, 2].map((k) => cs.reduce((t, c) => t + c[k], 0) / cs.length); // 닫힌 자리의 가운데 (손잡이는 문짝의 가운데)
+      if (open > 0 && q.an) {
+        if (q.an.t === 'door') { // 경첩 쪽 모서리를 축으로 100°까지
+          const a = open * 1.75 * q.an.dir, ca = Math.cos(a), sa = Math.sin(a), ax = q.an.ax[0], ay = q.an.ax[1];
+          cs = cs.map((c) => { const dx = c[0] - ax, dy = c[1] - ay; return [ax + dx * ca - dy * sa, ay + dx * sa + dy * ca, c[2]]; });
+        } else if (q.an.t === 'drawer') { // 앞으로 빠짐
+          const k = q.an.max * open;
+          cs = cs.map((c) => [c[0] + q.an.v[0] * k, c[1] + q.an.v[1] * k, c[2]]);
+        }
+      }
+      if (ex > 0) { // 분해도: 가운데에서 바깥으로 벌리고 문짝·앞판은 앞으로 더
+        const fv = q.door || q.front ? (q.an && (q.an.v || q.an.out)) || [0, -1] : [0, 0]; // 문짝·앞판이 보는 쪽 (옆벽 줄은 옆으로)
+        const off = [(pc[0] - cen[0]) * ex * 0.6 + fv[0] * 260 * ex, (pc[1] - cen[1]) * ex * 0.6 + fv[1] * 260 * ex, (pc[2] - cen[2]) * ex * 0.45];
+        cs = cs.map((c) => [c[0] + off[0], c[1] + off[1], c[2] + off[2]]);
+      }
+      const c = cs.map(conv);
       // 상자: corners 차례 [아래 4, 위 4] → meshio.fromBoxes 차례 [앞 아래 왼·오, 앞 위 오·왼, 뒤 아래 왼·오, 뒤 위 오·왼]
       // 비스듬한 막대: 끝면 b의 네 점이 ‘앞면’, 끝면 a의 네 점이 ‘뒷면’
       const k = q.s === 'bar' ? [c[4], c[5], c[6], c[7], c[0], c[1], c[2], c[3]] : [c[0], c[1], c[5], c[4], c[3], c[2], c[6], c[7]];
-      const led2 = q.role === 'led';
-      return {
+      const led2 = q.role === 'led', metal = !!(M.metal || q.metal);
+      out.push({
         corners: k,
-        color: o.pick && o.pick === q.id ? [0.95, 0.45, 0.1] : hexRgb(q.c || M.color), alpha: M.alpha, metal: !!M.metal,
-        mat: led2 ? MAT.gloss : M.metal ? MAT.metal : q.role === 'panel' && !M.alpha ? MAT.grain : undefined, group: M.name,
-      };
+        color: o.pick && o.pick === q.id ? [0.95, 0.45, 0.1] : hexRgb(q.c || M.color), alpha: q.al != null ? q.al : M.alpha, metal,
+        mat: led2 || q.gl ? MAT.gloss : metal ? MAT.metal : q.role === 'panel' && !M.alpha ? MAT.grain : undefined, group: M.name || q.n,
+      });
     });
+    return out;
   }
-  /** 설계물을 3D 모형으로 (mm, 바닥 가운데가 원점). 부재가 없으면 null */
+  /** 설계물을 3D 모형으로 (mm, 바닥 가운데가 원점). 부재가 없으면 null. o는 toBoxes와 같음 — 문을 열거나 벌려도 몸통은 제자리 */
   function toModel(el, o = {}) {
     const B = build(el);
     if (!B.parts.length) return null;
-    const boxes = toBoxes(B.parts, o);
+    const base = bounds(B.parts), depth = base.max[1] + base.min[1];
+    const boxes = toBoxes(B.parts, { ...o, base });
+    if (!boxes.length) return null;
     // 전광판 앞면: 화면이 켜진 것처럼 (캐비닛 앞에 얇은 판)
     if (B.led) {
       const MAT = (App.gl3d && App.gl3d.MAT) || {}, L = B.led, z0 = Math.min(...B.parts.filter((q) => q.role === 'led').map((q) => q.z));
-      const b = bounds(B.parts), depth = b.max[1] + b.min[1];
       boxes.push({ min: [0, z0, depth + 1], max: [L.W, z0 + L.H, depth + 3], color: [0.16, 0.38, 0.78], mat: MAT.emissive, group: '화면' });
     }
-    const model = App.meshio.place(App.meshio.fromBoxes(boxes), { scale: 1 });
+    let model;
+    if (o.open || o.explode || o.hideDoors) {
+      // 닫힌 상태의 바닥 가운데를 원점으로 (움직이는 동안 몸통이 흔들리지 않게)
+      const cx = (base.min[0] + base.max[0]) / 2, cz = depth - (base.min[1] + base.max[1]) / 2, y0 = base.min[2];
+      boxes.forEach((bx) => {
+        if (bx.corners) bx.corners = bx.corners.map((c) => [c[0] - cx, c[1] - y0, c[2] - cz]);
+        else { bx.min = [bx.min[0] - cx, bx.min[1] - y0, bx.min[2] - cz]; bx.max = [bx.max[0] - cx, bx.max[1] - y0, bx.max[2] - cz]; }
+      });
+      model = App.meshio.fromBoxes(boxes);
+    } else model = App.meshio.place(App.meshio.fromBoxes(boxes), { scale: 1 });
     model.lift = Math.max(0, Math.round(B.min[2])); // 바닥에서 떠 있는 높이 (벽에 붙이는 틀·화면)
     return model;
   }
+  /** 움직이는 부재(문짝·서랍)가 있는지 */
+  const movable = (el) => { const B = build(el); return { doors: B.parts.some((q) => q.door), drawers: B.parts.some((q) => q.an && q.an.t === 'drawer') }; };
 
   App.design = {
     SHEETS, BARS, LED_CABS, LED_PITCH, KINDS, SHEET_W, SHEET_H, KERF,
-    sheet, bar, mat, create, build, bom, bomRows, bounds, corners, lenOf, weightOf, nest1d, nest2d, toBoxes, toModel, cleanPart, box, rail, brace,
+    sheet, bar, mat, create, build, bom, bomRows, cost, prices, setPrice, bounds, corners, lenOf, weightOf, nest1d, nest2d, toBoxes, toModel, movable, cleanPart, box, rail, brace,
+    FINISHES, finish, paint, hingesFor, slideFor, addHw, doorPart, drawerParts, handles, withHandles, HANDLES, MOVES, moveOf, num, int, r1,
     /** 도면의 설계물들 (만든 차례) */
     all: () => (App.doc ? [...App.doc.all()].filter((e) => e.type === 'design') : []),
     /** 지금 보고 있는 설계물 */
