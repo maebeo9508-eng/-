@@ -1,6 +1,6 @@
 /* 서비스 워커: 앱 파일을 모두 기기에 담아 두고 인터넷 없이도 열리게 한다 (비행기 모드 포함).
    파일을 고치면 VERSION을 올려야 기기에 담긴 앱이 새것으로 바뀜 (settings.js의 APP_VERSION과 같이) */
-const VERSION = '3.1.0';
+const VERSION = '3.2.0';
 const CACHE = `hjdm-${VERSION}`;
 
 const FILES = [
@@ -8,7 +8,7 @@ const FILES = [
   'index.html',
   'manifest.json',
   'css/style.css',
-  'js/icons.js', 'js/storage.js', 'js/geom.js', 'js/arch.js', 'js/measure.js', 'js/model.js', 'js/catalog.js', 'js/joins.js', 'js/dims.js',
+  'js/icons.js', 'js/storage.js', 'js/geom.js', 'js/arch.js', 'js/ledstrip.js', 'js/measure.js', 'js/model.js', 'js/catalog.js', 'js/joins.js', 'js/dims.js',
   'js/canvas.js', 'js/draw.js', 'js/snap.js', 'js/dxf.js', 'js/dwg.js', 'js/underlay.js', 'js/images.js', 'js/photos.js', 'js/rooms.js', 'js/openings.js', 'js/routes.js',
   'js/input.js', 'js/tools.js', 'js/modes.js', 'js/ui.js', 'js/props.js', 'js/catalog-ui.js', 'js/export.js', 'js/dxfout.js',
   'js/summary.js', 'js/estimate.js', 'js/proposal.js', 'js/schedule.js', 'js/safety.js', 'js/booths.js', 'js/fences.js', 'js/wizard.js', 'js/materials.js', 'js/edit.js', 'js/settings.js', 'js/projects.js', 'js/gl3d.js', 'js/models3d.js', 'js/view3d.js', 'js/sprites.js', 'js/keys.js', 'js/main.js',

@@ -41,6 +41,9 @@
     ['line', { name: '배수 배관 50A', category: '배관', color: '#2f9e44', size: 60, runHeight: 0 }],
     ['line', { name: '덕트 Ø100', category: '덕트', color: '#0c8599', size: 100, runHeight: null }],
     ['line', { name: '덕트 Ø150', category: '덕트', color: '#0c8599', size: 150, runHeight: null }],
+    // LED 조명: led 종류·k 색온도 (ledstrip.js). runHeight null = 천장 아래 간접조명
+    ['line', { name: 'LED 간접조명 (COB 24V)', category: 'LED 조명', color: '#f59f00', size: 10, runHeight: null, led: 'cob24', k: '3000' }],
+    ['line', { name: 'LED 바 (가구·선반 12V)', category: 'LED 조명', color: '#fab005', size: 12, runHeight: 900, led: 'bar12', k: '4000' }],
     // 마감재: 방 속성에서 벽 마감·바닥 마감으로 고름. from: 벽 마감을 시작하는 높이(바닥에서), unitW×unitL: 한 장 크기(0이면 면적만)
     ['finish', { name: '아트보드', target: 'wall', from: 800, unitW: 1220, unitL: 2440, loss: 0 }],
     ['finish', { name: '데코타일', target: 'floor', from: 0, unitW: 450, unitL: 450, loss: 0 }],
@@ -386,7 +389,7 @@
     ['concrete', '노출 콘크리트', '#b5b7b9', 'plain'],
     ['epoxy', '에폭시 (주차장·창고)', '#8fa0ad', 'plain'],
   ].map(([id, name, color, pattern]) => ({ id, name, color, pattern }));
-  const LINE_CATEGORIES = ['전선관', '배관', '덕트', '기타'];
+  const LINE_CATEGORIES = ['전선관', '배관', '덕트', 'LED 조명', '기타'];
   const COLORS = [
     ['#e03131', '빨강'], ['#c2255c', '자홍'], ['#e8590c', '주황'], ['#f08c00', '노랑'], ['#2f9e44', '초록'],
     ['#0c8599', '청록'], ['#1c7ed6', '파랑'], ['#7048e8', '보라'], ['#495057', '회색'],
@@ -610,7 +613,7 @@
     },
     /** 선 분류에 맞는 레이어: 전선관은 전기, 나머지는 설비 */
     lineLayer(category) {
-      return category === '전선관' ? 'elec' : 'mech';
+      return category === '전선관' || category === 'LED 조명' ? 'elec' : 'mech';
     },
     colorName(hex) {
       const c = COLORS.find(([h]) => h === hex);

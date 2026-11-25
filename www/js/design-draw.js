@@ -64,12 +64,12 @@
   function orthoShapes(L, view, vis = null) {
     const P = projector(L)[view];
     const near = view === 'front' ? (q, c) => -Math.min(...c.map((p) => p[1])) : view === 'top' ? (q, c) => Math.max(...c.map((p) => p[2])) : (q, c) => Math.max(...c.map((p) => p[0]));
-    return (vis ? L.B.parts.filter(vis) : L.B.parts).map((q) => {
+    return (vis ? L.B.parts.filter(vis) : L.B.parts).filter((q) => !q.halo).map((q) => {
       const c = D().corners(q);
       // 곡선 부재(아치·니치·아치문): 정면도에서는 윤곽 그대로, 평면·측면은 둘러싼 네모
       const curved = (q.s === 'poly' || q.s === 'arc') && view === 'front';
       return { q, key: near(q, c), poly: curved ? D().outline2(q).map(([x, z]) => P([x, q.y, z])) : q.s === 'bar' ? hull(c.map(P)) : rectOf(c.map(P)) };
-    }).sort((a, b) => a.key - b.key);
+    }).sort((a, b) => (a.q.role === 'lite') - (b.q.role === 'lite') || a.key - b.key); // LED 라인은 맨 위에
   }
   function rectOf(pts) {
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
@@ -81,7 +81,7 @@
     const P = projector(L).iso, out = [];
     const view = [1, -1, 1]; // 보는 사람 쪽 (오른쪽·앞·위)
     const F = [[0, 1, 2, 3], [4, 7, 6, 5], [0, 4, 5, 1], [1, 5, 6, 2], [2, 6, 7, 3], [3, 7, 4, 0]]; // corners 차례 [아래 4, 위 4] 기준의 여섯 면 (바깥에서 봐서 반시계가 아닐 수도 있어 법선으로 가림)
-    (vis ? L.B.parts.filter(vis) : L.B.parts).forEach((q) => {
+    (vis ? L.B.parts.filter(vis) : L.B.parts).filter((q) => !q.halo).forEach((q) => {
       if (q.s === 'poly' || q.s === 'arc') { // 곡선 부재: 앞면 윤곽 + 보이는 옆면들
         const O = D().outline2(q), y0 = q.y, y1 = q.y + q.d;
         let A = 0;
@@ -190,7 +190,7 @@
       s.forEach((v) => { if (!out.length || v - out[out.length - 1] > 2.5) out.push(v); });
       return out;
     };
-    const body = L.B.parts.filter((q) => !q.door && !q.dr && q.role !== 'fix' && q.n !== '선반' && q.s !== 'bar' && !q.thin);
+    const body = L.B.parts.filter((q) => !q.door && !q.dr && q.role !== 'fix' && q.role !== 'lite' && q.n !== '선반' && q.s !== 'bar' && !q.thin);
     const leds = body.filter((q) => q.role === 'led');
     for (const set of [leds.length ? leds : body.filter((q) => q.role !== 'led'), body.filter((q) => q.role === 'bar')]) {
       if (!set.length) continue;
@@ -303,14 +303,14 @@
       const paint = (shapes, iso) => {
         shapes.forEach(({ q, poly, shade }) => {
           const sel = o.sel && o.sel === q.id;
-          const base = colorOf(q), led = q.role === 'led';
+          const base = colorOf(q), led = q.role === 'led', lite = q.role === 'lite';
           ctx.beginPath();
           poly.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])));
           ctx.closePath();
-          ctx.fillStyle = sel ? '#ffd8a8' : led ? mix('#27313d', iso ? shade * 0.5 : 0) : mix(base, iso ? 0.35 + shade : 0.55);
+          ctx.fillStyle = sel ? '#ffd8a8' : lite ? '#fab005' : led ? mix('#27313d', iso ? shade * 0.5 : 0) : mix(base, iso ? 0.35 + shade : 0.55);
           ctx.fill();
           ctx.lineWidth = (sel ? 2.2 : 1.1) * px;
-          ctx.strokeStyle = sel ? '#e8590c' : led ? '#7d8894' : INK;
+          ctx.strokeStyle = sel ? '#e8590c' : lite ? '#e67700' : led ? '#7d8894' : INK;
           ctx.stroke();
         });
       };
@@ -455,8 +455,8 @@
   /** DXF·시험용: 세 그림의 테두리 선과 치수 값. { lines: [{ view, n, pts }], size } */
   function outlines(el, o = {}) {
     const L = layout(el), out = [], vis = o.doors === false ? (q) => !q.door : null;
-    ['front', 'top', 'side'].forEach((view) => orthoShapes(L, view, vis).forEach(({ q, poly }) => out.push({ view, n: q.n, m: q.m, pts: poly })));
-    isoFaces(L, vis).forEach(({ q, poly }) => out.push({ view: 'iso', n: q.n, m: q.m, pts: poly }));
+    ['front', 'top', 'side'].forEach((view) => orthoShapes(L, view, vis).forEach(({ q, poly }) => out.push({ view, n: q.n, m: q.m, pts: poly, ...(q.role === 'lite' ? { lite: true } : {}) })));
+    isoFaces(L, vis).forEach(({ q, poly }) => out.push({ view: 'iso', n: q.n, m: q.m, pts: poly, ...(q.role === 'lite' ? { lite: true } : {}) }));
     // 모듈 이름표: 종이 좌표의 가운데 자리
     const labels = (L.B.labels || []).map((lb) => { const off = lb.view === 'side' ? L.s.w + L.G - L.min[1] : -L.min[0]; return { text: lb.text, x: (lb.a0 + lb.a1) / 2 + off, y: -((lb.z0 + lb.z1) / 2 - L.min[2]), w: lb.a1 - lb.a0 }; });
     return { lines: out, size: L.s, views: L.views, chains: { x: many(chain(L, 'x')), y: many(chain(L, 'y')), z: many(chain(L, 'z')) }, sideChain: !!(L.B.chain && L.B.chain.y), lift: L.B.min[2], labels, spec: L.B.spec || [] };

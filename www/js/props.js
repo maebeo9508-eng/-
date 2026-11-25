@@ -534,7 +534,8 @@
         return stat(f.name, `${App.units.formatArea(f.area)}${sheets != null ? ` · ${sheets.toLocaleString('ko-KR')}장` : ''}`,
           f.target === 'wall' ? `바닥에서 ${App.units.formatLength(f.from)} 위로 천장까지 · 문·창문 뺌` : '안목 바닥 면적');
       }).join('')}</div>` : ''}
-      ${els.length === 1 ? '<button type="button" class="btn" data-act="finish-all">이 마감을 모든 방에 똑같이</button>' : ''}`;
+      ${els.length === 1 ? '<button type="button" class="btn" data-act="finish-all">이 마감을 모든 방에 똑같이</button>' : ''}
+      ${els.length === 1 && !App.modes.is('event') && App.ledstrip ? '<div class="btn-row"><button type="button" class="btn" data-act="room-led" title="방 안목 둘레를 따라 천장 아래에 LED 간접조명 선을 두름 (집계 → 전체에 SMPS·부속)">천장 간접조명 LED 두르기</button></div>' : ''}`;
   }
 
   function presetSelect(kind) {
@@ -1605,6 +1606,18 @@
           break;
         }
         case 'edit-finish': App.catalogUI.open('finish', commonText((r) => r.wallFinishId) || commonText((r) => r.floorFinishId)); break;
+        case 'room-led': { // 방 안목 둘레에 LED 간접조명 선 (LED 조명 선 종류가 없으면 만듦)
+          const r = els[0], pts = r && App.measure.clearPolygon(r);
+          if (!pts || pts.length < 3) { App.ui.toast('방 둘레를 찾지 못했습니다.'); break; }
+          let pre = App.catalog.presets('line').find((p) => p.category === 'LED 조명' && p.runHeight == null) || App.catalog.presets('line').find((p) => p.category === 'LED 조명');
+          let len = 0;
+          App.doc.transact('천장 간접조명 LED', () => {
+            if (!pre) { pre = App.model.TYPES.preset.create('line', { name: 'LED 간접조명 (COB 24V)', category: 'LED 조명', color: '#f59f00', size: 10, runHeight: null, led: 'cob24', k: '3000' }); App.doc.add(pre); }
+            pts.forEach((a, i) => { const b = pts[(i + 1) % pts.length]; len += G.dist(a, b); App.doc.add(App.model.TYPES.line.create({ x: a.x, y: a.y }, { x: b.x, y: b.y }, pre)); });
+          });
+          App.ui.toast(`${r.name || '방'} 둘레에 LED 간접조명 ${(len / 1000).toFixed(1)}m를 넣었습니다 (천장 8cm 아래). 집계 → 전체에서 SMPS·부속을 보세요.`);
+          break;
+        }
         case 'finish-all': {
           const { wallFinishId = null, floorFinishId = null } = els[0];
           const rooms = [...App.doc.all()].filter((e) => e.type === 'room');

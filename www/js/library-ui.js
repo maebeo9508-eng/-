@@ -226,7 +226,7 @@
       this.resize();
       const { yaw, pitch, dist, target, r } = this.cam;
       const eye = [target[0] + dist * Math.cos(pitch) * Math.sin(yaw), target[1] + dist * Math.sin(pitch), target[2] + dist * Math.cos(pitch) * Math.cos(yaw)];
-      this.R.render({ eye, target, fov: 0.5, near: Math.max(0.01, dist - r * 3), far: dist + r * 40 + 50 }, { sun: 0, clouds: false, shadows: true, shadowSize: 1024, focus: { center: target, radius: r * 1.6 + 0.2 }, fog: 1 / 4000 });
+      this.R.render({ eye, target, fov: 0.5, near: Math.max(0.01, dist - r * 3), far: dist + r * 40 + 50 }, { sun: this.night ? 3 : 0, clouds: false, shadows: true, shadowSize: 1024, focus: { center: target, radius: r * 1.6 + 0.2 }, fog: 1 / 4000 });
     }
     dispose() {
       cancelAnimationFrame(this.raf);

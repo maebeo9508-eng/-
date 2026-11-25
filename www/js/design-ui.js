@@ -64,12 +64,13 @@
   function explode(el) {
     const B = D().build(el);
     const face = (v) => (v && v[0] > 0.5 ? 'r' : v && v[0] < -0.5 ? 'l' : v && v[1] > 0.5 ? 'b' : null);
-    const parts = B.parts.filter((q) => q.role === 'panel' || q.role === 'bar' || q.role === 'slab' || (q.role === 'fix' && !q.hd)).map((q) => {
+    const parts = B.parts.filter((q) => q.role === 'panel' || q.role === 'bar' || q.role === 'slab' || (q.role === 'fix' && !q.hd) || (q.role === 'lite' && !q.halo)).map((q) => {
       const c = { id: uid(), s: q.s, n: q.n, m: q.m, ...(q.c ? { c: q.c, fin: q.fin || '' } : {}) };
       if (q.s === 'bar') Object.assign(c, { a: q.a.slice(), b: q.b.slice() }); else Object.assign(c, { x: q.x, y: q.y, z: q.z, w: q.w, d: q.d, h: q.h });
       if (q.s === 'poly' || q.s === 'arc') Object.assign(c, { pts: q.pts.map((p) => p.slice()), ...(q.s === 'arc' ? { t: q.t } : {}) }); // 곡선 부재
       if (q.role === 'slab' || q.role === 'fix') Object.assign(c, { role: q.role, ...(q.mn ? { mn: q.mn } : {}), ...(q.gl ? { gl: true } : {}), ...(q.metal ? { metal: true } : {}) });
       if (q.eb > 0) c.eb = q.eb;
+      if (q.role === 'lite') Object.assign(c, { role: 'lite', lt: q.lt, k: q.k, pf: q.pf, ...(q.run ? { run: q.run } : {}) });
       if (q.an && q.s !== 'bar') { // 3D에서 열리는 것은 풀어도 열리게
         const mo = face(q.an.t === 'door' ? q.an.out : q.an.v);
         if (q.an.t === 'door') c.mv = q.an.dir < 0 ? 'dl' : 'dr'; else { c.mv = q.front && q.role === 'panel' && !/^속서랍/.test(q.n) ? 'df' : 'dw'; c.mx = q.an.max; }
@@ -77,7 +78,7 @@
       }
       return c;
     });
-    const keepP = { ...(el.p && el.p.handle === 'none' ? { handle: 'none' } : {}), ...(B.spec && B.spec.length ? { spec: B.spec.slice() } : {}), ...(typeof B.cam === 'number' ? { cam: B.cam } : {}) };
+    const keepP = { ...(el.p && el.p.handle === 'none' ? { handle: 'none' } : {}), ...['ledType', 'ledK', 'ledProf'].reduce((t, k) => (el.p && el.p[k] ? { ...t, [k]: el.p[k] } : t), {}), ...(B.spec && B.spec.length ? { spec: B.spec.slice() } : {}), ...(typeof B.cam === 'number' ? { cam: B.cam } : {}) };
     patch(el, '부재로 풀기', { kind: 'free', p: keepP, parts });
     sel = null; formKey = '';
     refreshPanes();
@@ -235,7 +236,16 @@
       </div>`;
   }
   /** 지금 값에서 보여 줄 칸들 */
-  const fieldsOf = (el) => (D().KINDS[el.kind] || D().KINDS.free).fields.filter((f) => !f.when || f.when(el.p || {}, el));
+  const LED_FIELDS = () => [
+    { k: 'ledType', label: 'LED 종류', type: 'select', options: App.ledstrip.TYPES.map((t) => [t.id, t.name]) },
+    { k: 'ledK', label: 'LED 색온도', type: 'select', options: App.ledstrip.TEMPS },
+    { k: 'ledProf', label: 'LED 프로파일', type: 'select', options: App.ledstrip.PROFILES },
+  ];
+  const hasLite = (el) => el.kind !== 'model' && D().build(el).parts.some((q) => q.role === 'lite');
+  const fieldsOf = (el) => {
+    const own = (D().KINDS[el.kind] || D().KINDS.free).fields.filter((f) => !f.when || f.when(el.p || {}, el));
+    return hasLite(el) ? [...own, ...LED_FIELDS().filter((f) => !own.some((x) => x.k === f.k))] : own;
+  };
   const listSig = (el) => fieldsOf(el).filter((f) => f.type === 'list').map((f) => `${f.k}:${(Array.isArray(el.p[f.k]) ? el.p[f.k] : []).map((it) => it.t).join(',')}`).join(';');
 
   function infoHtml(el) {
@@ -267,14 +277,14 @@
         <div class="stats"><div class="stat"><span class="stat-label">${esc(q.n)}</span><span class="stat-value">${esc(sizeText)}</span><small>${esc(M.name || '')} · 자리 X ${fmt(q.s === 'bar' ? q.a[0] : q.x)} · Y ${fmt(q.s === 'bar' ? q.a[1] : q.y)} · Z ${fmt(q.s === 'bar' ? q.a[2] : q.z)}</small></div></div>
         <p class="props-meta">값으로 만든 부재입니다. 크기·자리는 위 값에서 바꾸세요. 하나씩 고치려면 ‘부재로 풀기’.</p>`;
     }
-    const special = q.role === 'slab' || q.role === 'fix'; // 풀어 놓은 상판·기기: 자재·색은 그대로 두고 자리·크기만
+    const special = q.role === 'slab' || q.role === 'fix' || q.role === 'lite'; // 풀어 놓은 상판·기기·LED: 자재·색은 그대로 두고 자리만
     const panel = q.s !== 'bar' && q.role === 'panel';
     const fins = D().FINISHES, finNow = q.c ? (fins.find((x) => x.color && x.color.toLowerCase() === String(q.c).toLowerCase()) || { id: 'keep' }).id : 'none';
     const MV = [['', '움직이지 않음'], ['dl', '문 — 왼쪽 경첩'], ['dr', '문 — 오른쪽 경첩'], ['df', '서랍 앞판 (앞으로 나옴)'], ['dw', '서랍 통 (앞판과 함께)']];
     const sel2 = (k, opts, now) => `<select class="field-select" data-part="${k}">${opts.map(([v, l]) => `<option value="${esc(v)}" ${v === now ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
     return `<div class="field-group-label">고른 부재 <small>${esc(sizeText)}</small></div>
       <div class="field"><label class="field-label">이름</label><div class="field-box"><input type="text" data-part="n" maxlength="30" value="${esc(q.n)}" autocomplete="off"></div></div>
-      ${special ? `<p class="props-meta">${q.role === 'slab' ? `상판 — ${esc(q.mn || '')}` : '사 오는 기기·철물 (부재표에는 안 들어감)'}</p>` : `<div class="field"><label class="field-label">자재</label><div class="field-row">${mats.replace('<select ', '<select class="field-select" ')}</div></div>`}
+      ${special ? `<p class="props-meta">${q.role === 'slab' ? `상판 — ${esc(q.mn || '')}` : q.role === 'lite' ? `LED 라인 — ${esc(App.ledstrip.type(q.lt).name)} · ${esc(App.ledstrip.tempName(q.k))} (종류·색은 위 LED 칸에서 설계 전체로)` : '사 오는 기기·철물 (부재표에는 안 들어감)'}</p>` : `<div class="field"><label class="field-label">자재</label><div class="field-row">${mats.replace('<select ', '<select class="field-select" ')}</div></div>`}
       ${panel ? `<div class="field-grid ds-fields">
         <div class="field"><label class="field-label">마감 색</label><div class="field-row">${sel2('fin', [...fins.map((x) => [x.id, x.name]), ...(finNow === 'keep' ? [['keep', '지금 색 그대로']] : [])], finNow)}</div></div>
         <div class="field"><label class="field-label">3D에서 움직임</label><div class="field-row">${sel2('mv', MV, q.mv || '')}</div></div>
@@ -290,6 +300,7 @@
   }
   function toolHtml() {
     const t = App.ui.tool;
+    if (t === 'dled') return '<p class="props-meta">정면도·평면도·측면도 안에서 끌어 LED 라인(스트립)을 그립니다. 그린 뒤 고르면 시작·끝 점을 숫자로 맞추고, LED 종류·색온도·프로파일은 아래 LED 칸에서 바꿉니다. 집계에 길이·전력·SMPS가 나옵니다.</p>';
     if (t !== 'dbox' && t !== 'dbar') return '';
     const sheet = App.current.dsSheet || 'ply18', bar = App.current.dsBar || 'sq50';
     return t === 'dbox'
@@ -399,6 +410,7 @@
     });
     if (b.tops.length) html += sec('상판', '길이 × 깊이 × 두께', b.tops.map((t) => tr(`${t.n} · ${t.mat}`, `${t.q}개`, `${fmt(t.l)} × ${fmt(t.w)} × ${fmt(t.t)} mm`)));
     if (b.led) html += sec('전광판', '제품마다 다르니 사양서로 확인', [tr('LED 캐비닛', `${b.led.count}개`, `${b.led.cab.name} mm · ${b.led.cols} × ${b.led.rows}`), tr('화면 무게', `약 ${Math.round(b.led.kgScreen)}kg`), tr('최대 전력', `${(b.led.maxW / 1000).toFixed(1)}kW`, `20A 회로 ${b.led.circuits}개 넘게`)]);
+    if (b.lite) html += sec('LED 조명', `${b.lite.text} · 어림`, b.lite.lines.map((l) => tr(l.name, `${l.qty}${l.unit}`, l.note)));
     if (b.hw.length || b.edge) html += sec('철물·부속', '', [...(b.edge ? [tr('엣지 밴딩', `약 ${b.edge}m`, '보이는 마구리 · 여유 10% 더함')] : []), ...b.hw.map((h) => tr(h.n, `${h.q}개`))]);
     html += sec('총계', '', [tr('전체 크기', `${fmt(b.size.w)} × ${fmt(b.size.d)} × ${fmt(b.size.h)} mm`), tr('무게', `약 ${b.kg}kg`, '철물 빼고 · 자재 무게 어림')], ' is-grand');
     // 재료비: 단가를 적으면 합계가 나옴 (단가는 이 기기에 기억)
@@ -461,6 +473,7 @@
           ${mv.doors || mv.drawers ? `<button type="button" class="btn btn-primary" data-act="ds3d-open" aria-pressed="false">${openLabel}</button>` : ''}
           ${mv.doors ? '<button type="button" class="btn" data-act="ds3d-hide" aria-pressed="false">문 떼고 속 보기</button>' : ''}
           <button type="button" class="btn" data-act="ds3d-explode" aria-pressed="false">분해도</button>
+          ${hasLite(el) ? '<button type="button" class="btn" data-act="ds3d-night" aria-pressed="false">LED 켜고 밤으로</button>' : ''}
         </div>`}
         <div class="btn-row"><button type="button" class="btn" data-act="ds3d-png">사진 저장 (PNG)</button>${isModel ? '' : '<button type="button" class="btn" data-act="ds-glb">3D 파일 (GLB)</button>'}</div>
         <p class="props-meta">끌어서 돌리고 휠·두 손가락으로 확대합니다.${sel && !isModel ? ' 고른 부재는 주황색으로 보입니다.' : ''}</p></div>`,
@@ -502,6 +515,7 @@
           } else if (a === 'ds-glb') App.designOut.exportGlb(el);
           else if (a === 'ds3d-open') { st.to = st.to ? 0 : 1; b.setAttribute('aria-pressed', String(!!st.to)); b.textContent = st.to ? '닫기' : openLabel; kick(); }
           else if (a === 'ds3d-hide') { st.hide = !st.hide; b.setAttribute('aria-pressed', String(st.hide)); b.textContent = st.hide ? '문 달기' : '문 떼고 속 보기'; show(); }
+          else if (a === 'ds3d-night' && orbit) { orbit.night = !orbit.night; st.night = orbit.night; b.setAttribute('aria-pressed', String(orbit.night)); b.textContent = orbit.night ? '낮으로' : 'LED 켜고 밤으로'; orbit.draw(); }
           else if (a === 'ds3d-explode') { st.exTo = st.exTo ? 0 : 1; b.setAttribute('aria-pressed', String(!!st.exTo)); b.textContent = st.exTo ? '다시 모으기' : '분해도'; kick(); }
         });
       },
@@ -645,7 +659,7 @@
   }
   const delta = (st, ev) => [ev.world.x - st.world.x, -(ev.world.y - st.world.y)];
   class DDraw {
-    constructor(bar) { this.bar = bar; }
+    constructor(mode) { this.bar = mode === true; this.led = mode === 'led'; }
     activate() { this.st = null; this.cur = null; }
     down(ev) {
       const el = cur();
@@ -664,6 +678,17 @@
       const [ha, va] = AX()[st.view], ta = 3 - ha - va;
       const a0 = snapTo(st.at[0], g), b0 = snapTo(st.at[1], g), a1 = snapTo(st.at[0] + du, g), b1 = snapTo(st.at[1] + dv, g);
       const B = D().build(el), base = B.parts.length ? B.min[ta] : 0;
+      if (this.led) { // LED 라인: 끈 대로 (거의 가로·세로면 곧게), 깊이는 앞면 바로 앞
+        if (Math.hypot(a1 - a0, b1 - b0) < 30) { App.ui.toast('시작점에서 끝점까지 끌어 LED 라인을 그리세요.'); return; }
+        const ang = (Math.atan2(Math.abs(b1 - b0), Math.abs(a1 - a0)) * 180) / Math.PI;
+        const A = [0, 0, 0], Bp = [0, 0, 0];
+        A[ha] = a0; A[va] = b0; Bp[ha] = ang > 86 ? a0 : a1; Bp[va] = ang < 4 ? b0 : b1;
+        A[ta] = Bp[ta] = ta === 1 ? base - 5 : base;
+        const sp = App.ledstrip.spec(el.p || {});
+        addPart(el, { s: 'bar', n: 'LED 라인', m: 'ledline', role: 'lite', a: A, b: Bp, lt: sp.type, k: sp.k, pf: sp.prof }, 'LED 라인 그리기');
+        if (st.empty) App.plan.fitToContent();
+        return;
+      }
       if (!this.bar) {
         const S = D().sheet(App.current.dsSheet || 'ply18');
         const lo = [0, 0, 0], size = [0, 0, 0];
@@ -820,6 +845,11 @@
         if (v != null && v < 0) v = 0;
       }
       if (v === el.p[k]) return;
+      if (['ledType', 'ledK', 'ledProf'].includes(k) && userParts(el).some((q) => q.role === 'lite' || q.m === 'ledline')) { // 직접 그린 LED 라인도 같은 종류로
+        const L = App.ledstrip, nk = { ledType: 'lt', ledK: 'k', ledProf: 'pf' }[k];
+        patch(el, 'LED 바꾸기', { p: { ...el.p, [k]: v }, parts: userParts(el).map((q) => (q.role === 'lite' || q.m === 'ledline' ? { ...q, [nk]: v, ...(k === 'ledK' ? { c: L.light(v) } : {}) } : q)) });
+        return;
+      }
       setParam(el, k, v);
       if (t.dataset.rebuild) { formKey = ''; refreshPanes(); } // 모양(일자·ㄱ자)처럼 칸 구성이 달라지는 값
       return;
@@ -862,6 +892,7 @@
     App.tools.register('dselect', () => new DSelect());
     App.tools.register('dbox', () => new DDraw(false));
     App.tools.register('dbar', () => new DDraw(true));
+    App.tools.register('dled', () => new DDraw('led'));
     const bar = document.getElementById('designBar');
     if (bar) bar.addEventListener('click', (e) => {
       const b = e.target.closest('[data-design], [data-act]');

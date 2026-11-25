@@ -333,6 +333,8 @@
     if (ob) blocks.push(ob);
     const dl = event ? null : daylightBlock();
     if (dl) blocks.push(dl);
+    const lb = ledBlock();
+    if (lb) blocks.push(lb);
     const mat = event ? [] : materialRows(s.materials); // 조감도 모드에서는 벽 자재·마감재를 빼고 봄
     if (mat.length) blocks.push({ title: '벽 자재', sub: '본·장 수는 전체 길이·면적을 더한 뒤 올림', rows: mat });
     if (s.finishes.length && !event) blocks.push({ title: '마감재', sub: '방 속성에서 고른 벽·바닥 마감. 장 수는 면적을 더한 뒤 올림', rows: s.finishes.map((f) => finishRow(f, '', ` · 방 ${f.rooms}곳`)) });
@@ -583,6 +585,19 @@
               : '벽과 방, 문·창문, 전기·설비 기호를 그리면 면적·수량·길이·자재가 여기에 자동으로 정리됩니다.'}</p>
         </div>`}`;
     pane.scrollTop = scroll;
+  }
+
+  /** LED 조명 선: 끝이 맞닿은 선은 한 구간으로 묶어 전력·SMPS·릴·프로파일·부속 (ledstrip.js) */
+  function ledBlock() {
+    if (!App.ledstrip) return null;
+    const ex = App.layers.excludeHidden(), L = App.ledstrip;
+    const segs = [...App.doc.all()].filter((e) => e.type === 'line' && e.category === 'LED 조명' && (!ex || App.layers.visible(e))).map((l) => {
+      const p = App.doc.get(l.presetId) || {};
+      return { a: [l.start.x, l.start.y], b: [l.end.x, l.end.y], type: L.type(p.led).id, k: L.temp(p.k), prof: p.prof === 'none' ? 'none' : 'alu' };
+    });
+    if (!segs.length) return null;
+    const P = L.plan(L.chains(segs));
+    return { title: 'LED 조명 — 전원·부속 (어림)', sub: `${P.text} · 끝이 맞닿은 선은 한 구간 · 평면 길이 기준(오르내림 빼고) · 제품 사양서로 확인`, rows: P.lines.map((l) => row(l.name, { text: `${l.qty}${l.unit}`, num: l.qty, unit: l.unit }, l.note)) };
   }
 
   /** 채광·환기·문 폭 약식 점검 (인테리어, 참고용): 사람이 머무는 방마다 창 면적 ÷ 바닥 면적.

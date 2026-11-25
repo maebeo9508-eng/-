@@ -55,6 +55,13 @@
       c.globalAlpha = 0.22; path(c, [4, 17.5, 16.5, 5, 20, 8.5, 7.5, 21]); c.fill(); c.globalAlpha = 1;
       stroke(c, [16.5, 5, 18.5, 3.5, 21.5, 6.5, 20, 8.5], 1.4);
     },
+    // LED: 빛나는 줄
+    dled(c) {
+      c.lineWidth = 2.6; stroke(c, [4, 17, 20, 7], 2.6);
+      c.globalAlpha = 0.35; stroke(c, [4, 17, 20, 7], 6); c.globalAlpha = 1;
+      [[7, 15], [12, 12], [17, 9]].forEach(([x, y]) => { c.beginPath(); c.arc(x, y, 1.1, 0, Math.PI * 2); c.fill(); });
+      stroke(c, [5, 7, 7.5, 9.5], 1.3); stroke(c, [10, 4, 10.5, 7], 1.3); stroke(c, [16, 17, 18.5, 19.5], 1.3);
+    },
     wall(c) {
       path(c, [4, 20, 4, 4, 20, 4, 20, 8.5, 8.5, 8.5, 8.5, 20]);
       c.fill();

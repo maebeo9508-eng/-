@@ -154,6 +154,10 @@
       table([{ w: 0.2, head: '이름' }, { w: 0.38, head: '자재' }, { w: 0.14, head: '길이', align: 'right' }, { w: 0.1, head: '깊이', align: 'right' }, { w: 0.08, head: '두께', align: 'right' }, { w: 0.1, head: '수량', align: 'right' }],
         b.tops.map((t) => [t.n, t.mat, fmt(t.l), fmt(t.w), fmt(t.t), `${t.q}`]));
     }
+    if (b.lite) {
+      heading('LED 조명', b.lite.text);
+      table([{ w: 0.5, head: '이름' }, { w: 0.16, head: '수량', align: 'right' }, { w: 0.34, head: '비고' }], b.lite.lines.map((l) => [l.name, `${l.qty}${l.unit}`, l.note]));
+    }
     if (b.hw.length || b.edge) {
       heading('철물·부속');
       table([{ w: 0.76, head: '이름' }, { w: 0.24, head: '수량', align: 'right' }], [...(b.edge ? [['엣지 밴딩 (보이는 마구리 · 여유 10% 더함)', `약 ${b.edge}m`]] : []), ...b.hw.map((h) => [h.n, `${h.q}개`])]);
@@ -286,7 +290,7 @@
     const O = DD().outlines(el, { doors: App.current.designDoors !== false }), V = O.views, s = O.size;
     const LAYER = { front: 'D-FRONT', top: 'D-TOP', side: 'D-SIDE', iso: 'D-ISO' };
     const P = (p) => ({ x: p[0], y: p[1] });
-    O.lines.forEach((l) => w.poly(LAYER[l.view], l.pts.map(P), true, l.view === 'iso' ? { color: 8 } : null));
+    O.lines.forEach((l) => w.poly(l.lite ? 'D-LED' : LAYER[l.view], l.pts.map(P), true, l.lite ? { color: 30 } : l.view === 'iso' ? { color: 8 } : null)); // LED 라인은 따로 (주황)
     const G = Math.max(260, Math.round(Math.max(s.w, s.h, s.d) * 0.24)), h = Math.max(18, Math.round(G / 9)), g1 = G * 0.22, g2 = G * 0.44;
     const dimH = (x0, x1, y, from) => {
       if (Math.abs(x1 - x0) < 0.5) return;

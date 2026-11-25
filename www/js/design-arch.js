@@ -34,7 +34,8 @@
       const s = low ? 0 : num(o.s, d0.s, 60, H - 400);
       const h = num(o.h, d0.h, 200, Math.max(200, H - s - fw - 30));
       const head = o.head === 'flat' ? 'flat' : A.isArch(o.head) ? o.head : 'round';
-      return { t, w: r1(w), h: r1(h), s: r1(s), head, S: A.shape(head, w, h) };
+      const led = ['inner', 'arch', 'floor', 'face'].includes(o.led) ? o.led : 'none';
+      return { t, w: r1(w), h: r1(h), s: r1(s), head, led, S: A.shape(head, w, h) };
     });
     const n = ops.length, sumW = ops.reduce((t, o) => t + o.w, 0), minGap = 2 * (fw + lt);
     if (n && sumW + (n + 1) * minGap > W) return { parts, hw, info: [['개구부', '자리가 모자람', `개구부 폭 합 ${Math.round(sumW)}mm가 벽 길이 ${Math.round(W)}mm에 비해 큽니다 (사이마다 틀 ${minGap}mm 이상)`]] };
@@ -187,6 +188,40 @@
       });
     }
 
+    /* 6) LED 라인 (선택): 개구부마다(안쪽 둘레·아치 윗부분·바닥 앞쪽·앞면 테두리), 벽 위·아래 간접(턱 뒤) */
+    const sp = App.ledstrip ? App.ledstrip.spec(p) : null;
+    let ledN = 0;
+    const ledRun = (pts) => { if (sp && pts.length >= 2) parts.push(...D.ledParts(pts, sp, `L${++ledN}`)); };
+    ops.forEach((o) => {
+      const mode = o.led;
+      if (!sp || !mode || mode === 'none') return;
+      const Cv = curve(o, 28), dy = o.t === 'niche' ? yF + 25 : (yF + yB) / 2; // 니치는 앞에서 25 뒤(보이지 않게), 뚫린 곳은 두께 가운데
+      if (mode === 'inner' || mode === 'arch') {
+        const inn = D.bandOf(Cv, -4).slice(Cv.length).reverse().map(([x, z]) => [x, dy, z]); // 아치 안쪽 면에서 4mm 안
+        const z0 = o.s + (o.s > 0 ? 4 : 30);
+        ledRun(mode === 'inner' ? [[o.x + 4, dy, z0], ...inn, [o.x + o.w - 4, dy, z0]] : inn);
+      } else if (mode === 'floor' && o.s > 0) ledRun([[o.x + 15, yF + 25, o.s + 4], [o.x + o.w - 15, yF + 25, o.s + 4]]);
+      else if (mode === 'face') { // 앞면 테두리 (몰딩이 있으면 그 바깥)
+        const off = mold !== 'none' ? mw + 15 : 15, yy = -(mold !== 'none' ? mt : 0) - 6;
+        const out = D.bandOf(Cv, off).slice(Cv.length).reverse().map(([x, z]) => [x, yy, z]);
+        ledRun([[o.x - off, yy, o.s], ...out, [o.x + o.w + off, yy, o.s]]);
+      }
+    });
+    const lw = p.ledWall;
+    if (sp && (lw === 'top' || lw === 'both')) { // 벽 위: 턱(MDF) 뒤에 숨겨 위·아래를 비춤
+      ledRun([[30, -20, H - 70], [W - 30, -20, H - 70]]);
+      parts.push(P(box('간접조명 턱 (위)', MD.id, 0, -40 - mt, H - 120, W, mt, 90)));
+      addHw(hw, '간접조명 턱 받침', Math.ceil(W / 600) + 1);
+    }
+    if (sp && (lw === 'bottom' || lw === 'both')) { // 벽 아래: 바닥에서 떠 보이게 (통로·문 자리는 끊음)
+      let a0 = 0;
+      const cut = [...floorOps.map((o) => [o.x - lt, o.x + o.w + lt]), [W, W]];
+      cut.forEach(([c0, c1]) => {
+        if (c0 - a0 > 200) { ledRun([[a0 + 30, -20, 60], [c0 - 30, -20, 60]]); parts.push(P(box('간접조명 턱 (아래)', MD.id, a0, -40 - mt, 30, c0 - a0, mt, 90))); addHw(hw, '간접조명 턱 받침', Math.ceil((c0 - a0) / 600) + 1); }
+        a0 = c1;
+      });
+    }
+
     D.withHandles(parts, hw, p);
     const faceM2 = faceArea.v / 1e6;
     if (C) addHw(hw, '피스 (판 고정)', Math.ceil(faceM2 * 15));
@@ -214,7 +249,7 @@
   const niche = (w = 450, h = 900, s = 1000, head = 'round') => ({ t: 'niche', w, h, s, head });
   D.KINDS.archwall = {
     label: '아치 벽·가벽 (통로·니치·아치문)', make: archwall,
-    defaults: { W: 2400, H: 2400, T: 120, frame: 'wood30', cover: 'ply9', sides: 'both', place: 'even', gap: 300, edge: 300, mold: 'none', mw: 60, fin: 'white', leaf: 'white', handle: 'bar', ops: [FIRST] },
+    defaults: { W: 2400, H: 2400, T: 120, frame: 'wood30', cover: 'ply9', sides: 'both', place: 'even', gap: 300, edge: 300, mold: 'none', mw: 60, fin: 'white', leaf: 'white', handle: 'bar', ledWall: 'none', ops: [FIRST] },
     presets: [
       ['아치 통로 벽 2400 (가운데 통로)', { ops: [FIRST] }],
       ['아치 니치 장식 벽 3000 (니치 3개)', { W: 3000, T: 200, ops: [niche(), niche(), niche()], fin: 'beige', mold: 'front' }],
@@ -222,11 +257,13 @@
       ['카페 가벽 3600 (아치 창 2 + 통로)', { W: 3600, ops: [{ t: 'window', w: 700, h: 1100, s: 900, head: 'round' }, { t: 'pass', w: 1000, h: 2200, s: 0, head: 'round' }, { t: 'window', w: 700, h: 1100, s: 900, head: 'round' }], fin: 'ivory' }],
       ['포토존 아치 가벽 3000 (행사)', { W: 3000, H: 2700, T: 150, ops: [{ t: 'pass', w: 1400, h: 2300, s: 0, head: 'round' }], fin: 'lgray', mold: 'front' }],
       ['뾰족 아치 니치 2개 (모아서)', { W: 2400, T: 200, place: 'center', gap: 400, ops: [niche(500, 1200, 900, 'pointed'), niche(500, 1200, 900, 'pointed')], fin: 'green' }],
+      ['아치 니치 장식 벽 + LED 간접조명', { W: 3000, T: 200, ops: [niche(), niche(), niche()].map((o) => ({ ...o, led: 'inner' })), fin: 'beige', mold: 'front', ledWall: 'top', ledType: 'cob24', ledK: '3000' }],
     ],
     fields: [
       {
         k: 'ops', label: '개구부', hint: '왼쪽부터', addLabel: '개구부', type: 'list', add: niche(), defw: { pass: 900, door: 900, window: 600, niche: 450 }, defs: OP_DEF,
-        item: [{ k: 't', options: OP_KINDS }, { k: 'w', unit: 'mm' }, { k: 'head', options: A.HEADS.map((h) => [h[0], h[1]]), label: '윗모양' }, { k: 'h', label: '높이' }, { k: 's', label: '바닥에서', when: (it) => it.t === 'window' || it.t === 'niche' }],
+        item: [{ k: 't', options: OP_KINDS }, { k: 'w', unit: 'mm' }, { k: 'head', options: A.HEADS.map((h) => [h[0], h[1]]), label: '윗모양' }, { k: 'h', label: '높이' }, { k: 's', label: '바닥에서', when: (it) => it.t === 'window' || it.t === 'niche' },
+          { k: 'led', label: 'LED', options: [['none', '없음'], ['inner', '안쪽 둘레'], ['arch', '아치 윗부분만'], ['floor', '바닥 앞쪽 (니치·창)'], ['face', '앞면 테두리 (네온)']] }],
         note: '통로·아치문은 바닥부터, 아치 창·니치는 ‘바닥에서’ 높이부터. 니치는 앞면만 뚫리고 뒤는 막힙니다 (깊이 = 벽 두께 − 판). 아치 높이는 모양마다 정해진 값 (반원은 폭의 반).',
       },
       { k: 'W', label: '벽 길이', unit: 'mm' }, { k: 'H', label: '벽 높이', unit: 'mm' }, { k: 'T', label: '벽 두께 (판 포함)', unit: 'mm' },
@@ -236,6 +273,7 @@
       { k: 'cover', label: '겉판', type: 'sheet', none: '없음 (틀만)', min: 9, max: 18 }, { k: 'sides', label: '판 붙이는 면', type: 'select', options: [['both', '양면'], ['front', '앞면만']] },
       { k: 'mold', label: '아치 몰딩', type: 'select', options: [['none', '없음'], ['front', '앞면'], ['both', '양면']] }, { k: 'mw', label: '몰딩 폭', unit: 'mm', when: (q) => q.mold === 'front' || q.mold === 'both' },
       { k: 'fin', label: '칠 색', type: 'finish' },
+      { k: 'ledWall', label: 'LED 간접조명 (벽)', type: 'select', options: [['none', '없음'], ['top', '벽 위 (턱 뒤에 숨김)'], ['bottom', '벽 아래 (바닥에서 떠 보이게)'], ['both', '위·아래']] },
       { k: 'leaf', label: '문짝 색', type: 'finish', when: (q) => (q.ops || []).some((o) => o && o.t === 'door') }, { k: 'handle', label: '문 손잡이', type: 'select', options: D.HANDLES, when: (q) => (q.ops || []).some((o) => o && o.t === 'door') },
     ],
   };

@@ -93,6 +93,8 @@
       fields: [
         { key: 'name', label: '이름', kind: 'text', note: '전선관은 점선, 배관은 실선, 덕트는 지름·폭만큼 굵게 그립니다. 집계는 이름별로 나뉩니다.' },
         { key: 'category', label: '분류', kind: 'select', options: () => App.catalog.LINE_CATEGORIES.map((c) => [c, c]) },
+        { key: 'led', label: 'LED 종류 (LED 조명일 때)', kind: 'select', options: () => App.ledstrip.TYPES.map((t) => [t.id, t.name]) },
+        { key: 'k', label: 'LED 색온도 (LED 조명일 때)', kind: 'select', options: () => App.ledstrip.TEMPS },
         { key: 'color', label: '색', kind: 'select', options: () => App.catalog.COLORS },
         { key: 'size', label: '지름·폭', kind: 'mm', min: 1, max: 3000 },
         { key: 'runHeight', label: '높이 (비우면 천장)', kind: 'mm', min: 0, max: 20000, allowEmpty: true, emptyText: '천장', group: '배관 높이',

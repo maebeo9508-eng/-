@@ -83,6 +83,7 @@
     if (fl > 0) { parts.push(PD(box('휠라', S.id, x, 0, 0, fl, t, H))); x += fl; cx.push(x); }
     if (p.epl) { parts.push(PD(box('EP (마감 판넬)', S.id, x, 0, 0, t, Dp, H, { eb: H + Dp }))); x += t; cx.push(x); }
     const x0 = x, Hi = hc - 2 * t, topShelf = hc - t - 300 - t; // 위에서 300 아래에 선반 (이불·상자 칸)
+    const cloLed = p.ledClo && p.ledClo !== 'none' && App.ledstrip ? App.ledstrip.spec(p) : null;
     cols.forEach((c, i) => {
       const n = doorsOn && c.t !== 'open' ? (c.w <= 600 ? 1 : 2) : 0;
       const o = { x, y: 0, z: plinth, w: c.w, d: Dp, h: hc, S, backS, fB, fD, hw, doors: n, hinge: i === cols.length - 1 && i > 0 ? 'r' : 'l' };
@@ -96,6 +97,10 @@
         o.shelves = Array.from({ length: k }, (_, j) => z0 + gap * (j + 1) + t * j);
       }
       parts.push(...carcass(o));
+      if (cloLed) { // LED (선택): 칸 천장 라인 · 칸 양옆 세로 라인 (문 뒤 45)
+        if (p.ledClo === 'top' || p.ledClo === 'both') parts.push(...D.ledParts([[x + t + 20, 45, plinth + hc - t - 10], [x + c.w - t - 20, 45, plinth + hc - t - 10]], cloLed, `C${i}t`));
+        if (p.ledClo === 'side' || p.ledClo === 'both') [x + t + 6, x + c.w - t - 6].forEach((lx, j) => parts.push(...D.ledParts([[lx, 45, plinth + t + 60], [lx, 45, plinth + hc - t - 60]], cloLed, `C${i}s${j}`)));
+      }
       nd += n;
       labels.push({ view: 'front', a0: x, a1: x + c.w, z0: plinth, z1: plinth + hc, text: `${COL_SHORT[c.t]} ${c.w}` });
       x += c.w; cx.push(x);
@@ -250,7 +255,8 @@
 
     /* 줄마다: 모듈·상부·상판·걸레받이·몰딩 */
     const place = (run, list, s0, s1, dep) => (run === 'A' ? putA(list, s0, dep) : putB(list, s1, dep));
-    let nBase = 0, nUp = 0, topLen = 0;
+    let nBase = 0, nUp = 0, topLen = 0, kitLedN = 0;
+    const kitLed = p.ledKit && p.ledKit !== 'none' && App.ledstrip ? App.ledstrip.spec(p) : null;
     const doRun = (run, mods, cornerSide) => {
       const segs = (pred) => { const out = []; mods.forEach((m) => { if (!pred(m)) return; const last = out[out.length - 1]; if (last && Math.abs(last[1] - m.s0) < 0.5) last[1] = m.s1; else out.push([m.s0, m.s1]); }); return out; };
       mods.forEach((m, i) => {
@@ -286,6 +292,12 @@
       });
       // 걸레받이: 통이 있는 칸이 이어진 곳마다 (문 앞면에서 50 들어감)
       segs((m) => !['open', 'fridge'].includes(m.t)).forEach(([a, b]) => parts.push(board(run, '걸레받이', a, b, Dp - 50 - t, Dp - 50, 0, plinth, fD, { eb: b - a })));
+      // LED (선택): 상부장 밑(조리대를 비춤) · 걸레받이 간접(바닥을 비춤)
+      if (kitLed) {
+        const P3 = (s, w, z) => (run === 'A' ? [s, Y - w, z] : [w, Y - s, z]);
+        if (p.ledKit === 'under' || p.ledKit === 'both') segs((m) => !TALL.has(m.t) && m.u !== 'none').forEach(([a, b]) => { const m0 = mods.find((m) => Math.abs(m.s0 - a) < 0.5), s0 = m0 && m0.u0 != null ? m0.u0 : a; if (b - s0 > 200) parts.push(...D.ledParts([P3(s0 + 30, wallD - 30, zw - 6), P3(b - 30, wallD - 30, zw - 6)], kitLed, `K${++kitLedN}`)); });
+        if (p.ledKit === 'plinth' || p.ledKit === 'both') segs((m) => !['open', 'fridge'].includes(m.t)).forEach(([a, b]) => { if (b - a > 200) parts.push(...D.ledParts([P3(a + 30, Dp - 40, plinth - 12), P3(b - 30, Dp - 40, plinth - 12)], kitLed, `K${++kitLedN}`)); });
+      }
       // 상부 몰딩: 상부장·키큰장 위
       if (mold >= 20) {
         segs((m) => !TALL.has(m.t) && m.u !== 'none').forEach(([a, b]) => { const m0 = mods.find((m) => Math.abs(m.s0 - a) < 0.5); parts.push(board(run, '상부 몰딩', m0 && m0.u0 != null ? m0.u0 : a, b, wallD - t, wallD, HT, HT + mold, fU, { eb: b - a })); });
@@ -333,6 +345,7 @@
       { k: 'top', label: '상부 몰딩 높이', unit: 'mm' }, { k: 'fl', label: '왼쪽 휠라 폭', unit: 'mm' }, { k: 'fr', label: '오른쪽 휠라 폭', unit: 'mm' },
       { k: 'mat', label: '판재', type: 'sheet', min: 15 }, { k: 'back', label: '뒤판', type: 'sheet', none: '없음', max: 9 }, ...FIN_FIELDS,
       { k: 'handle', label: '손잡이', type: 'select', options: D.HANDLES },
+      { k: 'ledClo', label: 'LED (칸 안)', type: 'select', options: [['none', '없음'], ['top', '칸 천장 라인'], ['side', '칸 양옆 세로 라인'], ['both', '천장 + 세로']] },
       { k: 'epl', label: '왼쪽 끝 EP (마감 판넬)', type: 'check' }, { k: 'epr', label: '오른쪽 끝 EP (마감 판넬)', type: 'check' },
     ],
   };
@@ -348,6 +361,7 @@
       ['일자 2400 + 키큰장', { shape: 'I', A: [m('tallopen', 600), m('sink', 800), m('cookd', 600, 'hood'), m('door', 400)], ep1: true }],
       ['ㄱ자 3100 × 3600 (코너장·키큰장)', { shape: 'L', A: [m('corner', 1000), m('cook', 600, 'hood'), m('drawer3', 600), m('door', 880)], B: [m('door', 450), m('sink', 950), m('drawer2', 600), m('door', 400), m('tallopen', 600)], ep1: true, ep2: true }],
       ['ㄱ자 2400 × 2400 (모서리 막음)', { shape: 'L', A: [m('sink', 900), m('door', 900)], B: [m('cook', 600, 'hood'), m('drawer3', 600), m('door', 600)], ep1: true }],
+      ['일자 3000 + 상부장 밑 LED', { shape: 'I', A: [m('drawer3', 600), m('sink', 900), m('door', 400), m('cook', 600, 'hood'), m('door', 500)], ledKit: 'under', ledType: 'cob24', ledK: '4000' }],
     ],
     fields: [
       { k: 'shape', label: '모양', type: 'select', options: [['I', '일자'], ['L', 'ㄱ자 (뒷벽 + 왼쪽 벽)']], rebuild: true },
@@ -358,6 +372,7 @@
       { k: 'HT', label: '상부장 윗면 높이', unit: 'mm' }, { k: 'wallH', label: '상부장 높이', unit: 'mm' }, { k: 'wallD', label: '상부장 깊이', unit: 'mm' }, { k: 'mold', label: '상부 몰딩 높이', unit: 'mm' },
       { k: 'mat', label: '판재', type: 'sheet', min: 15 }, { k: 'body', label: '몸통 색', type: 'finish' }, { k: 'doorc', label: '하부장 문 색', type: 'finish' }, { k: 'doorU', label: '상부장·키큰장 문 색', type: 'finish', same: '하부장 문과 같게' },
       { k: 'handle', label: '손잡이', type: 'select', options: D.HANDLES },
+      { k: 'ledKit', label: 'LED (주방)', type: 'select', options: [['none', '없음'], ['under', '상부장 밑 (조리대 비춤)'], ['plinth', '걸레받이 간접 (바닥)'], ['both', '상부장 밑 + 걸레받이']] },
       { k: 'ep1', label: '왼쪽(ㄱ자는 B줄) 끝 EP (마감 판넬)', type: 'check' }, { k: 'ep2', label: 'A줄 오른쪽 끝 EP (마감 판넬)', type: 'check' },
     ],
   };

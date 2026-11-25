@@ -515,6 +515,18 @@
       S.tube([hd[0] + lz * 0.02, 1.0, hd[1] - lx * 0.02], [hd[0] + lz * 0.08, 1.0, hd[1] - lx * 0.08], 0.011, 0.011, hex('#c9ced6'), MAT.metal, 6);
     }
 
+    /* LED 간접조명 선 (인테리어): 빛나는 줄 + 번지는 빛. 높이를 정하지 않았으면 천장 8cm 아래 */
+    els.filter((e) => e.type === 'line' && e.category === 'LED 조명' && App.layers.visible(e)).forEach((l) => {
+      const pre = doc.get(l.presetId) || {}, mid = { x: (l.start.x + l.end.x) / 2, y: (l.start.y + l.end.y) / 2 };
+      const room = App.measure.roomAt(mid), top = (room && room.ceilingHeight) || App.settings.wallHeight;
+      let y = (l.runHeight != null ? l.runHeight : top - 80) / 1000;
+      if (o.low) y = Math.min(y, LOW_WALL - 0.06);
+      const col = hex(App.ledstrip ? App.ledstrip.light(pre.k) : '#ffcf7a'), a = P(l.start), b = P(l.end);
+      world();
+      S.beam([a[0], y, a[1]], [b[0], y, b[1]], 0.014, col, MAT.emissive, 0.008);
+      L.glass.beam([a[0], y, a[1]], [b[0], y, b[1]], 0.07, col, MAT.emissive, 0.05);
+    });
+
     /* 기둥 */
     els.filter((e) => e.type === 'column').forEach((c) => {
       const room = c.room && doc.get(c.room);

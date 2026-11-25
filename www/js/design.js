@@ -49,7 +49,19 @@
   const LED = { id: 'led', name: 'LED 캐비닛', color: '#12161c' };
   const sheet = (id) => SHEETS.find((s) => s.id === id) || SHEETS[0];
   const bar = (id) => BARS.find((b) => b.id === id) || BARS[2];
-  const mat = (id) => SHEETS.find((s) => s.id === id) || BARS.find((b) => b.id === id) || (id === 'led' ? LED : null);
+  /* LED 라인(스트립): 막대처럼 a→b 선분 부재. role 'lite', lt 종류·k 색온도·pf 프로파일·run 이어진 구간 (계산은 ledstrip.js) */
+  const LITE = { id: 'ledline', name: 'LED 라인', color: '#ffcf7a', sw: 10, sh: 6 };
+  const mat = (id) => SHEETS.find((s) => s.id === id) || BARS.find((b) => b.id === id) || (id === 'led' ? LED : id === 'ledline' ? LITE : null);
+  const LS = () => App.ledstrip;
+  /** LED 라인 부재들: 점들(절대 [x, y, z])을 잇는 선분마다 하나. sp: ledstrip.spec(p), run: 이어진 구간 이름 */
+  function ledParts(pts, sp, run, n = 'LED 라인') {
+    const out = [];
+    for (let i = 0; i + 1 < pts.length; i++) {
+      if (Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1], pts[i + 1][2] - pts[i][2]) < 1) continue;
+      out.push({ s: 'bar', n, m: 'ledline', role: 'lite', a: pts[i].map(r1), b: pts[i + 1].map(r1), lt: sp.type, k: sp.k, pf: sp.prof, run, c: sp.color });
+    }
+    return out;
+  }
 
   /* ── 부재 만들기 도우미 ── */
   const box = (n, m, x, y, z, w, d, h, o = {}) => ({ s: 'box', n, m, role: 'panel', x: r1(x), y: r1(y), z: r1(z), w: r1(w), d: r1(d), h: r1(h), ...o });
@@ -265,6 +277,11 @@
     }
     if (shelves && gap >= 40) addHw(hw, '선반 다보', shelves * (dividers + 1) * 4);
     if (p.rod) addHw(hw, '봉 브래킷', 2);
+    if (p.ledShelf && p.ledShelf !== 'none' && App.ledstrip) { // LED (선택): 선반마다 아래 앞쪽 · 칸 천장(천판 아래)
+      const sp = App.ledstrip.spec(p);
+      if (p.ledShelf === 'under') parts.filter((q) => q.n === '선반').forEach((q, i) => parts.push(...ledParts([[q.x + 10, q.y + 15, q.z - 5], [q.x + q.w - 10, q.y + 15, q.z - 5]], sp, `S${i}`)));
+      else for (let b2 = 0; b2 <= dividers; b2++) { const bx = t + (bw + t) * b2; parts.push(...ledParts([[bx + 10, y0 + 15, H - t - 6], [bx + bw - 10, y0 + 15, H - t - 6]], sp, `T${b2}`)); }
+    }
     withHandles(parts, hw, p);
     const spec = [fB.color ? `몸통: ${fB.name}` : '', fD.color && fronts ? `문짝·서랍 앞판: ${fD.name}` : ''].filter(Boolean);
     return {
@@ -469,6 +486,7 @@
         { k: 'plinth', label: '걸레받이 높이', unit: 'mm' },
         { k: 'body', label: '몸통 색', type: 'finish' }, { k: 'doorc', label: '문짝·서랍 색', type: 'finish' },
         { k: 'handle', label: '손잡이 (문짝·서랍)', type: 'select', options: HANDLES },
+        { k: 'ledShelf', label: 'LED (선반)', type: 'select', options: [['none', '없음'], ['under', '선반마다 아래 앞쪽'], ['top', '칸 천장 (천판 아래)']] },
         { k: 'rod', label: '옷걸이 봉', type: 'check' },
       ],
     },
@@ -571,6 +589,10 @@
     const f = (v) => (Number.isFinite(+v) ? r1(+v) : 0);
     const keep = q.s !== 'bar' && (q.role === 'slab' || q.role === 'fix') ? q.role : null; // ‘부재로 풀기’로 넘어온 상판·기기(싱크볼 따위)
     const m = keep ? (keep === 'slab' ? 'top' : 'fix') : mat(q.m) ? q.m : 'ply18', n = String(q.n || '부재').slice(0, 30), id = typeof q.id === 'string' ? q.id : `u${i}`;
+    if ((q.role === 'lite' || q.m === 'ledline') && Array.isArray(q.a) && Array.isArray(q.b) && !q.halo) { // LED 라인
+      const L = LS();
+      return { id, s: 'bar', n, m: 'ledline', role: 'lite', a: q.a.slice(0, 3).map(f), b: q.b.slice(0, 3).map(f), lt: L.type(q.lt).id, k: L.temp(q.k), pf: q.pf === 'none' ? 'none' : 'alu', c: L.light(q.k), ...(q.run ? { run: String(q.run).slice(0, 24) } : {}), user: true };
+    }
     if (q.s === 'bar' && Array.isArray(q.a) && Array.isArray(q.b)) {
       const M = BARS.find((b) => b.id === m) ? m : 'sq50';
       return { id, s: 'bar', n, m: M, role: 'bar', a: q.a.slice(0, 3).map(f), b: q.b.slice(0, 3).map(f), user: true };
@@ -613,6 +635,13 @@
       else { const hs = handles(moved); hs.forEach((h, i) => parts.push({ id: `h${i}`, ...h })); addHw(hw, '손잡이', hs.length); }
     }
     made.hw = hw;
+    // LED 라인: 3D에서 번지는 빛(반투명) 부재를 붙이고 마감사양에 한 줄
+    const lites = parts.filter((q) => q.role === 'lite' && !q.halo);
+    if (lites.length) {
+      lites.forEach((q) => parts.push({ ...q, id: `${q.id}~`, n: 'LED 빛', halo: true, sw: 46, sh: 46, al: 0.2, user: false }));
+      const L = LS(), q0 = lites[0];
+      if (!(made.spec || []).some((t) => /^LED/.test(t))) made.spec = [...(made.spec || []), `LED: ${L.type(q0.lt).name} · ${L.tempName(q0.k)}${q0.pf === 'none' ? '' : ' · 알루미늄 프로파일'}`];
+    }
     const out = { ...made, parts, size: { w: r1(b.max[0] - b.min[0]), d: r1(b.max[1] - b.min[1]), h: r1(b.max[2] - b.min[2]) }, min: b.min, max: b.max };
     cache.set(el, { key, out });
     return out;
@@ -623,7 +652,7 @@
       const { x, y, z, w, d, h } = q;
       return [[x, y, z], [x + w, y, z], [x + w, y + d, z], [x, y + d, z], [x, y, z + h], [x + w, y, z + h], [x + w, y + d, z + h], [x, y + d, z + h]];
     }
-    const B = bar(q.m), a = q.a, b = q.b;
+    const B = q.role === 'lite' ? { sw: q.sw || LITE.sw, sh: q.sh || LITE.sh } : bar(q.m), a = q.a, b = q.b;
     let ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
     const L = Math.hypot(ux, uy, uz) || 1;
     ux /= L; uy /= L; uz /= L;
@@ -640,7 +669,7 @@
   }
   function bounds(parts) {
     const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
-    parts.forEach((q) => { if (q.hd) return; corners(q).forEach((c) => { for (let k = 0; k < 3; k++) { if (c[k] < min[k]) min[k] = c[k]; if (c[k] > max[k]) max[k] = c[k]; } }); }); // 손잡이(hd)는 크기에 안 넣음
+    parts.forEach((q) => { if (q.hd || q.halo) return; corners(q).forEach((c) => { for (let k = 0; k < 3; k++) { if (c[k] < min[k]) min[k] = c[k]; if (c[k] > max[k]) max[k] = c[k]; } }); }); // 손잡이(hd)는 크기에 안 넣음
     if (min[0] === Infinity) return { min: [0, 0, 0], max: [0, 0, 0] };
     return { min, max };
   }
@@ -696,10 +725,11 @@
   /** 재단표: 판재(자재·마감 색·크기별), 막대(자재·길이별), 상판, 전광판, 철물, 엣지 길이, 무게 */
   function bom(el) {
     const B = build(el);
-    const panels = new Map(), bars = new Map(), tops = new Map();
+    const panels = new Map(), bars = new Map(), tops = new Map(), lites = [];
     let leds = 0, edge = 0, topKg = 0;
     B.parts.forEach((q) => {
       if (q.role === 'led') { leds++; return; }
+      if (q.role === 'lite') { if (!q.halo) lites.push(q); return; }
       if (q.eb > 0) edge += q.eb;
       if (q.role === 'panel') {
         // 곡선 판은 둘러싼 네모(윤곽을 따라 자름), 휨합판 띠는 곡선 길이 × 깊이
@@ -743,7 +773,14 @@
     const kg = sheets.reduce((t, s) => t + s.kg, 0) + stocks.reduce((t, s) => t + s.kg, 0) + (B.led ? B.led.kgScreen : 0) + topKg;
     // 엣지 밴딩: 보이는 마구리 길이 (자르고 붙일 때의 여유 10%를 더함), m로
     const edgeM = edge > 0 ? Math.ceil((edge * 1.1) / 100) / 10 : 0;
-    return { panels: panelRows, bars: barRows, tops: topRows, sheets, stocks, leds, led: B.led || null, hw: B.hw || [], edge: edgeM, kg: r1(kg), size: B.size, spec: B.spec || [] };
+    // LED 라인: 같은 이름(run)의 선분은 한 구간, 이름 없는 것(직접 그린 것)은 끝이 맞닿으면 한 구간
+    let lite = null;
+    if (lites.length) {
+      const named = new Map(), loose = [];
+      lites.forEach((q) => { if (q.run) { const r = named.get(q.run) || { len: 0, type: q.lt, k: q.k, prof: q.pf }; r.len += lenOf(q); named.set(q.run, r); } else loose.push({ a: q.a, b: q.b, type: q.lt, k: q.k, prof: q.pf }); });
+      lite = LS().plan([...named.values(), ...LS().chains(loose)]);
+    }
+    return { panels: panelRows, bars: barRows, tops: topRows, sheets, stocks, leds, led: B.led || null, lite, hw: B.hw || [], edge: edgeM, kg: r1(kg), size: B.size, spec: B.spec || [] };
   }
   /** 재료비: 이 기기에 적어 둔 단가(원장 한 장·원자재 한 본·엣지 1m·철물 하나)로. 돌려주는 값: { lines: [{ key, name, qty, unit, price, amount }], total, priced } */
   const PRICE_KEY = 'hjdm.dprices';
@@ -764,6 +801,7 @@
     topLen.forEach((len, mat) => add(`top:${mat}`, `상판 (${mat})`, Math.round(len / 100) / 10, 'm'));
     if (b.edge) add('edge', '엣지 밴딩', b.edge, 'm');
     if (b.led) add(`led:${b.led.cab.id}`, `LED 캐비닛 ${b.led.cab.name}`, b.led.count, '개');
+    if (b.lite) b.lite.lines.forEach((l) => add(l.key, l.name, l.qty, l.unit));
     b.hw.forEach((h) => add(`hw:${h.n.replace(/\s*\d+mm/, '')}`, h.n, h.q, '개'));
     return { lines, total: lines.reduce((t, l) => t + l.amount, 0), priced: lines.filter((l) => l.price > 0).length };
   }
@@ -778,6 +816,8 @@
     if (b.edge) rows.push(['엣지 밴딩', '', '보이는 마구리', Math.round(b.edge * 1000), '', '', '', `약 ${b.edge}m (여유 10% 더함)`]);
     if (b.led) rows.push(['전광판', 'LED 캐비닛', `${b.led.cab.name} mm`, b.led.cab.w, b.led.cab.h, b.led.cab.depth, b.led.count, `${b.led.cols}×${b.led.rows} · 약 ${Math.round(b.led.kgScreen)}kg · 최대 ${r1(b.led.maxW / 1000)}kW`]);
     b.hw.forEach((h) => rows.push(['철물·부속', '', h.n, '', '', '', h.q, '']));
+    if (b.lite) b.lite.lines.forEach((l) => rows.push(['LED 조명', '', l.name, l.unit === 'm' ? Math.round(l.qty * 1000) : '', '', '', l.unit === 'm' ? '' : l.qty, `${l.unit === 'm' ? `${l.qty}m · ` : `${l.unit} · `}${l.note}`]));
+    if (b.lite) rows.push(['LED 조명 합계', '', b.lite.text, '', '', '', '', '어림 — 고른 제품의 사양서로 확인']);
     if (b.spec.length) rows.push(['마감사양', '', b.spec.join(' / '), '', '', '', '', '']);
     rows.push(['무게 합계', '', '', '', '', '', '', `약 ${b.kg}kg (철물 빼고)`]);
     return rows;
@@ -822,7 +862,7 @@
       out.push({
         corners: k,
         color: o.pick && o.pick === q.id ? [0.95, 0.45, 0.1] : hexRgb(q.c || M.color), alpha: q.al != null ? q.al : M.alpha, metal,
-        mat: led2 || q.gl ? MAT.gloss : metal ? MAT.metal : q.role === 'panel' && !M.alpha ? MAT.grain : undefined, group: M.name || q.n,
+        mat: q.role === 'lite' ? MAT.emissive : led2 || q.gl ? MAT.gloss : metal ? MAT.metal : q.role === 'panel' && !M.alpha ? MAT.grain : undefined, group: M.name || q.n,
       });
       });
     });
@@ -859,7 +899,7 @@
   App.design = {
     SHEETS, BARS, LED_CABS, LED_PITCH, KINDS, SHEET_W, SHEET_H, KERF,
     sheet, bar, mat, create, build, bom, bomRows, cost, prices, setPrice, bounds, corners, lenOf, weightOf, nest1d, nest2d, toBoxes, toModel, movable, cleanPart, box, rail, brace,
-    FINISHES, finish, paint, hingesFor, slideFor, addHw, doorPart, drawerParts, handles, withHandles, HANDLES, MOVES, moveOf, poly, arcPart, bandOf, outline2, arcLen, polyStrips, hexes, num, int, r1,
+    FINISHES, finish, paint, hingesFor, slideFor, addHw, doorPart, drawerParts, handles, withHandles, HANDLES, MOVES, moveOf, LITE, ledParts, poly, arcPart, bandOf, outline2, arcLen, polyStrips, hexes, num, int, r1,
     /** 도면의 설계물들 (만든 차례) */
     all: () => (App.doc ? [...App.doc.all()].filter((e) => e.type === 'design') : []),
     /** 지금 보고 있는 설계물 */
