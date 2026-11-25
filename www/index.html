@@ -176,6 +176,7 @@
           <button type="button" class="stage-pill" id="btnDsDims" aria-pressed="true" title="치수선 보이기·숨기기">치수</button>
           <button type="button" class="stage-pill" id="btnDsHidden" aria-pressed="true" title="가려진 선(점선) 보이기·숨기기">숨은선</button>
           <button type="button" class="stage-pill" id="btnDsDoors" aria-pressed="true" title="문짝 보이기·떼기 (문을 떼면 속의 선반·서랍·봉이 보입니다)">문짝</button>
+          <button type="button" class="stage-pill" id="btnDsPreview" aria-pressed="true" title="작업하는 동안 오른쪽 위에 전체 모습(3D) 미리보기">미리보기</button>
         </div>
       </div>
       </div>
@@ -215,6 +216,14 @@
       <div class="quick-bar" id="quickBar" role="toolbar" aria-label="고른 물건 빠른 동작" hidden></div>
       <!-- 설계 모드: 고른 부재 옮기기·돌리기·복제, 아무것도 안 골랐으면 부재 넣기 -->
       <div class="quick-bar ds-quick" id="dsQuick" role="toolbar" aria-label="설계 빠른 동작" hidden></div>
+      <!-- 설계 모드: 작업하는 동안 전체 모습 미리보기 (3D, 고치는 대로 바뀜, 끌어서 돌리기, 누르면 큰 3D 창) -->
+      <div class="ds-preview" id="dsPreview" role="group" aria-label="전체 미리보기" hidden>
+        <canvas class="ds-prev-cv" aria-label="전체 미리보기 3D — 끌어서 돌리고, 누르면 큰 3D 창"></canvas>
+        <span class="ds-prev-tag">전체 미리보기</span>
+        <span class="ds-prev-empty">부재를 넣으면 여기에 전체 모습이 보입니다</span>
+        <button type="button" class="ds-prev-btn ds-prev-x" data-pv="close" aria-label="미리보기 닫기" title="닫기 (표시 메뉴의 ‘미리보기’로 다시 켬)">✕</button>
+        <button type="button" class="ds-prev-btn ds-prev-size" data-pv="size" aria-label="미리보기 크게" title="크게·작게">⤢</button>
+      </div>
 
       <div class="tool-hint" id="toolHint" role="status" aria-live="polite"></div>
 

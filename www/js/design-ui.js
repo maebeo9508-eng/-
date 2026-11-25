@@ -8,7 +8,7 @@
   const fmt = (v) => DD().fmt(v);
   const isMode = () => App.modes.is('design');
   const cur = () => D().current();
-  const render = () => { if (App.plan) App.plan.requestRender(); renderQuick(); };
+  const render = () => { if (App.plan) App.plan.requestRender(); renderQuick(); previewKick(); };
   const numIn = (v) => { const n = Number(String(v == null ? '' : v).replace(/[,\s]/g, '')); return Number.isFinite(n) ? n : NaN; };
   let sel = null;       // 고른 부재 id
   let formKey = '';     // 속성 칸을 통째로 다시 그릴지
@@ -27,6 +27,7 @@
     formKey = '';
     syncBar();
     refreshPanes();
+    previewSync();
     if (doFit && isMode()) fit();
     render();
   }
@@ -532,6 +533,7 @@
     if (st.raf) cancelAnimationFrame(st.raf);
     st3d = null;
     if (orbit) { orbit.dispose(); orbit = null; }
+    pv.el = null; previewKick(); // 창이 덮는 동안 쉬던 전체 미리보기를 새로
     return true;
   }
 
@@ -1175,6 +1177,106 @@
     render();
   }
 
+  /* ── 전체 미리보기: 작업하는 동안 오른쪽 위에 전체 모습을 3D로 (고치는 대로 바로 바뀜, 고른 부재는 주황, 끌어서 돌리기, 누르면 3D 창) ── */
+  const pv = { orbit: null, cv2: null, raf: 0, last: 0, el: null, B: null, sel: undefined, doors: null, id: null, big: false, ver: 0, down: null, failed: false };
+  const pvOn = () => App.current.designPreview !== false;
+  const pvBox = () => document.getElementById('dsPreview');
+  /** 보일지·자리·크기를 맞춤 (모드·설계물·설정이 바뀔 때) */
+  function previewSync(refit = false) {
+    const box = pvBox();
+    if (!box) return;
+    const el = isMode() ? cur() : null, show = !!el && pvOn();
+    const was = !box.hidden;
+    box.hidden = !show;
+    box.classList.toggle('is-big', pv.big);
+    const btn = document.getElementById('btnDsPreview');
+    if (btn) btn.setAttribute('aria-pressed', String(pvOn()));
+    if (!show) {
+      if (!isMode() && pv.orbit) { // 다른 모드에서는 3D 자원을 놓아 줌 (다시 올 때는 새 캔버스로: 놓은 캔버스는 3D를 다시 못 씀)
+        pv.orbit.dispose(); pv.orbit = null; pv.el = null; pv.B = null; pv.id = null;
+        const old = box.querySelector('canvas'), fresh = old.cloneNode(false);
+        old.replaceWith(fresh);
+      }
+      if (was && isMode()) fit();
+      return;
+    }
+    // 자리: 위쪽 버튼 줄(보는 그림·설계물 막대)과 겹치지 않게. PC에서 버튼 줄이 오른쪽까지 오지 않으면 맨 위에
+    const st = document.getElementById('stageTop'), stage = document.getElementById('stage');
+    if (st && stage) {
+      const sr = stage.getBoundingClientRect(), tr = st.getBoundingClientRect(), bw = box.offsetWidth || 120;
+      const clear = tr.right < sr.right - bw - 24;
+      box.style.top = `${Math.round(clear ? 12 : tr.bottom - sr.top + 8)}px`;
+    }
+    if (!pv.orbit && !pv.failed) {
+      const cv = box.querySelector('canvas');
+      pv.orbit = new App.libraryUI.Orbit(cv);
+      if (!pv.orbit.ok) { pv.orbit = null; pv.failed = true; }
+    }
+    pv.el = null; // 다음 번에 새로 그림
+    if (!was || refit) setTimeout(() => { if (isMode()) fit(); }, 0);
+    previewKick();
+  }
+  function previewKick() {
+    const box = pvBox();
+    if (!box || box.hidden || pv.raf) return;
+    pv.raf = requestAnimationFrame(previewStep);
+  }
+  function previewStep(now) {
+    pv.raf = 0;
+    const box = pvBox(), el = isMode() ? cur() : null;
+    if (!box || box.hidden || !el) return;
+    if (!document.getElementById('dialog').hidden) return; // 창(3D 보기 따위)이 덮는 동안은 쉼
+    const doors = App.current.designDoors !== false, B = el.kind === 'model' ? el.objId : D().build(el); // 부재가 바뀌면 build가 새 결과를 돌려줌 (설계물은 그 자리에서 고쳐질 수 있어 결과로 비교)
+    if (pv.el === el && pv.B === B && pv.sel === sel && pv.doors === doors) return;
+    if (now - pv.last < 90) { pv.raf = requestAnimationFrame(previewStep); return; } // 끄는 동안은 1초에 10번쯤
+    pv.last = now;
+    pv.el = el; pv.B = B; pv.sel = sel; pv.doors = doors; pv.ver++;
+    box.dataset.ver = String(pv.ver);
+    if (el.kind === 'model') return previewModel(el);
+    const m = D().toModel(el, { pick: sel, hideDoors: !doors });
+    box.classList.toggle('is-empty', !m);
+    if (!m) return;
+    if (pv.orbit) {
+      const scene = App.library.sceneOf(m), same = pv.id === el.id;
+      if (!same && typeof D().build(el).cam === 'number') pv.orbit.cam.yaw = D().build(el).cam;
+      pv.orbit.set(scene, same);
+      if (same) { // 같은 설계: 보는 방향·거리는 그대로 두고 가운데만 따라감 (크기가 크게 바뀌면 다시 맞춤)
+        const b = scene.bounds, c = [(b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, (b.min[2] + b.max[2]) / 2];
+        const r = Math.hypot(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]) / 2 || 0.5, cam = pv.orbit.cam;
+        cam.target = c;
+        if (r > cam.r * 1.25 || r < cam.r * 0.7) cam.dist = Math.max((r / Math.sin(0.25)) * 1.08, pv.orbit.fitDist(b, c) * 1.06);
+        cam.r = r;
+        pv.orbit.draw();
+      }
+      pv.id = el.id;
+    } else previewFlat(el);
+  }
+  /** 내려받은 3D 모델 */
+  async function previewModel(el) {
+    const m = el.objId ? App.library.byId(el.objId) : null;
+    if (!m || !pv.orbit) return;
+    await App.library.ready(m.id);
+    const e = App.library.data(m.id), model = e ? e.view || e.mesh : null;
+    if (model && pv.orbit && pv.el === el) { pv.orbit.set(App.library.sceneOf(model), pv.id === el.id); pv.id = el.id; }
+  }
+  /** 3D를 못 쓰는 기기: 입체도(2D)를 작게 */
+  function previewFlat(el) {
+    const box = pvBox();
+    let cv = pv.cv2;
+    if (!cv) { cv = pv.cv2 = document.createElement('canvas'); cv.className = 'ds-prev-cv'; box.querySelector('canvas').replaceWith(cv); }
+    const dpr = Math.min(2, window.devicePixelRatio || 1), w = cv.clientWidth || 120, h = cv.clientHeight || 120;
+    cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+    const ctx = cv.getContext('2d'), L = DD().layout(el), V = L.views.iso, k = Math.min((w - 16) / V.w, (h - 16) / V.h);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, w, h);
+    ctx.translate((w - V.w * k) / 2, (h - V.h * k) / 2); ctx.scale(k, k); ctx.translate(-V.x, -V.y);
+    DD().drawSheet(ctx, el, { px: 1 / k, view: 'iso', dims: false, sel, doors: App.current.designDoors !== false, caption: false });
+  }
+  function previewToggle(on = !pvOn()) {
+    App.current.designPreview = on;
+    App.ui.emit('current');
+    previewSync(true);
+  }
+
   /* ── 눌린 버튼·바뀐 칸 처리 (속성·집계 칸, 위쪽 막대) ── */
   async function act(name, btn = null) {
     const el = cur();
@@ -1351,6 +1453,20 @@
       showBtn.addEventListener('click', (e) => { e.stopPropagation(); setOpen(!shows.classList.contains('is-open')); });
       document.addEventListener('pointerdown', (e) => { if (shows.classList.contains('is-open') && !e.target.closest('.ds-show-wrap')) setOpen(false); });
     }
+    const pbox = document.getElementById('dsPreview');
+    if (pbox) {
+      pbox.addEventListener('pointerdown', (e) => { pv.down = { x: e.clientX, y: e.clientY }; });
+      pbox.addEventListener('click', (e) => {
+        const b = e.target.closest('[data-pv]');
+        if (b) { e.stopPropagation(); if (b.dataset.pv === 'close') previewToggle(false); else { pv.big = !pv.big; b.setAttribute('aria-label', pv.big ? '미리보기 작게' : '미리보기 크게'); previewSync(true); if (pv.orbit) { pv.el = null; pv.id = null; previewKick(); } } return; }
+        const d = pv.down; pv.down = null;
+        if (d && Math.hypot(e.clientX - d.x, e.clientY - d.y) > 6) return; // 돌리려고 끈 것
+        if (isMode() && cur()) open3d(cur()); // 누르면 큰 3D 창
+      });
+    }
+    const pbtn = document.getElementById('btnDsPreview');
+    if (pbtn) pbtn.addEventListener('click', () => previewToggle());
+    window.addEventListener('resize', () => { if (isMode()) previewSync(); });
     const quick = document.getElementById('dsQuick');
     if (quick) quick.addEventListener('click', (e) => { const b = e.target.closest('[data-dq]'); if (b && isMode()) quickAct(b.dataset.dq, b); });
     ['pane-props', 'pane-summary'].forEach((id) => {
@@ -1363,9 +1479,10 @@
       sel = null; formKey = '';
       syncBar();
       renderQuick();
+      previewSync();
       if (isMode()) { const el = cur(); if (el && App.current.designId !== el.id) App.current.designId = el.id; setTimeout(() => { if (isMode()) fit(); }, 0); }
     });
-    App.ui.on('project', () => { sel = null; formKey = ''; syncBar(); renderQuick(); });
+    App.ui.on('project', () => { sel = null; formKey = ''; syncBar(); renderQuick(); previewSync(); });
     App.ui.on('tool', () => { if (isMode()) { formKey = ''; refreshPanes(); } renderQuick(); });
     App.ui.on('library', () => { if (isMode()) { refreshPanes(); render(); } });
     App.doc.onChange(() => {
@@ -1375,15 +1492,19 @@
       if (sel && el && !D().build(el).parts.some((q) => q.id === sel)) { sel = null; formKey = ''; }
       syncBar();
       renderQuick();
+      previewKick();
     });
     syncBar();
     renderQuick();
+    previewSync();
   }
 
   App.designUI = {
     init, renderProps, renderSummary, newDialog, openModel, open3d, toObject, toEstimate, add, remove, duplicate, explode, setCurrent, deletePart, addPart, setParam, act,
     selected: () => sel,
-    setView, addShape, nudge, rotateInView, dupPart, arrayPart, renderQuick, editDim, askNumber, calc,
+    setView, previewToggle, preview: () => ({ on: pvOn(), shown: !!pvBox() && !pvBox().hidden, gl: !!pv.orbit, ver: pv.ver, big: pv.big, yaw: pv.orbit ? pv.orbit.cam.yaw : null }),
+    /** 시험용: 전체 미리보기를 지금 그려 그림 주소로 */
+    previewShot: () => { if (!pv.orbit) return null; pv.orbit.now(); return pvBox().querySelector('canvas').toDataURL('image/png'); }, addShape, nudge, rotateInView, dupPart, arrayPart, renderQuick, editDim, askNumber, calc,
     /** 시험용: 지금 보이는 손잡이들 (고른 부재의 크기·끝, 값으로 만든 설계의 전체 크기) */
     handles: () => { const el = cur(); return el ? (sel ? handlesOf(el) : sizeHandles(el)) : []; },
     step: () => step,

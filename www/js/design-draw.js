@@ -345,10 +345,12 @@
     if (on('front')) { ctx.moveTo(V.front.x - 30 * px, base); ctx.lineTo(V.front.x + V.front.w + 30 * px, base); }
     if (on('side')) { ctx.moveTo(V.side.x - 30 * px, base); ctx.lineTo(V.side.x + V.side.w + 30 * px, base); }
     ctx.stroke();
-    if (on('front')) caption(V.front);
-    if (on('top')) caption(V.top);
-    if (on('side')) caption(V.side);
-    if (on('iso')) caption(V.iso, ' (비율만 맞춤)');
+    if (o.caption !== false) {
+      if (on('front')) caption(V.front);
+      if (on('top')) caption(V.top);
+      if (on('side')) caption(V.side);
+      if (on('iso')) caption(V.iso, ' (비율만 맞춤)');
+    }
     L.overall = []; // 그림 하나를 볼 때 전체 치수 글자 자리 (눌러서 값 고치기): [{ ax(0 X·1 Y·2 Z), v, x, y, horiz }]
     if (o.dims !== false) {
       dimStyle(ctx, px);
@@ -440,6 +442,15 @@
     return out;
   }
 
+  /** 전체 미리보기 창(오른쪽 위 3D)의 자리: 캔버스 기준 화면 픽셀 { left, top, right, bottom }, 없으면 null */
+  function previewRect(plan) {
+    if (typeof document === 'undefined' || !plan || !plan.canvas) return null;
+    const b = document.getElementById('dsPreview');
+    if (!b || b.hidden) return null;
+    const cr = plan.canvas.getBoundingClientRect(), r = b.getBoundingClientRect();
+    if (!r.width || !r.height) return null;
+    return { left: r.left - cr.left, top: r.top - cr.top, right: r.right - cr.left, bottom: r.bottom - cr.top };
+  }
   /** 값으로 만든 설계에서 축 하나(0 폭·1 깊이·2 높이)의 전체 크기를 정하는 값 이름 ('W'·'D'·'T'·'H').
       그 값이 실제 전체 크기와 같을 때만 (주방처럼 값과 전체 크기가 다르면 null) */
   function sizeParam(el, ax, B = D().build(el)) {
@@ -492,13 +503,20 @@
     // 마감사양은 화면 폭에 맞춰 여러 줄로 (휴대폰에서 오른쪽으로 넘치지 않게)
     const one = view !== 'all', vx = one ? L.views[view].x : 0;
     const tx = vx - (view === 'iso' ? 18 : EDGE.l - 6) * px, right = plan.view.worldRect(plan.width, plan.height).maxX - ((plan.insets && plan.insets.right) || 0) * px;
-    const specs = specLines(L, Math.max(160, (right - tx) / px - 12));
+    // 제목 폭: 화면 오른쪽 끝까지, 전체 미리보기가 떠 있으면 그 앞까지 (제목이 미리보기 밑에 가리지 않게)
+    const P = previewRect(plan);
+    let room = (right - tx) / px - 12;
+    if (P) room = Math.min(room, P.left - plan.view.toScreen(tx, 0).x - 12);
+    const specs = specLines(L, Math.max(160, room));
     // 그림 하나를 볼 때는 고른 부재의 치수가 그림 위에 붙으므로 제목을 그만큼 더 위로
     const top = (one ? L.views[view].y : Math.min(L.views.top.y, L.views.iso.y)) - (one && view !== 'iso' ? PART_GAP : 0) * px, th = TITLE_H + 17 * specs.length;
     ctx.fillStyle = plan.colors.fg || INK; ctx.font = `700 ${15 * px}px ${FONT}`; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
     ctx.fillText(el.name || '설계', tx, top - th * px);
     ctx.fillStyle = MUTE; ctx.font = `500 ${11.5 * px}px ${FONT}`;
-    ctx.fillText(`폭 ${fmt(L.s.w)} × 깊이 ${fmt(L.s.d)} × 높이 ${fmt(L.s.h)} mm · 치수 단위 mm`, tx, top - (th - 21) * px);
+    let sizeLine = `폭 ${fmt(L.s.w)} × 깊이 ${fmt(L.s.d)} × 높이 ${fmt(L.s.h)} mm · 치수 단위 mm`;
+    if (ctx.measureText(sizeLine).width / px > Math.max(160, room)) sizeLine = `폭 ${fmt(L.s.w)} × 깊이 ${fmt(L.s.d)} × 높이 ${fmt(L.s.h)} mm`;
+    if (ctx.measureText(sizeLine).width / px > Math.max(160, room)) sizeLine = `${fmt(L.s.w)} × ${fmt(L.s.d)} × ${fmt(L.s.h)} mm`;
+    ctx.fillText(sizeLine, tx, top - (th - 21) * px);
     specs.forEach((line, i) => ctx.fillText(line, tx, top - (th - 38 - 17 * i) * px));
   }
   const specOf = (L) => (L.B.spec && L.B.spec.length ? L.B.spec.join(' · ') : '');
@@ -593,14 +611,27 @@
     if (!plan || !(plan.width > 0)) return view === 'all' ? L.rect : { minX: x0 - W * 0.3, minY: top - H * 0.3, maxX: x1 + W * 0.3, maxY: bot + H * 0.3 };
     const i = plan.insets || { top: 0, right: 0, bottom: 0, left: 0 }, pad = Math.min(48, Math.min(plan.width, plan.height) * 0.08);
     const vw = plan.width - i.left - i.right - pad * 2, vh = plan.height - i.top - i.bottom - pad * 2;
-    const nSpec = specLines(L, Math.max(160, vw - 18)).length;
+    const P = previewRect(plan); // 전체 미리보기가 떠 있으면 제목은 그 앞에서 줄바꿈 (scene과 같은 폭)
+    const nSpec = specLines(L, Math.max(160, P ? Math.min(vw - 18, P.left - (i.left + pad) - 18) : vw - 18)).length;
     // 빠른 막대(고른 부재·부재 넣기)가 도면 아래쪽을 가리는 만큼 더 비움
     let qb = 0;
     const q = typeof document !== 'undefined' ? document.getElementById('dsQuick') : null;
     if (q && !q.hidden && plan.canvas) { const cr = plan.canvas.getBoundingClientRect(), r = q.getBoundingClientRect(); if (r.height) qb = Math.max(0, Math.min(cr.height * 0.4, cr.bottom - r.top - (i.bottom || 0) - pad + 8)); }
-    const k = Math.min((vw - E.l - E.r) / W, (vh - E.t - 17 * nSpec - E.b - qb) / H);
+    // 전체 미리보기(오른쪽 위 3D 창)를 피함. 미리보기는 먼저 제목 옆(제목 줄 높이만큼)에 들어가고,
+    // 그보다 길면 도면 위를 더 비우거나 오른쪽을 비우는 것 중 도면이 더 크게 보이는 쪽 (비슷하면 위)
+    const kOf = (dw, dh) => Math.min((vw - E.l - E.r - dw) / W, (vh - E.t - 17 * nSpec - E.b - qb - dh) / H);
+    let k = kOf(0, 0), dw = 0, dh = 0;
+    if (P) {
+      const pw = Math.max(0, plan.width - (i.right || 0) - pad - P.left + 8);
+      const freeAbove = E.t + 17 * nSpec - (view !== 'all' && view !== 'iso' ? PART_GAP : 0); // 제목만 있는 높이 (고른 부재 치수 자리는 빼고)
+      const ph = Math.max(0, P.bottom + 8 - ((i.top || 0) + pad) - freeAbove);
+      if (pw > 0 && ph > 0) { const kR = kOf(pw, 0), kT = kOf(0, ph); if (kT > 0 && kT >= kR * 0.85) { k = kT; dh = ph; } else { k = kR; dw = pw; } }
+      // 비키면 도면이 너무 작아질 때(크게 키운 미리보기 따위)는 비키지 않고 미리보기가 잠깐 위에 떠 있게
+      const k0 = kOf(0, 0);
+      if (k < k0 * 0.6) { k = k0; dw = 0; dh = 0; }
+    }
     if (!(k > 0) || !isFinite(k)) return L.rect;
-    return { minX: x0 - E.l / k, minY: top - (E.t + 17 * nSpec) / k, maxX: x1 + E.r / k, maxY: bot + (E.b + qb) / k };
+    return { minX: x0 - E.l / k, minY: top - (E.t + 17 * nSpec + dh) / k, maxX: x1 + (E.r + dw) / k, maxY: bot + (E.b + qb) / k };
   }
   /** 그림 네 개가 차지하는 자리 (mm): x는 0~W, y는 top~0. 치수선·이름이 차지하는 둘레(EDGE, 화면 픽셀)는 따로 */
   function frame(el) {
@@ -619,7 +650,7 @@
 
   App.designDraw = {
     layout, drawSheet, scene, hit, toPaper, bounds, frame, EDGE, outlines, specOf, specLines, titleH, AXES, fmt, modelShots, isoFaces, orthoShapes, chain,
-    VIEWS, viewNow, partSpan, paperOf, sizeParam,
+    VIEWS, viewNow, partSpan, paperOf, sizeParam, previewRect,
     /** 화면에 그린 고른 부재 치수 글자 자리 (눌러서 고치기) */
     tapDims: () => tapDims,
     /** 끄는 동안 그림 기준을 붙박음 (el을 주면 지금 기준으로, null이면 풂) */
