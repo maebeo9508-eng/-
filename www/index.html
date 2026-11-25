@@ -162,9 +162,22 @@
         <div class="menu layer-menu" id="layerMenu" role="menu" hidden></div>
       </div>
       <button type="button" class="stage-pill event-only" id="btnNames" aria-pressed="true" title="물건 이름을 도면에 보이기·숨기기">이름표</button>
-      <button type="button" class="stage-pill design-only" id="btnDsDims" aria-pressed="true" title="치수선 보이기·숨기기">치수</button>
-      <button type="button" class="stage-pill design-only" id="btnDsHidden" aria-pressed="true" title="가려진 선(점선) 보이기·숨기기">숨은선</button>
-      <button type="button" class="stage-pill design-only" id="btnDsDoors" aria-pressed="true" title="문짝 보이기·떼기 (문을 떼면 속의 선반·서랍·봉이 보입니다)">문짝</button>
+      <!-- 설계 모드: 보는 그림 고르기 (정면이 처음) -->
+      <div class="ds-views design-only" id="dsViews" role="tablist" aria-label="보는 그림">
+        <button type="button" class="ds-view" role="tab" data-dview="front" aria-selected="true" title="정면도 — 앞에서 본 그림 (1)">정면</button>
+        <button type="button" class="ds-view" role="tab" data-dview="top" aria-selected="false" title="평면도 — 위에서 본 그림 (2)">평면</button>
+        <button type="button" class="ds-view" role="tab" data-dview="side" aria-selected="false" title="우측면도 — 오른쪽에서 본 그림 (3)">측면</button>
+        <button type="button" class="ds-view" role="tab" data-dview="iso" aria-selected="false" title="입체도 — 비스듬히 본 그림, 눌러서 부재 고르기 (4)">입체</button>
+        <button type="button" class="ds-view" role="tab" data-dview="all" aria-selected="false" title="네 그림을 한 장에 — PDF와 같은 배치 (5)">전체</button>
+      </div>
+      <div class="menu-wrap ds-show-wrap design-only">
+        <button type="button" class="stage-pill ds-show-btn" id="btnDsShow" aria-expanded="false" aria-controls="dsShows" title="치수·숨은선·문짝 보이기">표시<span class="ico ico-sm" data-icon="chevron"></span></button>
+        <div class="ds-shows" id="dsShows" role="group" aria-label="도면에 보일 것">
+          <button type="button" class="stage-pill" id="btnDsDims" aria-pressed="true" title="치수선 보이기·숨기기">치수</button>
+          <button type="button" class="stage-pill" id="btnDsHidden" aria-pressed="true" title="가려진 선(점선) 보이기·숨기기">숨은선</button>
+          <button type="button" class="stage-pill" id="btnDsDoors" aria-pressed="true" title="문짝 보이기·떼기 (문을 떼면 속의 선반·서랍·봉이 보입니다)">문짝</button>
+        </div>
+      </div>
       </div>
       <div class="pal-cats design-bar" id="designBar" role="tablist" aria-label="설계물" hidden></div>
       <div class="pal-cats" id="paletteCats" role="tablist" aria-label="물건 분류" hidden></div>
@@ -200,6 +213,8 @@
 
       <!-- 조감도 모드: 고른 물건을 바로 돌리고 복제하는 막대 -->
       <div class="quick-bar" id="quickBar" role="toolbar" aria-label="고른 물건 빠른 동작" hidden></div>
+      <!-- 설계 모드: 고른 부재 옮기기·돌리기·복제, 아무것도 안 골랐으면 부재 넣기 -->
+      <div class="quick-bar ds-quick" id="dsQuick" role="toolbar" aria-label="설계 빠른 동작" hidden></div>
 
       <div class="tool-hint" id="toolHint" role="status" aria-live="polite"></div>
 

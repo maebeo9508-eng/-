@@ -8,20 +8,26 @@
   const fmt = (v) => DD().fmt(v);
   const isMode = () => App.modes.is('design');
   const cur = () => D().current();
-  const render = () => { if (App.plan) App.plan.requestRender(); };
+  const render = () => { if (App.plan) App.plan.requestRender(); renderQuick(); };
   const numIn = (v) => { const n = Number(String(v == null ? '' : v).replace(/[,\s]/g, '')); return Number.isFinite(n) ? n : NaN; };
   let sel = null;       // 고른 부재 id
   let formKey = '';     // 속성 칸을 통째로 다시 그릴지
   const uid = () => `u${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
+  /** 화면 맞춤: 위쪽 버튼 줄(보는 그림·설계물 막대) 높이를 다시 재고 맞춤 */
+  function fit() {
+    const st = document.getElementById('stageTop');
+    if (st && App.plan && st.offsetHeight) App.plan.insets.top = st.offsetTop + st.offsetHeight;
+    App.plan.fitToContent();
+  }
   /* ── 설계물 다루기 ── */
-  function setCurrent(id, fit = true) {
+  function setCurrent(id, doFit = true) {
     if (App.current.designId !== id) { App.current.designId = id; App.ui.emit('current'); }
     sel = null;
     formKey = '';
     syncBar();
     refreshPanes();
-    if (fit && isMode()) App.plan.fitToContent();
+    if (doFit && isMode()) fit();
     render();
   }
   function add(kind, preset, name) {
@@ -30,6 +36,7 @@
     if (names.has(nm)) { let i = 2; while (names.has(`${nm} ${i}`)) i++; nm = `${nm} ${i}`; }
     const el = D().create(kind, preset, nm);
     App.doc.transact('새 설계', () => App.doc.add(el));
+    if (App.current.designView && App.current.designView !== 'front') { App.current.designView = 'front'; } // 새 설계는 정면도부터
     setCurrent(el.id);
     return el;
   }
@@ -119,6 +126,8 @@
     if (hid) hid.setAttribute('aria-pressed', String(App.current.designHidden !== false));
     const drs = document.getElementById('btnDsDoors');
     if (drs) { drs.setAttribute('aria-pressed', String(App.current.designDoors !== false)); drs.hidden = !(el && el.kind !== 'model' && D().movable(el).doors); }
+    const v = viewNow();
+    document.querySelectorAll('#dsViews [data-dview]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.dview === v)));
   }
   function refreshPanes() {
     if (!isMode()) return;
@@ -162,7 +171,7 @@
       },
     });
     if (made === 'model') return openModel();
-    if (made && made.kind === 'free') { App.ui.pickTool('dbox'); App.ui.toast('‘판’·‘막대’ 도구로 끌어서 부재를 그리세요. 크기와 자리는 속성에서 숫자로 맞춥니다.'); }
+    if (made && made.kind === 'free') { App.ui.pickTool('dselect'); App.ui.toast('아래 ‘+가로판’·‘+세로판’·‘+막대’를 누르면 바로 생깁니다. ‘판’·‘막대’ 도구로 끌어 그려도 됩니다.'); }
     return made;
   }
   /** 내려받은 3D 모델을 열어 설계 화면에서 봄 (내 사물에도 등록됨) */
@@ -337,7 +346,7 @@
           <button type="button" class="btn" data-act="ds-copy">설계 복제</button>
           <button type="button" class="btn btn-danger" data-act="ds-del">설계 지우기</button>
         </div>
-        <p class="props-meta">${el.kind === 'model' ? '내려받은 모델을 네 방향에서 본 그림입니다. 치수는 등록할 때 넣은 크기입니다 (내 사물에서 고칠 수 있음).' : '도면의 부재를 누르면 그 부재의 크기·자리가 보입니다. 휠·두 손가락으로 확대, 빈 곳을 끌면 화면 이동.'}</p>
+        <p class="props-meta">${el.kind === 'model' ? '내려받은 모델을 네 방향에서 본 그림입니다. 치수는 등록할 때 넣은 크기입니다 (내 사물에서 고칠 수 있음).' : '위쪽에서 정면·평면·측면·입체·전체 그림을 고릅니다. 부재를 누르면 아래 빠른 막대로 옮기고·돌리고·복제하고, 주황 점을 끌면 크기, 치수 숫자를 누르면 숫자로 고칩니다. 휠·두 손가락으로 확대, 빈 곳을 끌면 화면 이동.'}</p>
       </div>`;
   }
   function emptyHtml() {
@@ -574,10 +583,18 @@
 
   /* ── 도구: 고르기·끌기 / 판 그리기 / 막대 그리기 ── */
   const AX = () => DD().AXES;
-  const dragged = (a, b) => Math.hypot(a.x - b.x, a.y - b.y) > 4;
-  /** 지금 배율에서 붙는 간격(mm): 화면 6px쯤 되는 1·5·10·50 */
-  const grid = () => { const s = App.plan.view.scale; return [1, 5, 10, 50, 100].find((g) => g * s >= 5) || 100; };
+  const viewNow = () => DD().viewNow();
+  const ORTHO = ['front', 'top', 'side'];
+  const dragged = (a, b) => Math.hypot(a.x - b.x, a.y - b.y) > (App.pointerTouch ? 8 : 4);
+  /** 지금 배율에서 붙는 간격(mm): 화면 5px(손가락은 8px)쯤 되는 1·5·10·50·100 */
+  const grid = () => { const s = App.plan.view.scale, min = App.pointerTouch ? 8 : 5; return [1, 5, 10, 50, 100].find((g) => g * s >= min) || 100; };
   const snapTo = (v, g) => Math.round(v / g) * g;
+  const r1 = (v) => Math.round(v * 10) / 10;
+  const POS = ['x', 'y', 'z'], SIZE = ['w', 'd', 'h'];
+  const hitPx = () => (App.pointerTouch ? 26 : 10);   // 손잡이를 잡는 거리 (화면 픽셀)
+  const nearPx = () => (App.pointerTouch ? 14 : 5);   // 얇은 판·막대를 고르는 거리 (화면 픽셀)
+  /** 그림의 축: [가로, 세로, 깊이], 깊이 쪽에서 보는 사람에게 다가오는 방향(+1·−1). 입체도는 정면처럼 */
+  const axesOf = (view) => { const [ha, va] = AX()[view] || AX().front; return { ha, va, ta: 3 - ha - va, toward: view === 'top' || view === 'side' ? 1 : -1 }; };
   /** 다른 부재의 면에 붙임: vals(움직이는 것의 면들)가 faces 가운데 하나와 tol 안이면 그만큼 옮길 값 */
   function faceSnap(vals, faces, tol) {
     let best = null;
@@ -586,75 +603,272 @@
   }
   function facesOf(el, skipId, axis) {
     const out = [];
-    D().build(el).parts.forEach((q) => { if (q.id === skipId) return; const c = D().corners(q); out.push(Math.min(...c.map((p) => p[axis])), Math.max(...c.map((p) => p[axis]))); });
+    D().build(el).parts.forEach((q) => { if (q.id === skipId || q.halo) return; const c = D().corners(q); out.push(Math.min(...c.map((p) => p[axis])), Math.max(...c.map((p) => p[axis]))); });
+    return out;
+  }
+  /** 값 하나를 다른 부재의 면에, 아니면 간격에 붙임 */
+  const snap1 = (el, id, axis, v, step, tol, free) => { if (free) return v; const f = faceSnap([v], facesOf(el, id, axis), tol); return f != null ? v + f : snapTo(v, step); };
+
+  /* ── 손잡이: 고른 부재의 크기(모서리·변)와 막대 끝, 값으로 만든 설계의 전체 크기 ── */
+  const shownViews = () => { const v = viewNow(); return v === 'all' ? ORTHO : ORTHO.includes(v) ? [v] : []; };
+  /** 고른 부재의 손잡이: [{ view, kind: 'box'(sa, sb: 그 축의 아래(−1)·위(1) 끝을 움직임, 0은 그대로) | 'end'(end: 'a'|'b'), x, y(종이) }].
+      화면에서 얇은 쪽(18mm 판의 두께 따위)은 손잡이를 빼서 손가락으로 잡기 쉽게 */
+  function handlesOf(el) {
+    const q = sel && el && el.kind !== 'model' ? userParts(el).find((x) => x.id === sel) : null;
+    if (!q || q.s === 'poly' || q.s === 'arc' || App.ui.tool !== 'dselect') return [];
+    const L = DD().layout(el), min = (App.pointerTouch ? 40 : 24) / App.plan.view.scale, out = [];
+    shownViews().forEach((view) => {
+      const { ha, va } = axesOf(view);
+      if (q.s === 'bar') { ['a', 'b'].forEach((end) => { const p = DD().paperOf(L, view, q[end][ha], q[end][va]); out.push({ view, kind: 'end', end, x: p.x, y: p.y }); }); return; }
+      const sp = DD().partSpan(q, view), wide = sp.hi[0] - sp.lo[0] >= min, tall = sp.hi[1] - sp.lo[1] >= min;
+      const use = (sa, sb) => (wide && tall ? true : wide ? !sb : tall ? !sa : sa === 1 && sb === 1);
+      for (const sa of [-1, 0, 1]) for (const sb of [-1, 0, 1]) {
+        if ((!sa && !sb) || !use(sa, sb)) continue;
+        const a = sa < 0 ? sp.lo[0] : sa > 0 ? sp.hi[0] : (sp.lo[0] + sp.hi[0]) / 2, b = sb < 0 ? sp.lo[1] : sb > 0 ? sp.hi[1] : (sp.lo[1] + sp.hi[1]) / 2;
+        const p = DD().paperOf(L, view, a, b);
+        out.push({ view, kind: 'box', sa, sb, x: p.x, y: p.y });
+      }
+    });
+    return out;
+  }
+  /** 값으로 만든 설계(수납장·테이블·선반·아치 벽 따위)의 전체 크기 손잡이: 오른쪽 끝(폭·깊이)과 위 끝(높이·깊이).
+      그 값이 실제 전체 크기와 같은 것만 (주방처럼 값과 크기가 다른 것은 빼고) */
+  function sizeHandles(el) {
+    if (!el || sel || el.kind === 'model' || el.kind === 'free' || App.ui.tool !== 'dselect') return [];
+    const B = D().build(el), has = (ax) => DD().sizeParam(el, ax, B);
+    const L = DD().layout(el), out = [], mid = (ax) => (B.min[ax] + B.max[ax]) / 2;
+    shownViews().forEach((view) => {
+      const { ha, va } = axesOf(view), kh = has(ha), kv = has(va);
+      if (kh) { const p = DD().paperOf(L, view, B.max[ha], mid(va)); out.push({ view, kind: 'size', ax: ha, key: kh, dir: 'h', x: p.x, y: p.y }); }
+      if (kv) { const p = DD().paperOf(L, view, mid(ha), B.max[va]); out.push({ view, kind: 'size', ax: va, key: kv, dir: 'v', x: p.x, y: p.y }); }
+    });
     return out;
   }
 
+  /* ── 숫자 넣기 창 (치수 글자를 눌렀을 때 따위): 1200-36 같은 셈도 됨 ── */
+  function calc(text) {
+    const t = String(text == null ? '' : text).replace(/,/g, '').trim();
+    if (!t) return NaN;
+    if (/^[\d.\s+\-*/()]+$/.test(t)) { try { const v = Function(`"use strict";return (${t});`)(); return Number.isFinite(v) ? v : NaN; } catch (_) { return NaN; } }
+    return numIn(t);
+  }
+  async function askNumber(title, value, note = '') {
+    const pr = App.ui.dialog({
+      title,
+      html: `<div class="field"><div class="field-box"><input id="dsNum" type="text" inputmode="decimal" enterkeyhint="done" value="${esc(String(r1(value)))}" autocomplete="off" aria-label="${esc(title)}"><span class="field-unit">mm</span></div></div><p class="props-meta">${esc(note || '1200-36 처럼 셈을 넣어도 됩니다.')}</p>`,
+      actions: [{ id: 'cancel', label: '취소' }, { id: 'ok', label: '바꾸기', primary: true }],
+      onOpen(body) { body.querySelector('#dsNum').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); document.querySelector('#dialogFoot [data-id="ok"]').click(); } }); },
+    });
+    const inp = document.querySelector('#dialogBody #dsNum');
+    if (inp) { inp.focus(); inp.select(); } // 숫자를 바로 치게 (휴대폰도 자판이 올라옴)
+    const r = await pr;
+    if (r.id !== 'ok') return null;
+    const v = calc(r.body.querySelector('#dsNum').value);
+    if (!Number.isFinite(v)) { App.ui.toast('숫자를 넣어 주세요.'); return null; }
+    return v;
+  }
+  const AXNAME = { front: ['폭', '높이'], top: ['폭', '깊이'], side: ['깊이', '높이'] };
+  /** 고른 부재의 치수 글자를 눌렀을 때: 크기 또는 끝에서 떨어진 거리를 숫자로 */
+  async function editDim(lab) {
+    const el = cur();
+    if (!el) return;
+    if (lab.key === 'param') { // 값으로 만든 설계의 전체 폭·깊이·높이
+      const name = { W: '폭', D: '깊이', T: '두께', H: '높이' }[lab.k] || lab.k;
+      const v = await askNumber(`전체 ${name}`, lab.v, '설계 값이 바뀌고 부재가 그에 맞춰 다시 만들어집니다. 1200-36 처럼 셈도 됩니다.');
+      if (v == null || !cur()) return;
+      setParam(cur(), lab.k, Math.max(lab.k === 'T' ? 30 : 100, Math.min(30000, Math.round(v))));
+      formKey = ''; refreshPanes();
+      return;
+    }
+    const q = userParts(el).find((x) => x.id === lab.id);
+    if (!q) { App.ui.toast('값으로 만든 부재입니다. 크기·자리는 속성의 값에서 바꾸거나 ‘부재로 풀기’ 한 뒤 고치세요.'); return; }
+    if (lab.key === 'size' && (q.s === 'poly' || q.s === 'arc')) { App.ui.toast('곡선 부재는 크기를 바꿀 수 없습니다. 자리(떨어진 거리)만 고칠 수 있습니다.'); return; }
+    const nm = AXNAME[lab.view][lab.ax], end = lab.ax === 0 ? (lab.view === 'side' ? ['앞 끝', '뒤 끝'] : ['왼쪽 끝', '오른쪽 끝']) : lab.view === 'top' ? ['앞 끝', '뒤 끝'] : ['아래 끝', '위 끝'];
+    const title = lab.key === 'size' ? `부재 ${nm}` : lab.key === 'lo' ? `${end[0]}에서 떨어진 거리` : `${end[1]}까지 남는 거리`;
+    const v = await askNumber(title, lab.v, lab.key === 'size' ? `${end[0]}은 그대로 두고 늘이거나 줄입니다. 1200-36 처럼 셈도 됩니다.` : '부재 크기는 그대로 두고 옮깁니다. 1200-36 처럼 셈도 됩니다.');
+    if (v == null) return;
+    const now = cur(), qq = now && userParts(now).find((x) => x.id === lab.id);
+    if (!qq) return;
+    const ax = AX()[lab.view][lab.ax], B = D().build(now), c = D().corners(qq), lo = Math.min(...c.map((p) => p[ax])), hi = Math.max(...c.map((p) => p[ax]));
+    if (lab.key === 'size') {
+      const want = Math.max(1, v);
+      if (qq.s === 'bar') { const e = qq.a[ax] >= qq.b[ax] ? 'a' : 'b', P = qq[e].slice(); P[ax] = r1(lo + want); setPart(now, qq.id, { [e]: P }, '부재 크기 바꾸기'); }
+      else setPart(now, qq.id, { [SIZE[ax]]: r1(want) }, '부재 크기 바꾸기');
+    } else {
+      const to = lab.key === 'lo' ? B.min[ax] + v : B.max[ax] - v - (hi - lo);
+      shiftBy(now, qq, ax, to - lo, '부재 옮기기');
+    }
+    refreshPanes();
+  }
+  /** 부재 하나를 축 하나로 d만큼 */
+  function moved(q, sh) {
+    if (q.s === 'bar') return { a: q.a.map((v, i) => r1(v + sh[i])), b: q.b.map((v, i) => r1(v + sh[i])) };
+    return { x: r1(q.x + sh[0]), y: r1(q.y + sh[1]), z: r1(q.z + sh[2]) };
+  }
+  function shiftBy(el, q, ax, d, label) {
+    if (!d) return;
+    const sh = [0, 0, 0]; sh[ax] = d;
+    setPart(el, q.id, moved(q, sh), label);
+  }
+
   class DSelect {
-    activate() { this.drag = null; }
+    activate() { this.drag = null; this.pan = null; this.press = null; this.label = null; }
     down(ev) {
       const el = cur();
-      this.press = ev;
-      this.drag = null;
+      this.press = ev; this.drag = null; this.pan = null; this.label = null;
       if (!el) return;
-      const h = DD().hit(el, ev.world);
+      const s = App.plan.view.scale, w = ev.world, v = viewNow();
+      // 치수 글자 (고른 부재의 크기·자리, 아무것도 안 골랐으면 전체 폭·높이): 누르고 떼면 숫자로 고침
+      this.label = DD().tapDims().find((t) => (t.key === 'param' ? !sel : t.id === sel) && w.x >= t.r.x0 && w.x <= t.r.x1 && w.y >= t.r.y0 && w.y <= t.r.y1) || null;
+      const h = DD().hit(el, w, 0, v, nearPx() / s);
+      // 1) 손잡이: 끌면 크기 (고른 부재 안을 누르면 옮기기가 먼저, 손잡이 바로 위면 크기). 끌지 않고 떼면 치수 글자 고치기
+      const hs = sel ? handlesOf(el) : sizeHandles(el);
+      let best = null, bd = hitPx() / s;
+      hs.forEach((k) => { const d = Math.hypot(k.x - w.x, k.y - w.y); if (d < bd) { bd = d; best = k; } });
+      const onSel = !!(h && h.part && h.part.id === sel);
+      if (best && (!onSel || bd < (hitPx() * 0.5) / s)) {
+        const orig = best.kind === 'size' ? { ...el.p } : JSON.parse(JSON.stringify(userParts(el).find((x) => x.id === sel)));
+        this.drag = { el, kind: best.kind, h: best, view: best.view, id: sel, orig, started: false };
+        return;
+      }
+      // 2) 치수 글자 위: 끌면 화면 이동
+      if (this.label) { this.pan = { x: ev.x, y: ev.y }; return; }
+      // 3) 부재 고르기 → 직접 그린 부재는 끌어 옮김 (입체도·값으로 만든 부재는 끌면 화면 이동)
       if (h && h.part) {
         if (sel !== h.part.id) { sel = h.part.id; formKey = ''; refreshPanes(); render(); }
-        if (h.part.user) {
-          const q = userParts(el).find((x) => x.id === h.part.id);
-          if (q) { this.drag = { el, id: q.id, view: h.view, orig: JSON.parse(JSON.stringify(q)), started: false }; }
-        }
+        const q = h.part.user && h.view !== 'iso' ? userParts(el).find((x) => x.id === h.part.id) : null;
+        if (q) this.drag = { el, kind: 'move', id: q.id, view: h.view, orig: JSON.parse(JSON.stringify(q)), started: false };
+        else this.pan = { x: ev.x, y: ev.y };
       } else this.pan = { x: ev.x, y: ev.y };
     }
     move(ev) {
-      if (this.pan) { App.plan.view.panBy(ev.x - this.pan.x, ev.y - this.pan.y); this.pan = { x: ev.x, y: ev.y }; render(); return; }
+      if (this.pan) {
+        if (this.label && !dragged(ev, this.press)) return;
+        this.label = null;
+        App.plan.view.panBy(ev.x - this.pan.x, ev.y - this.pan.y); this.pan = { x: ev.x, y: ev.y }; render(); return;
+      }
       const g = this.drag;
       if (!g || !this.press || (!g.started && !dragged(ev, this.press))) return;
-      if (!g.started) { g.started = true; App.doc.begin('부재 옮기기'); DD().freeze(g.el); }
-      const [ha, va] = AX()[g.view];
-      let du = ev.world.x - this.press.world.x, dv = -(ev.world.y - this.press.world.y); // 종이의 y는 아래로, 부재의 세로 축은 위로
-      const o = g.orig, step = ev.alt ? 1 : grid(), tol = 7 / App.plan.view.scale;
-      const cornersAt = (d0, d1) => {
-        const sh = [0, 0, 0]; sh[ha] = d0; sh[va] = d1;
-        return D().corners(o.s === 'bar' ? { ...o, a: o.a.map((v, i) => v + sh[i]), b: o.b.map((v, i) => v + sh[i]) } : { ...o, x: o.x + sh[0], y: o.y + sh[1], z: o.z + sh[2] });
-      };
-      const fit = (axis, d) => {
-        const c = cornersAt(axis === ha ? d : 0, axis === va ? d : 0), lo = Math.min(...c.map((p) => p[axis])), hi = Math.max(...c.map((p) => p[axis]));
-        const s = ev.alt ? null : faceSnap([lo, hi], facesOf(g.el, g.id, axis), tol);
-        if (s != null) return d + s;
-        const base = Math.min(...D().corners(o).map((p) => p[axis]));
-        return snapTo(base + d, step) - base;
-      };
-      du = fit(ha, du); dv = fit(va, dv);
-      const sh = [0, 0, 0]; sh[ha] = du; sh[va] = dv;
-      const r1 = (v) => Math.round(v * 10) / 10;
-      const next = o.s === 'bar' ? { a: o.a.map((v, i) => r1(v + sh[i])), b: o.b.map((v, i) => r1(v + sh[i])) } : { x: r1(o.x + sh[0]), y: r1(o.y + sh[1]), z: r1(o.z + sh[2]) };
+      this.label = null;
+      if (!g.started) { g.started = true; App.doc.begin(g.kind === 'move' ? '부재 옮기기' : g.kind === 'size' ? '크기 바꾸기' : '부재 크기 바꾸기'); DD().freeze(g.el); }
+      const { ha, va } = axesOf(g.view);
+      const du = ev.world.x - this.press.world.x, dv = -(ev.world.y - this.press.world.y); // 종이의 y는 아래로, 부재의 세로 축은 위로
+      const o = g.orig, step = ev.alt ? 1 : grid(), tol = (App.pointerTouch ? 10 : 7) / App.plan.view.scale, dz = (App.pointerTouch ? 8 : 3) / App.plan.view.scale;
+      this.at = ev.world;
+      if (g.kind === 'size') { // 값으로 만든 설계의 전체 폭·깊이·높이
+        const k = g.h.key, v0 = Number(o[k]) || 0, d = g.h.ax === ha ? du : dv;
+        const v = Math.max(k === 'T' ? 30 : 100, Math.min(30000, snapTo(v0 + d, Math.max(step, 10))));
+        const cur0 = App.doc.get(g.el.id);
+        if (cur0 && Number(cur0.p[k]) !== v) App.doc.update(g.el.id, { p: { ...o, [k]: v } });
+        g.text = `${{ W: '폭', D: '깊이', T: '두께', H: '높이' }[k]} ${fmt(v)}`;
+        render(); return;
+      }
+      let next;
+      if (g.kind === 'box') { // 모서리·변을 끌어 크기
+        next = {};
+        [[ha, du, g.h.sa], [va, dv, g.h.sb]].forEach(([ax, d, sg]) => {
+          if (!sg) return;
+          const lo = o[POS[ax]], hi = lo + o[SIZE[ax]];
+          if (Math.abs(d) < dz) return; // 거의 안 움직인 쪽은 그대로 (손가락이 조금 비뚤어도 다른 치수가 붙어 바뀌지 않게)
+          if (sg > 0) { const v = Math.max(lo + 5, snap1(g.el, g.id, ax, hi + d, step, tol, ev.alt)); next[SIZE[ax]] = r1(v - lo); }
+          else { const v = Math.min(hi - 5, snap1(g.el, g.id, ax, lo + d, step, tol, ev.alt)); next[POS[ax]] = r1(v); next[SIZE[ax]] = r1(hi - v); }
+        });
+        const nq = { ...o, ...next };
+        g.text = `${AXNAME[g.view][0]} ${fmt(nq[SIZE[ha]])} × ${AXNAME[g.view][1]} ${fmt(nq[SIZE[va]])}`;
+      } else if (g.kind === 'end') { // 막대·LED 끝
+        const P = o[g.h.end].slice(), Q = o[g.h.end === 'a' ? 'b' : 'a'];
+        P[ha] = r1(snap1(g.el, g.id, ha, o[g.h.end][ha] + du, step, tol, ev.alt));
+        P[va] = r1(snap1(g.el, g.id, va, o[g.h.end][va] + dv, step, tol, ev.alt));
+        if (!ev.alt) { const ang = (Math.atan2(Math.abs(P[va] - Q[va]), Math.abs(P[ha] - Q[ha])) * 180) / Math.PI; if (ang < 4) P[va] = Q[va]; else if (ang > 86) P[ha] = Q[ha]; } // 거의 가로·세로면 곧게
+        if (Math.hypot(P[0] - Q[0], P[1] - Q[1], P[2] - Q[2]) < 10) return;
+        next = { [g.h.end]: P };
+        g.text = `길이 ${fmt(Math.hypot(P[0] - Q[0], P[1] - Q[1], P[2] - Q[2]))}`;
+      } else { // 옮기기: 다른 부재의 면에 붙고, 아니면 간격에
+        const cornersAt = (d0, d1) => { const sh = [0, 0, 0]; sh[ha] = d0; sh[va] = d1; return D().corners({ ...o, ...moved(o, sh) }); };
+        const fit = (axis, d) => {
+          if (Math.abs(d) < dz) return 0; // 거의 안 움직인 축은 그대로
+          const c = cornersAt(axis === ha ? d : 0, axis === va ? d : 0), lo = Math.min(...c.map((p) => p[axis])), hi = Math.max(...c.map((p) => p[axis]));
+          const f = ev.alt ? null : faceSnap([lo, hi], facesOf(g.el, g.id, axis), tol);
+          if (f != null) return d + f;
+          const base = Math.min(...D().corners(o).map((p) => p[axis]));
+          return snapTo(base + d, step) - base;
+        };
+        const sh = [0, 0, 0]; sh[ha] = fit(ha, du); sh[va] = fit(va, dv);
+        next = moved(o, sh);
+        g.text = `${fmt(sh[ha])}, ${fmt(sh[va])} 옮김`;
+      }
       App.doc.update(g.el.id, { parts: userParts(g.el).map((q) => (q.id === g.id ? { ...q, ...next } : q)) });
       render();
     }
     up(ev) {
-      const g = this.drag, press = this.press;
-      this.pan = null; this.drag = null; this.press = null;
-      if (g && g.started) { DD().freeze(null); App.doc.commit(); refreshPanes(); keepSoon(); render(); return; }
+      const g = this.drag, press = this.press, lab = this.label;
+      this.pan = null; this.drag = null; this.press = null; this.label = null;
+      if (g && g.started) { DD().freeze(null); App.doc.commit(); if (g.kind === 'size') formKey = ''; refreshPanes(); keepSoon(); render(); return; }
       if (!press || dragged(ev, press)) return;
+      if (lab) { editDim(lab); return; }
+      if (g && g.kind !== 'move') return; // 손잡이를 눌렀다 뗌: 그대로
       const el = cur();
-      const h = el ? DD().hit(el, ev.world) : null;
+      const h = el ? DD().hit(el, ev.world, 0, viewNow(), nearPx() / App.plan.view.scale) : null;
       if ((!h || !h.part) && sel) { sel = null; formKey = ''; refreshPanes(); render(); }
     }
     cancel() {
       if (this.drag && this.drag.started) { DD().freeze(null); App.doc.rollback(); }
-      this.pan = null; this.drag = null; this.press = null;
+      this.pan = null; this.drag = null; this.press = null; this.label = null;
       render();
     }
     escape() { if (sel) { sel = null; formKey = ''; refreshPanes(); render(); return true; } return false; }
+    overlay(plan) {
+      const el = cur();
+      if (!el || !isMode()) return;
+      const ctx = plan.ctx, px = 1 / plan.view.scale, touch = !!App.pointerTouch;
+      App.draw.worldTransform(plan);
+      const hs = sel ? handlesOf(el) : sizeHandles(el);
+      hs.forEach((k) => {
+        ctx.save();
+        ctx.setLineDash([]);
+        if (k.kind === 'size') { // 전체 크기: 청록 동그라미에 바깥쪽 화살
+          const r = (touch ? 12 : 9) * px;
+          ctx.beginPath(); ctx.arc(k.x, k.y, r, 0, Math.PI * 2);
+          ctx.fillStyle = plan.colors.accent || '#0b7285'; ctx.fill();
+          ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2 * px; ctx.stroke();
+          ctx.translate(k.x, k.y); if (k.dir === 'v') ctx.rotate(-Math.PI / 2);
+          const a = r * 0.55;
+          ctx.beginPath(); ctx.moveTo(-a, 0); ctx.lineTo(a, 0); ctx.moveTo(a - a * 0.6, -a * 0.6); ctx.lineTo(a, 0); ctx.lineTo(a - a * 0.6, a * 0.6);
+          ctx.moveTo(-a + a * 0.6, -a * 0.6); ctx.lineTo(-a, 0); ctx.lineTo(-a + a * 0.6, a * 0.6);
+          ctx.lineWidth = 1.8 * px; ctx.lineCap = 'round'; ctx.stroke();
+        } else { // 부재 크기·막대 끝: 흰 점에 주황 테
+          const r = (touch ? 8 : 5.5) * px;
+          ctx.beginPath(); ctx.arc(k.x, k.y, r, 0, Math.PI * 2);
+          ctx.fillStyle = '#ffffff'; ctx.fill();
+          ctx.lineWidth = 2.2 * px; ctx.strokeStyle = '#e8590c'; ctx.stroke();
+        }
+        ctx.restore();
+      });
+      const g = this.drag;
+      if (g && g.started && g.text) { // 끄는 동안: 크기·옮긴 거리 (손가락에 가리지 않게 위쪽에)
+        const at = this.at || null;
+        const t = g.text;
+        ctx.save();
+        ctx.font = `700 ${13 * px}px system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif`;
+        const w = ctx.measureText(t).width + 14 * px, hgt = 22 * px;
+        const vr = plan.view.worldRect(plan.width, plan.height);
+        const x = Math.max(vr.minX + 6 * px, Math.min(vr.maxX - w - 6 * px, (at ? at.x : (vr.minX + vr.maxX) / 2) - w / 2)), y = Math.max(vr.minY + 70 * px, (at ? at.y : vr.minY + 90 * px) - (touch ? 70 : 34) * px);
+        ctx.fillStyle = 'rgba(33,37,41,0.88)';
+        ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(x, y, w, hgt, 6 * px); else ctx.rect(x, y, w, hgt); ctx.fill();
+        ctx.fillStyle = '#ffffff'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillText(t, x + 7 * px, y + hgt / 2);
+        ctx.restore();
+      }
+    }
   }
 
-  /** 그리기 도구 공통: 어느 그림에서 시작했는지와 그 그림의 두 축 값 */
+  /** 그리기 도구 공통: 어느 그림에서 시작했는지와 그 그림의 두 축 값 (그림 하나를 볼 때는 그 그림에서만) */
   function startAt(el, ev) {
-    const B = D().build(el);
-    if (!B.parts.length) return { view: 'front', at: [0, 0], empty: true, world: ev.world };
+    const B = D().build(el), v = viewNow();
+    if (!B.parts.length) return { view: ORTHO.includes(v) ? v : 'front', at: [0, 0], empty: true, world: ev.world };
+    if (v === 'iso') return null;
     const L = DD().layout(el);
-    const h = DD().hit(el, ev.world, L.G * 0.45);
+    const h = DD().hit(el, ev.world, L.G * 0.45, v);
     return h ? { view: h.view, at: h.at, world: ev.world } : null;
   }
   const delta = (st, ev) => [ev.world.x - st.world.x, -(ev.world.y - st.world.y)];
@@ -735,6 +949,230 @@
       ctx.font = `700 ${12 * px}px system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif`; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
       ctx.fillText(text, b.x + 8 * px, b.y - 8 * px);
     }
+  }
+
+  /* ── 빠른 막대: 고른 부재를 바로 옮기고·돌리고·복제하고, 아무것도 안 골랐으면 부재 넣기 (휴대폰에서 속성 칸을 덜 열게) ── */
+  const STEPS = [1, 5, 10, 50, 100];
+  let step = 10;          // 화살표 한 번에 옮기는 거리 (mm)
+  let addOpen = null;     // 부재 넣기 줄을 펼쳤는지 (null이면 자유 설계만 펼침)
+  let tipShown = false;
+  const curPart = () => { const el = cur(); return el && sel ? userParts(el).find((x) => x.id === sel) || null : null; };
+  const DEPTH = { front: ['앞', '뒤', '앞으로 (보는 쪽으로)', '뒤로'], iso: ['앞', '뒤', '앞으로', '뒤로'], top: ['위', '아래', '위로 (보는 쪽으로)', '아래로'], side: ['가까이', '멀리', '오른쪽으로 (보는 쪽으로)', '왼쪽으로'] };
+  /** 고른 부재를 지금 그림의 축으로: [가로, 세로, 깊이(+는 보는 사람 쪽)] mm */
+  function nudge(d, label = '부재 옮기기') {
+    const el = cur(), q = curPart();
+    if (!el || !q) return false;
+    const { ha, va, ta, toward } = axesOf(viewNow());
+    const sh = [0, 0, 0]; sh[ha] += d[0]; sh[va] += d[1]; sh[ta] += d[2] * toward;
+    setPart(el, q.id, moved(q, sh), label);
+    return true;
+  }
+  /** 지금 그림의 면 안에서 90° 돌리기 (가운데는 그대로) */
+  function rotateInView() {
+    const el = cur(), q = curPart();
+    if (!el || !q) return false;
+    if (q.s === 'poly' || q.s === 'arc') { App.ui.toast('곡선 부재는 돌릴 수 없습니다.'); return false; }
+    const { ha, va } = axesOf(viewNow());
+    if (q.s === 'bar') { // 시작 끝은 그대로, 위(또는 오른쪽)로 서게
+      const du = q.b[ha] - q.a[ha], dv = q.b[va] - q.a[va];
+      let ru = -dv, rv = du;
+      if (rv < -0.5 || (Math.abs(rv) <= 0.5 && ru < 0)) { ru = dv; rv = -du; }
+      const B = q.b.slice(); B[ha] = r1(q.a[ha] + ru); B[va] = r1(q.a[va] + rv);
+      setPart(el, q.id, { b: B }, '부재 돌리기');
+      return true;
+    }
+    // 왼쪽 아래 구석은 그대로 두고 두 치수를 맞바꿈 (선반을 세우면 그 자리에 옆판처럼 섬)
+    const A = SIZE[ha], Bk = SIZE[va];
+    setPart(el, q.id, { [A]: q[Bk], [Bk]: q[A] }, '부재 돌리기');
+    return true;
+  }
+  /** 복제: 세운 것은 옆에(50 띄워), 눕힌 것(선반 따위)은 위에(250 띄워) */
+  function dupPart() {
+    const el = cur(), q = curPart();
+    if (!el || !q) return null;
+    const { ha, va } = axesOf(viewNow()), sp = DD().partSpan(q, ORTHO.includes(viewNow()) ? viewNow() : 'front');
+    const w = sp.hi[0] - sp.lo[0], h = sp.hi[1] - sp.lo[1], sh = [0, 0, 0];
+    if (w <= h) sh[ha] = r1(w + 50); else sh[va] = r1(h + 250);
+    const c = JSON.parse(JSON.stringify(q));
+    delete c.id;
+    return addPart(el, { ...c, ...moved(c, sh) }, '부재 복제');
+  }
+  /** 여러 개: 같은 간격으로 몇 개 더 */
+  async function arrayPart() {
+    const el = cur(), q = curPart();
+    if (!el || !q) return null;
+    const v = ORTHO.includes(viewNow()) ? viewNow() : 'front', sp = DD().partSpan(q, v), w = sp.hi[0] - sp.lo[0], h = sp.hi[1] - sp.lo[1];
+    const dirs = [['r', '오른쪽 →'], ['u', '위 ↑'], ['l', '← 왼쪽'], ['d', '아래 ↓'], ['f', DEPTH[v][2].replace(/ \(.*\)/, '')], ['b', DEPTH[v][3]]];
+    const def = w <= h ? 'r' : 'u';
+    let dir = def;
+    const r = await App.ui.dialog({
+      title: '여러 개 늘어놓기',
+      html: `<div class="field-grid">
+          <div class="field"><label class="field-label" for="dsArrN">몇 개 더</label><div class="field-box"><input id="dsArrN" type="text" inputmode="numeric" value="3" autocomplete="off"><span class="field-unit">개</span></div></div>
+          <div class="field"><label class="field-label" for="dsArrP">중심 간격</label><div class="field-box"><input id="dsArrP" type="text" inputmode="decimal" value="${r1(def === 'r' ? w + 50 : h + 250)}" autocomplete="off"><span class="field-unit">mm</span></div></div>
+        </div>
+        <div class="field"><span class="field-label">방향 <small>(${esc({ front: '정면도', top: '평면도', side: '측면도' }[v])} 기준)</small></span>
+          <div class="seg seg-inline" role="radiogroup" id="dsArrDir">${dirs.map(([id, t]) => `<button type="button" class="seg-btn" role="radio" data-dir="${id}" aria-checked="${id === def}">${esc(t)}</button>`).join('')}</div></div>
+        <p class="props-meta">선반을 같은 간격으로 넣거나 칸막이·각재를 나란히 세울 때 씁니다. 한 번의 실행 취소로 모두 없어집니다.</p>`,
+      actions: [{ id: 'cancel', label: '취소' }, { id: 'ok', label: '늘어놓기', primary: true }],
+      onOpen(body) {
+        body.querySelector('#dsArrDir').addEventListener('click', (e) => {
+          const b = e.target.closest('[data-dir]');
+          if (!b) return;
+          dir = b.dataset.dir;
+          body.querySelectorAll('#dsArrDir [data-dir]').forEach((x) => x.setAttribute('aria-checked', String(x === b)));
+          body.querySelector('#dsArrP').value = r1(dir === 'r' || dir === 'l' ? w + 50 : dir === 'u' || dir === 'd' ? h + 250 : 300);
+        });
+      },
+    });
+    if (r.id !== 'ok') return null;
+    const n = Math.round(calc(r.body.querySelector('#dsArrN').value)), pitch = calc(r.body.querySelector('#dsArrP').value);
+    if (!(n >= 1 && n <= 50) || !(pitch > 0)) { App.ui.toast('개수(1~50)와 간격을 넣어 주세요.'); return null; }
+    const { ha, va, ta, toward } = axesOf(v), unit = [0, 0, 0];
+    if (dir === 'r' || dir === 'l') unit[ha] = dir === 'r' ? 1 : -1; else if (dir === 'u' || dir === 'd') unit[va] = dir === 'u' ? 1 : -1; else unit[ta] = (dir === 'f' ? 1 : -1) * toward;
+    const base = JSON.parse(JSON.stringify(q));
+    delete base.id;
+    const made = [];
+    for (let i = 1; i <= n; i++) made.push({ id: uid(), ...base, ...moved(base, unit.map((u) => u * pitch * i)) });
+    patch(el, '여러 개 늘어놓기', { parts: [...userParts(el), ...made] });
+    sel = made[made.length - 1].id; formKey = '';
+    refreshPanes();
+    return made.length;
+  }
+  /** 부재 넣기: 'hp' 가로판(선반·바닥) · 'vp' 세로판(옆판·칸막이) · 'fp' 정면판(뒤판·문짝, 뒤쪽에) · 'bar' 막대 · 'led' LED.
+      지금 설계의 크기에 맞추고, 남는 한 축은 화면 가운데에 보이는 자리로 */
+  function addShape(kind) {
+    const el = cur();
+    if (!el) { App.ui.toast('먼저 ‘＋ 새 설계’로 설계물을 만드세요.'); return null; }
+    if (el.kind === 'model') { App.ui.toast('내려받은 모델에는 부재를 넣을 수 없습니다. ‘＋ 새 설계 → 자유 설계’에서 만드세요.'); return null; }
+    const B = D().build(el), has = B.parts.some((q) => !q.halo);
+    // 지금 설계의 크기에 맞춤 (판 하나뿐이라 너무 좁은 쪽은 기본 크기 600 × 400 × 720으로)
+    const min = has ? B.min.slice() : [0, 0, 0], DEF = [600, 400, 720], size = has ? [B.size.w, B.size.d, B.size.h].map((v, i) => (v >= (i === 1 ? 100 : 200) ? v : DEF[i])) : DEF.slice();
+    const mid = (k) => snapTo(min[k] + size[k] / 2, 10);
+    // 화면 가운데가 그림 안이면 그 자리를 씀 (보고 있는 곳에 생기게)
+    const v = viewNow(), P = App.plan, at = (() => {
+      if (!has || !ORTHO.includes(v)) return null;
+      const c = P.view.toWorld(P.width / 2, (P.height - ((P.insets && P.insets.bottom) || 0)) / 2), h = DD().hit(el, c, 0, v);
+      if (!h || !h.at) return null;
+      const { ha, va } = axesOf(v), o = {};
+      o[ha] = snapTo(h.at[0], 10); o[va] = snapTo(h.at[1], 10);
+      return o;
+    })();
+    const pick = (k) => (at && at[k] != null ? Math.max(min[k], Math.min(min[k] + size[k], at[k])) : mid(k));
+    const S = D().sheet(App.current.dsSheet || 'ply18'), t = S.t;
+    let part;
+    if (kind === 'hp') part = { s: 'box', n: '가로판', m: S.id, x: min[0], y: min[1], z: Math.min(pick(2), min[2] + size[2] - t), w: size[0], d: size[1], h: t };
+    else if (kind === 'vp') part = { s: 'box', n: '세로판', m: S.id, x: Math.min(pick(0), min[0] + size[0] - t), y: min[1], z: min[2], w: t, d: size[1], h: size[2] };
+    else if (kind === 'fp') part = { s: 'box', n: '정면판', m: S.id, x: min[0], y: has ? min[1] + size[1] - t : 0, z: min[2], w: size[0], d: t, h: size[2] };
+    else if (kind === 'bar') {
+      const M = D().bar(App.current.dsBar || 'sq50'), r = D().rail('막대', M.id, 'x', 0, 0, 0, size[0]);
+      part = { s: 'box', n: '막대', m: M.id, x: min[0], y: min[1], z: Math.min(pick(2), min[2] + size[2] - r.h), w: r.w, d: r.d, h: r.h };
+    } else if (kind === 'led') {
+      const sp = App.ledstrip.spec(el.p || {}), z = pick(2), y = min[1] - 5;
+      part = { s: 'bar', n: 'LED 라인', m: 'ledline', role: 'lite', a: [min[0], y, z], b: [min[0] + size[0], y, z], lt: sp.type, k: sp.k, pf: sp.prof };
+    } else return null;
+    const made = addPart(el, part, { hp: '가로판 넣기', vp: '세로판 넣기', fp: '정면판 넣기', bar: '막대 넣기', led: 'LED 라인 넣기' }[kind]);
+    render();
+    if (!has) setTimeout(() => App.plan.fitToContent(), 0);
+    if (!tipShown) { tipShown = true; App.ui.toast('끌면 옮기기 · 주황 점은 크기 · 치수 숫자를 누르면 숫자로'); }
+    return made;
+  }
+  /** 고른 부재의 숫자 칸(속성)을 엶: 휴대폰은 서랍을 올림 */
+  function openPartFields() {
+    const tab = document.getElementById('tab-props');
+    if (tab && tab.getAttribute('aria-selected') !== 'true') tab.click();
+    const sh = App.ui.sheet;
+    if (App.ui.mobile && App.ui.mobile.matches && sh && !sh.isOpen()) sh.set(Math.max(sh.lastOpen || 0, sh.max() * 0.55));
+    setTimeout(() => { const p = document.getElementById('dsPart'); if (p) p.scrollIntoView({ block: 'start', behavior: 'smooth' }); }, 60);
+  }
+  let quickKey = '';
+  function renderQuick() {
+    const bar = document.getElementById('dsQuick');
+    if (!bar) return;
+    const el = isMode() ? cur() : null;
+    const show = !!el && el.kind !== 'model' && App.ui.tool === 'dselect';
+    if (bar.hidden !== !show) { bar.hidden = !show; quickKey = ''; if (App.plan) render(); }
+    if (!show) return;
+    const v = viewNow(), q = sel ? D().build(el).parts.find((x) => x.id === sel && !x.halo) : null, user = q && q.user;
+    const open = addOpen == null ? el.kind === 'free' : addOpen;
+    const key = q ? `${el.id}|${q.id}|${user ? 'u' : 'g'}|${v}|${step}|${q.s}|${q.n}` : `${el.id}|none|${open}|${el.kind === 'free'}`;
+    const sizeText = q ? (q.s === 'bar' ? `길이 ${fmt(D().lenOf(q))}` : q.s === 'arc' ? `곡선 ${fmt(D().arcLen(q))}` : `${fmt(q.w)} × ${fmt(q.d)} × ${fmt(q.h)}`) : '';
+    if (key !== quickKey) {
+      quickKey = key;
+      bar.dataset.state = q ? (user ? 'part' : 'gen') : 'add';
+      if (q && user) {
+        const dp = DEPTH[v] || DEPTH.front;
+        bar.innerHTML = `
+          <div class="ds-q-row">
+            <button type="button" class="btn ds-q-name" data-dq="edit" title="이름·자재·크기·자리를 숫자로 (속성 칸)"><b>${esc(q.n || '부재')}</b><small id="dsQSize">${esc(sizeText)}</small></button>
+            ${q.s === 'poly' || q.s === 'arc' ? '' : '<button type="button" class="btn" data-dq="rot" title="지금 보는 면에서 90° 돌리기">90°</button>'}
+            <button type="button" class="btn" data-dq="dup" title="옆이나 위에 하나 더">복제</button>
+            <button type="button" class="btn" data-dq="array" title="같은 간격으로 여러 개">여러 개</button>
+            <button type="button" class="btn btn-danger" data-dq="del" title="이 부재 지우기 (Del)">삭제</button>
+          </div>
+          <div class="ds-q-row">
+            <button type="button" class="btn ds-q-sq" data-dq="nudge" data-d="-1,0" aria-label="왼쪽으로" title="왼쪽으로 (←)">←</button>
+            <button type="button" class="btn ds-q-sq" data-dq="nudge" data-d="0,1" aria-label="위로" title="위로 (↑)">↑</button>
+            <button type="button" class="btn ds-q-sq" data-dq="nudge" data-d="0,-1" aria-label="아래로" title="아래로 (↓)">↓</button>
+            <button type="button" class="btn ds-q-sq" data-dq="nudge" data-d="1,0" aria-label="오른쪽으로" title="오른쪽으로 (→)">→</button>
+            <button type="button" class="btn ds-q-dp" data-dq="depth" data-d="1" title="${esc(dp[2])}">${esc(dp[0])}</button>
+            <button type="button" class="btn ds-q-dp" data-dq="depth" data-d="-1" title="${esc(dp[3])}">${esc(dp[1])}</button>
+            <button type="button" class="btn ds-q-step" data-dq="step" title="화살표 한 번에 옮기는 거리 (누르면 바뀜)">${step}mm</button>
+          </div>`;
+      } else if (q) {
+        bar.innerHTML = `
+          <div class="ds-q-row">
+            <button type="button" class="btn ds-q-name" data-dq="edit" title="이 부재의 크기·자리 보기"><b>${esc(q.n || '부재')}</b><small id="dsQSize">${esc(sizeText)}</small></button>
+            ${el.kind !== 'free' ? '<button type="button" class="btn btn-primary" data-dq="explode" title="값으로 만든 부재를 하나씩 옮기고 고칠 수 있게 풀기">부재로 풀어 고치기</button>' : ''}
+          </div>
+          <p class="ds-q-note">값으로 만든 부재 — 크기는 속성의 값으로 바꾸거나, 풀어서 직접 고칩니다.</p>`;
+      } else {
+        bar.innerHTML = `
+          <div class="ds-q-row">
+            ${open ? '' : '<button type="button" class="btn ds-q-add" data-dq="add-open" title="판·막대·LED를 바로 넣기">＋ 부재 넣기</button>'}
+            ${open ? `
+            <button type="button" class="btn ds-q-add" data-dq="add" data-k="hp" title="선반·바닥판·상판처럼 눕힌 판">+가로판</button>
+            <button type="button" class="btn ds-q-add" data-dq="add" data-k="vp" title="옆판·칸막이처럼 세운 판">+세로판</button>
+            <button type="button" class="btn ds-q-add" data-dq="add" data-k="fp" title="뒤판·문짝처럼 정면을 보는 판 (뒤쪽에 넣음)">+정면판</button>
+            <button type="button" class="btn ds-q-add" data-dq="add" data-k="bar" title="각재·각파이프 (가로로 넣음, 90°로 세움)">+막대</button>
+            <button type="button" class="btn ds-q-add" data-dq="add" data-k="led" title="LED 라인 (앞면에)">+LED</button>
+            ${el.kind !== 'free' ? '<button type="button" class="btn ds-q-x" data-dq="add-close" aria-label="부재 넣기 접기" title="접기">✕</button>' : ''}` : ''}
+          </div>`;
+      }
+      App.icons.apply(bar);
+    } else {
+      const sz = bar.querySelector('#dsQSize');
+      if (sz && sz.textContent !== sizeText) sz.textContent = sizeText;
+    }
+  }
+  function quickAct(name, btn) {
+    const d = btn && btn.dataset.d ? btn.dataset.d.split(',').map(Number) : null;
+    switch (name) {
+      case 'nudge': return nudge([d[0] * step, d[1] * step, 0]);
+      case 'depth': return nudge([0, 0, d[0] * step]);
+      case 'step': step = STEPS[(STEPS.indexOf(step) + 1) % STEPS.length]; quickKey = ''; renderQuick(); return step;
+      case 'rot': return rotateInView();
+      case 'dup': return dupPart();
+      case 'array': return arrayPart();
+      case 'del': return deletePart();
+      case 'edit': return openPartFields();
+      case 'explode': return act('ds-explode');
+      case 'add': return addShape(btn.dataset.k);
+      case 'add-open': addOpen = true; quickKey = ''; renderQuick(); return true;
+      case 'add-close': addOpen = false; quickKey = ''; renderQuick(); return true;
+      default: return null;
+    }
+  }
+  /** 보는 그림 바꾸기 (정면·평면·측면·입체·전체) */
+  function setView(v, doFit = true) {
+    if (!DD().VIEWS.includes(v)) return;
+    App.current.designView = v;
+    App.ui.emit('current');
+    syncBar();
+    quickKey = '';
+    renderQuick();
+    if (doFit && isMode()) fit();
+    render();
   }
 
   /* ── 눌린 버튼·바뀐 칸 처리 (속성·집계 칸, 위쪽 막대) ── */
@@ -903,6 +1341,18 @@
     toggle('btnDsDims', 'designDims');
     toggle('btnDsHidden', 'designHidden');
     toggle('btnDsDoors', 'designDoors');
+    // 보는 그림 (정면·평면·측면·입체·전체)
+    const views = document.getElementById('dsViews');
+    if (views) views.addEventListener('click', (e) => { const b = e.target.closest('[data-dview]'); if (b) setView(b.dataset.dview); });
+    // 휴대폰: 치수·숨은선·문짝을 ‘표시’ 메뉴로 접음
+    const showBtn = document.getElementById('btnDsShow'), shows = document.getElementById('dsShows');
+    if (showBtn && shows) {
+      const setOpen = (on) => { shows.classList.toggle('is-open', on); showBtn.setAttribute('aria-expanded', String(on)); };
+      showBtn.addEventListener('click', (e) => { e.stopPropagation(); setOpen(!shows.classList.contains('is-open')); });
+      document.addEventListener('pointerdown', (e) => { if (shows.classList.contains('is-open') && !e.target.closest('.ds-show-wrap')) setOpen(false); });
+    }
+    const quick = document.getElementById('dsQuick');
+    if (quick) quick.addEventListener('click', (e) => { const b = e.target.closest('[data-dq]'); if (b && isMode()) quickAct(b.dataset.dq, b); });
     ['pane-props', 'pane-summary'].forEach((id) => {
       const pane = document.getElementById(id);
       pane.addEventListener('click', (e) => { if (!isMode()) return; const b = e.target.closest('[data-act^="ds"]'); if (b) act(b.dataset.act, b); });
@@ -912,10 +1362,11 @@
     App.ui.on('mode', () => {
       sel = null; formKey = '';
       syncBar();
-      if (isMode()) { const el = cur(); if (el && App.current.designId !== el.id) App.current.designId = el.id; setTimeout(() => { if (isMode()) App.plan.fitToContent(); }, 0); }
+      renderQuick();
+      if (isMode()) { const el = cur(); if (el && App.current.designId !== el.id) App.current.designId = el.id; setTimeout(() => { if (isMode()) fit(); }, 0); }
     });
-    App.ui.on('project', () => { sel = null; formKey = ''; syncBar(); });
-    App.ui.on('tool', () => { if (isMode()) { formKey = ''; refreshPanes(); } });
+    App.ui.on('project', () => { sel = null; formKey = ''; syncBar(); renderQuick(); });
+    App.ui.on('tool', () => { if (isMode()) { formKey = ''; refreshPanes(); } renderQuick(); });
     App.ui.on('library', () => { if (isMode()) { refreshPanes(); render(); } });
     App.doc.onChange(() => {
       if (!isMode()) return;
@@ -923,13 +1374,19 @@
       const el = cur();
       if (sel && el && !D().build(el).parts.some((q) => q.id === sel)) { sel = null; formKey = ''; }
       syncBar();
+      renderQuick();
     });
     syncBar();
+    renderQuick();
   }
 
   App.designUI = {
     init, renderProps, renderSummary, newDialog, openModel, open3d, toObject, toEstimate, add, remove, duplicate, explode, setCurrent, deletePart, addPart, setParam, act,
     selected: () => sel,
+    setView, addShape, nudge, rotateInView, dupPart, arrayPart, renderQuick, editDim, askNumber, calc,
+    /** 시험용: 지금 보이는 손잡이들 (고른 부재의 크기·끝, 값으로 만든 설계의 전체 크기) */
+    handles: () => { const el = cur(); return el ? (sel ? handlesOf(el) : sizeHandles(el)) : []; },
+    step: () => step,
     /** 3D 창의 지금 상태 (시험·예시용): 여는 정도·문 떼기·분해 정도와 보는 방향·거리 */
     state3d: () => (st3d ? { ...st3d, dist: orbit ? orbit.cam.dist : null, yaw: orbit ? orbit.cam.yaw : null } : null),
     select(id) { sel = id; formKey = ''; refreshPanes(); render(); },

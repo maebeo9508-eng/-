@@ -20,7 +20,14 @@
       if (App.modes.is('design')) { // 설계 모드: 실행 취소·다시 실행, 부재 지우기, 도구 글쇠만
         if (ctrl && !e.altKey && e.code === 'KeyZ') { e.preventDefault(); if (e.shiftKey) App.actions.redo(); else App.actions.undo(); }
         else if (ctrl && !e.altKey && e.code === 'KeyY') { e.preventDefault(); App.actions.redo(); }
+        else if (ctrl && !e.altKey && e.code === 'KeyD') { e.preventDefault(); App.designUI.dupPart(); }
+        else if (!ctrl && !e.altKey && /^Arrow(Left|Right|Up|Down)$/.test(e.key) && App.designUI.selected()) { // 고른 부재 조금씩 옮기기 (Shift: 100mm)
+          e.preventDefault();
+          const st = e.shiftKey ? 100 : App.designUI.step();
+          App.designUI.nudge({ ArrowLeft: [-st, 0, 0], ArrowRight: [st, 0, 0], ArrowUp: [0, st, 0], ArrowDown: [0, -st, 0] }[e.key]);
+        }
         else if (ctrl || e.altKey || e.repeat) return;
+        else if (/^Digit[1-5]$/.test(e.code)) App.designUI.setView(['front', 'top', 'side', 'iso', 'all'][+e.code.slice(5) - 1]); // 1 정면 · 2 평면 · 3 측면 · 4 입체 · 5 전체
         else if (e.key === 'Escape') { if (!App.tools.escape() && App.tools.id !== 'dselect') App.ui.setTool('dselect'); }
         else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); App.designUI.deletePart(); }
         else if (/^Key[A-Z]$/.test(e.code)) { const t = App.ui.TOOLS.find((x) => x.key === e.code.slice(3) && App.modes.tools().includes(x.id)); if (t) App.ui.pickTool(t.id); }
