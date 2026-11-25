@@ -1,6 +1,6 @@
 /* 서비스 워커: 앱 파일을 모두 기기에 담아 두고 인터넷 없이도 열리게 한다 (비행기 모드 포함).
    파일을 고치면 VERSION을 올려야 기기에 담긴 앱이 새것으로 바뀜 (settings.js의 APP_VERSION과 같이) */
-const VERSION = '3.4.0';
+const VERSION = '3.5.0';
 const CACHE = `hjdm-${VERSION}`;
 
 const FILES = [
@@ -16,7 +16,7 @@ const FILES = [
   'js/dwg-worker.js',
   'js/orders.js',
   'js/meshio.js', 'js/library.js', 'js/library-ui.js',
-  'js/design.js', 'js/design-kit.js', 'js/design-arch.js', 'js/design-draw.js', 'js/design-out.js', 'js/design-ui.js',
+  'js/design.js', 'js/design-kit.js', 'js/design-arch.js', 'js/design-draw.js', 'js/design-out.js', 'js/design-ui.js', 'js/design-3d.js',
   'lib/libredwg/libredwg.js', 'lib/libredwg/libredwg.wasm', 'lib/libredwg/LICENSE',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png', 'icons/apple-touch-icon.png', 'icons/favicon-32.png',
 ];

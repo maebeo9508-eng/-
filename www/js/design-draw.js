@@ -74,9 +74,12 @@
       const c = D().corners(q);
       // 곡선 부재(아치·니치·아치문): 정면도에서는 윤곽 그대로, 평면·측면은 둘러싼 네모
       const curved = (q.s === 'poly' || q.s === 'arc') && view === 'front';
-      return { q, key: near(q, c), poly: curved ? D().outline2(q).map(([x, z]) => P([x, q.y, z])) : q.s === 'bar' ? hull(c.map(P)) : rectOf(c.map(P)) };
+      // 둥근 부재: 둥근 면을 마주 보는 그림에서는 원·모서리 R 윤곽, 다른 그림은 둘러싼 네모
+      const round = q.s === 'rnd' && RND_VIEW[q.ax] === view;
+      return { q, key: near(q, c), poly: curved ? D().outline2(q).map(([x, z]) => P([x, q.y, z])) : round ? D().rndOutline(q).map(([u, v]) => P(D().rndPoint(q, u, v, 0))) : q.s === 'bar' ? hull(c.map(P)) : rectOf(c.map(P)) };
     }).sort((a, b) => (a.q.role === 'lite') - (b.q.role === 'lite') || a.key - b.key); // LED 라인은 맨 위에
   }
+  const RND_VIEW = { y: 'front', z: 'top', x: 'side' }; // 둥근 면을 마주 보는 그림
   function rectOf(pts) {
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     pts.forEach((p) => { if (p[0] < x0) x0 = p[0]; if (p[0] > x1) x1 = p[0]; if (p[1] < y0) y0 = p[1]; if (p[1] > y1) y1 = p[1]; });
@@ -88,6 +91,27 @@
     const view = [1, -1, 1]; // 보는 사람 쪽 (오른쪽·앞·위)
     const F = [[0, 1, 2, 3], [4, 7, 6, 5], [0, 4, 5, 1], [1, 5, 6, 2], [2, 6, 7, 3], [3, 7, 4, 0]]; // corners 차례 [아래 4, 위 4] 기준의 여섯 면 (바깥에서 봐서 반시계가 아닐 수도 있어 법선으로 가림)
     (vis ? L.B.parts.filter(vis) : L.B.parts).filter((q) => !q.halo).forEach((q) => {
+      if (q.s === 'rnd') { // 둥근 부재: 두 둥근 면 + 둘레 띠, 보는 쪽을 향한 면만
+        const O = D().rndOutline(q), [ku, kv] = D().RND_AX[q.ax] || [0, 1], ka = 3 - ku - kv, a0 = [q.x, q.y, q.z][ka], a1 = a0 + [q.w, q.d, q.h][ka];
+        const A = O.map(([u, v]) => D().rndPoint(q, u, v, a0)), Bc = O.map(([u, v]) => D().rndPoint(q, u, v, a1));
+        const cen = [q.x + q.w / 2, q.y + q.d / 2, q.z + q.h / 2];
+        const faces = [A, Bc, ...O.map((_, i) => { const j = (i + 1) % O.length; return [A[i], A[j], Bc[j], Bc[i]]; })];
+        const soft = O.length > 4; // 둥근 둘레의 잘게 나눈 면은 선 없이 (줄무늬가 되지 않게), 바깥 윤곽만 따로
+        let top = -Infinity;
+        faces.forEach((f, fi) => {
+          let n = [0, 0, 0];
+          for (let i = 0; i < f.length; i++) { const p = f[i], r = f[(i + 1) % f.length]; n[0] += (p[1] - r[1]) * (p[2] + r[2]); n[1] += (p[2] - r[2]) * (p[0] + r[0]); n[2] += (p[0] - r[0]) * (p[1] + r[1]); }
+          const fc = [0, 1, 2].map((k) => f.reduce((t, p) => t + p[k], 0) / f.length);
+          if (n[0] * (fc[0] - cen[0]) + n[1] * (fc[1] - cen[1]) + n[2] * (fc[2] - cen[2]) < 0) n = n.map((v) => -v);
+          const nl = Math.hypot(n[0], n[1], n[2]);
+          if (nl < 1e-9 || n[0] * view[0] + n[1] * view[1] + n[2] * view[2] <= 1e-6) return;
+          const key = fc[0] - fc[1] + fc[2];
+          top = Math.max(top, key);
+          out.push({ q, key, poly: f.map(P), shade: n[2] / nl > 0.6 ? 0.28 : n[0] / nl > 0.5 ? -0.16 : 0, ...(soft && fi > 1 ? { soft: true } : {}) });
+        });
+        if (soft) out.push({ q, key: top + 1e-3, poly: hull([...A, ...Bc].map(P)), outline: true });
+        return;
+      }
       if (q.s === 'poly' || q.s === 'arc') { // 곡선 부재: 앞면 윤곽 + 보이는 옆면들
         const O = D().outline2(q), y0 = q.y, y1 = q.y + q.d;
         let A = 0;
@@ -312,16 +336,18 @@
       return L;
     } else {
       const paint = (shapes, iso) => {
-        shapes.forEach(({ q, poly, shade }) => {
+        shapes.forEach(({ q, poly, shade, soft, outline }) => {
           const sel = o.sel && o.sel === q.id;
           const base = colorOf(q), led = q.role === 'led', lite = q.role === 'lite';
           ctx.beginPath();
           poly.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])));
           ctx.closePath();
+          const line = sel ? '#e8590c' : lite ? '#e67700' : led ? '#7d8894' : INK;
+          if (outline) { ctx.lineWidth = (sel ? 2.2 : 1.1) * px; ctx.strokeStyle = line; ctx.stroke(); return; } // 둥근 부재의 바깥 윤곽만
           ctx.fillStyle = sel ? '#ffd8a8' : lite ? '#fab005' : led ? mix('#27313d', iso ? shade * 0.5 : 0) : mix(base, iso ? 0.35 + shade : 0.55);
           ctx.fill();
-          ctx.lineWidth = (sel ? 2.2 : 1.1) * px;
-          ctx.strokeStyle = sel ? '#e8590c' : lite ? '#e67700' : led ? '#7d8894' : INK;
+          ctx.lineWidth = (soft ? 0.7 : sel ? 2.2 : 1.1) * px;
+          ctx.strokeStyle = soft ? ctx.fillStyle : line;
           ctx.stroke();
         });
       };
@@ -465,6 +491,7 @@
   function scene(plan) {
     const el = D().current();
     const ctx = plan.ctx;
+    if (el && App.design3d && App.design3d.active()) { tapDims = []; return; } // 입체: 3D 작업 화면이 덮음
     if (!el) {
       App.draw.screenTransform(plan);
       ctx.fillStyle = plan.colors.fgMuted || MUTE; ctx.font = `600 15px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';

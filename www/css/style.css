@@ -1900,3 +1900,29 @@ tr.is-warn th, tr.is-warn td { color: #b45309; }
   .ds-prev-btn { width: 30px; height: 30px; }
   .ds-prev-empty { inset: 30px 6px 6px; font-size: 10.5px; }
 }
+
+/* ── 설계 3.5: 입체(3D) 작업 화면 — 돌려 보며 고르고 고치기, 방향 단추 ── */
+.ds-3dv { position: absolute; inset: 0; background: var(--canvas-bg, #f5f6f7); touch-action: none; user-select: none; -webkit-user-select: none; }
+.ds-3dv[hidden] { display: none; }
+.ds-3dv canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+.ds-3dv-gl { cursor: grab; }
+.ds-3dv-hud { pointer-events: none; }
+.stage.is-3d .hud { display: none; }
+.ds-dir {
+  position: absolute; right: 12px; top: 120px; display: grid; grid-template-columns: repeat(3, auto); gap: 4px; padding: 6px;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow); touch-action: manipulation;
+}
+.ds-dir .btn { min-height: 34px; min-width: 46px; padding: 0 8px; font-size: 12.5px; font-weight: 700; white-space: nowrap; }
+.ds-dir .btn[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+.ds-ops .btn { flex: 1 1 0; min-width: 0; }
+.ds-seg .seg-btn[disabled] { opacity: 0.35; }
+@media (max-width: 768px) {
+  .ds-dir { right: 8px; gap: 3px; padding: 4px; }
+  .ds-dir .btn { min-height: 36px; min-width: 40px; padding: 0 5px; font-size: 12px; }
+}
+@media (max-width: 768px) {
+  /* 3D 작업 화면의 빠른 막대: 이름 + 자르기·꺾기·둥글게·복제·삭제를 한 줄에 */
+  .ds-quick.is-3d[data-state="part"] .ds-q-row:first-child { gap: 4px; }
+  .ds-quick.is-3d[data-state="part"] .ds-q-row:first-child .btn { padding: 0 6px; font-size: 13px; }
+  .ds-quick.is-3d[data-state="part"] .ds-q-row:first-child .ds-q-name { min-width: 54px; padding: 2px 6px; }
+}

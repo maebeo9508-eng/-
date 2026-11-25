@@ -8,7 +8,7 @@
   const fmt = (v) => DD().fmt(v);
   const isMode = () => App.modes.is('design');
   const cur = () => D().current();
-  const render = () => { if (App.plan) App.plan.requestRender(); renderQuick(); previewKick(); };
+  const render = () => { if (App.plan) App.plan.requestRender(); renderQuick(); previewKick(); if (App.design3d) App.design3d.kick(); };
   const numIn = (v) => { const n = Number(String(v == null ? '' : v).replace(/[,\s]/g, '')); return Number.isFinite(n) ? n : NaN; };
   let sel = null;       // 고른 부재 id
   let formKey = '';     // 속성 칸을 통째로 다시 그릴지
@@ -28,6 +28,7 @@
     syncBar();
     refreshPanes();
     previewSync();
+    sync3d();
     if (doFit && isMode()) fit();
     render();
   }
@@ -281,7 +282,7 @@
     const f = (k, label, v) => `<div class="field"><label class="field-label">${label}</label><div class="field-box"><input type="text" inputmode="decimal" data-part="${k}" value="${fmt(v).replace(/,/g, '')}" autocomplete="off" aria-label="${label} (mm)"></div></div>`; // 칸이 좁아 단위(mm)는 묶음 이름에
     const mats = `<select data-part="m">${q.s === 'bar' ? '' : D().SHEETS.map((s) => `<option value="${s.id}" ${s.id === q.m ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}${(q.s === 'poly' || q.s === 'arc') ? '' : D().BARS.map((b) => `<option value="${b.id}" ${b.id === q.m ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</select>`;
     const curved = q.s === 'poly' || q.s === 'arc';
-    const sizeText = q.s === 'arc' ? `곡선 길이 ${fmt(D().arcLen(q))} × ${fmt(q.d)} × ${fmt(q.t)} mm (휘어 붙임)` : q.s === 'poly' ? `${fmt(q.w)} × ${fmt(q.h)} × ${fmt(q.d)} mm (곡선 윤곽)` : q.s === 'bar' ? `길이 ${fmt(D().lenOf(q))} mm (비스듬히)` : q.role === 'bar' ? `길이 ${fmt(D().lenOf(q))} mm` : `${[q.w, q.d, q.h].sort((a, b) => b - a).map(fmt).join(' × ')} mm`;
+    const sizeText = q.s === 'rnd' ? `${[q.w, q.d, q.h].sort((a, b) => b - a).map(fmt).join(' × ')} mm · ${q.full ? '원·타원' : `모서리 R${fmt(q.r)}`}` : q.s === 'arc' ? `곡선 길이 ${fmt(D().arcLen(q))} × ${fmt(q.d)} × ${fmt(q.t)} mm (휘어 붙임)` : q.s === 'poly' ? `${fmt(q.w)} × ${fmt(q.h)} × ${fmt(q.d)} mm (곡선 윤곽)` : q.s === 'bar' ? `길이 ${fmt(D().lenOf(q))} mm (비스듬히)` : q.role === 'bar' ? `길이 ${fmt(D().lenOf(q))} mm` : `${[q.w, q.d, q.h].sort((a, b) => b - a).map(fmt).join(' × ')} mm`;
     if (!user) {
       return `<div class="field-group-label">고른 부재</div>
         <div class="stats"><div class="stat"><span class="stat-label">${esc(q.n)}</span><span class="stat-value">${esc(sizeText)}</span><small>${esc(M.name || '')} · 자리 X ${fmt(q.s === 'bar' ? q.a[0] : q.x)} · Y ${fmt(q.s === 'bar' ? q.a[1] : q.y)} · Z ${fmt(q.s === 'bar' ? q.a[2] : q.z)}</small></div></div>
@@ -306,6 +307,8 @@
         ${curved ? '<p class="props-meta">곡선 부재는 크기를 값으로 바꿀 수 없습니다. 자리만 옮기고, 모양은 원래 설계(되돌리기)에서 고치세요.</p>' : `<div class="field-group-label">크기 <small>mm</small></div><div class="field-grid ds-3">${f('w', '폭 (X)', q.w)}${f('d', '깊이 (Y)', q.d)}${f('h', '높이 (Z)', q.h)}</div>`}`}
       ${q.s === 'bar' || curved ? '' : `<div class="field-group-label">돌리기 <small>가운데는 그대로, 두 치수를 맞바꿈</small></div>
       <div class="btn-row ds-rot"><button type="button" class="btn" data-act="ds-part-rot" data-ax="z" title="위에서 봐서 90° (폭 ↔ 깊이)">폭 ↔ 깊이</button><button type="button" class="btn" data-act="ds-part-rot" data-ax="x" title="세우기·눕히기 (깊이 ↔ 높이)">깊이 ↔ 높이</button><button type="button" class="btn" data-act="ds-part-rot" data-ax="y" title="세우기·눕히기 (폭 ↔ 높이)">폭 ↔ 높이</button></div>`}
+      <div class="field-group-label">모양 고치기</div>
+      <div class="btn-row ds-ops"><button type="button" class="btn" data-act="ds-part-cut" title="한 방향으로 여러 조각으로 (같은 크기로, 또는 길이를 정해서)">자르기</button><button type="button" class="btn" data-act="ds-part-bend" title="정한 자리에서 끝 쪽을 꺾어 ㄱ자로">꺾기</button><button type="button" class="btn" data-act="ds-part-round" title="원·타원으로, 모서리만 둥글게, 네모로 되돌리기">둥글게</button></div>
       <div class="btn-row"><button type="button" class="btn" data-act="ds-part-copy">부재 복제</button><button type="button" class="btn btn-danger" data-act="ds-part-del">부재 지우기</button></div>`;
   }
   function toolHtml() {
@@ -596,7 +599,11 @@
   const hitPx = () => (App.pointerTouch ? 26 : 10);   // 손잡이를 잡는 거리 (화면 픽셀)
   const nearPx = () => (App.pointerTouch ? 14 : 5);   // 얇은 판·막대를 고르는 거리 (화면 픽셀)
   /** 그림의 축: [가로, 세로, 깊이], 깊이 쪽에서 보는 사람에게 다가오는 방향(+1·−1). 입체도는 정면처럼 */
-  const axesOf = (view) => { const [ha, va] = AX()[view] || AX().front; return { ha, va, ta: 3 - ha - va, toward: view === 'top' || view === 'side' ? 1 : -1 }; };
+  const axesOf = (view) => {
+    if (view === 'iso' && App.design3d && App.design3d.active()) return App.design3d.axes(); // 3D 화면: 보는 방향 기준 (→가 화면 오른쪽, 앞이 보는 사람 쪽)
+    const [ha, va] = AX()[view] || AX().front;
+    return { ha, hs: 1, va, ta: 3 - ha - va, toward: view === 'top' || view === 'side' ? 1 : -1 };
+  };
   /** 다른 부재의 면에 붙임: vals(움직이는 것의 면들)가 faces 가운데 하나와 tol 안이면 그만큼 옮길 값 */
   function faceSnap(vals, faces, tol) {
     let best = null;
@@ -964,8 +971,8 @@
   function nudge(d, label = '부재 옮기기') {
     const el = cur(), q = curPart();
     if (!el || !q) return false;
-    const { ha, va, ta, toward } = axesOf(viewNow());
-    const sh = [0, 0, 0]; sh[ha] += d[0]; sh[va] += d[1]; sh[ta] += d[2] * toward;
+    const { ha, hs, va, ta, toward } = axesOf(viewNow());
+    const sh = [0, 0, 0]; sh[ha] += d[0] * (hs || 1); sh[va] += d[1]; sh[ta] += d[2] * toward;
     setPart(el, q.id, moved(q, sh), label);
     return true;
   }
@@ -985,7 +992,7 @@
     }
     // 왼쪽 아래 구석은 그대로 두고 두 치수를 맞바꿈 (선반을 세우면 그 자리에 옆판처럼 섬)
     const A = SIZE[ha], Bk = SIZE[va];
-    setPart(el, q.id, { [A]: q[Bk], [Bk]: q[A] }, '부재 돌리기');
+    setPart(el, q.id, { [A]: q[Bk], [Bk]: q[A], ...swapAx(q, ha, va) }, '부재 돌리기');
     return true;
   }
   /** 복제: 세운 것은 옆에(50 띄워), 눕힌 것(선반 따위)은 위에(250 띄워) */
@@ -1102,14 +1109,18 @@
     if (key !== quickKey) {
       quickKey = key;
       bar.dataset.state = q ? (user ? 'part' : 'gen') : 'add';
+      bar.classList.toggle('is-3d', v === 'iso');
       if (q && user) {
-        const dp = DEPTH[v] || DEPTH.front;
+        const dp = DEPTH[v] || DEPTH.front, in3d = v === 'iso';
         bar.innerHTML = `
           <div class="ds-q-row">
             <button type="button" class="btn ds-q-name" data-dq="edit" title="이름·자재·크기·자리를 숫자로 (속성 칸)"><b>${esc(q.n || '부재')}</b><small id="dsQSize">${esc(sizeText)}</small></button>
-            ${q.s === 'poly' || q.s === 'arc' ? '' : '<button type="button" class="btn" data-dq="rot" title="지금 보는 면에서 90° 돌리기">90°</button>'}
+            ${in3d ? `<button type="button" class="btn" data-dq="cut" title="한 방향으로 여러 조각으로">자르기</button>
+            <button type="button" class="btn" data-dq="bend" title="정한 자리에서 끝 쪽을 꺾어 ㄱ자로">꺾기</button>
+            <button type="button" class="btn" data-dq="round" title="원·타원으로, 모서리만 둥글게, 네모로 되돌리기">둥글게</button>
+            <button type="button" class="btn" data-dq="dup" title="옆이나 위에 하나 더">복제</button>` : `${q.s === 'poly' || q.s === 'arc' ? '' : '<button type="button" class="btn" data-dq="rot" title="지금 보는 면에서 90° 돌리기">90°</button>'}
             <button type="button" class="btn" data-dq="dup" title="옆이나 위에 하나 더">복제</button>
-            <button type="button" class="btn" data-dq="array" title="같은 간격으로 여러 개">여러 개</button>
+            <button type="button" class="btn" data-dq="array" title="같은 간격으로 여러 개">여러 개</button>`}
             <button type="button" class="btn btn-danger" data-dq="del" title="이 부재 지우기 (Del)">삭제</button>
           </div>
           <div class="ds-q-row">
@@ -1154,6 +1165,9 @@
       case 'depth': return nudge([0, 0, d[0] * step]);
       case 'step': step = STEPS[(STEPS.indexOf(step) + 1) % STEPS.length]; quickKey = ''; renderQuick(); return step;
       case 'rot': return rotateInView();
+      case 'cut': return cutPart();
+      case 'bend': return bendPart();
+      case 'round': return roundPart();
       case 'dup': return dupPart();
       case 'array': return arrayPart();
       case 'del': return deletePart();
@@ -1165,6 +1179,127 @@
       default: return null;
     }
   }
+  /* ── 부재 고치기: 자르기 · 꺾기 · 둥글게 (그림·3D 공통, 고른 부재 하나) ── */
+  const AXN = ['폭 (X)', '깊이 (Y)', '높이 (Z)'];
+  const DIRN = { '0+': '오른쪽으로', '0-': '왼쪽으로', '1+': '뒤로', '1-': '앞으로', '2+': '위로', '2-': '아래로' };
+  const sizesOf = (q) => [q.w, q.d, q.h];
+  const longAx = (q) => { const z = sizesOf(q); return z.indexOf(Math.max(...z)); };
+  /** 두 축을 맞바꾸면 둥근 면의 축도 따라 바뀜 */
+  const swapAx = (q, i, j) => (q.s !== 'rnd' ? {} : { ax: 'xyz'[q.ax === 'xyz'[i] ? j : q.ax === 'xyz'[j] ? i : 'xyz'.indexOf(q.ax)] });
+  const segHtml = (id, opts, now) => `<div class="seg seg-inline ds-seg" role="radiogroup" id="${id}">${opts.map(([v, t, dis]) => `<button type="button" class="seg-btn" role="radio" data-v="${esc(v)}" aria-checked="${v === now}" ${dis ? 'disabled' : ''}>${esc(t)}</button>`).join('')}</div>`;
+  const segOn = (body, id, cb) => { const box = body.querySelector(`#${id}`); if (!box) return; box.addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b || b.disabled) return; box.querySelectorAll('[data-v]').forEach((x) => x.setAttribute('aria-checked', String(x === b))); if (cb) cb(b.dataset.v); }); };
+  const segVal = (body, id) => { const b = body.querySelector(`#${id} [aria-checked="true"]`); return b ? b.dataset.v : null; };
+  const numField = (id, label, v, unit = 'mm') => `<div class="field"><label class="field-label" for="${id}">${label}</label><div class="field-box"><input id="${id}" type="text" inputmode="decimal" value="${esc(String(v))}" autocomplete="off"><span class="field-unit">${unit}</span></div></div>`;
+  /** 부재 하나를 여러 개로 바꿈 (첫 조각은 원래 id를 이어받아 고른 채로) */
+  function replacePart(el, q, pieces, label) {
+    const made = pieces.map((p, i) => ({ ...JSON.parse(JSON.stringify(q)), ...p, id: i === 0 ? q.id : uid() }));
+    made.forEach((p) => { if (p.s !== 'rnd') { delete p.ax; delete p.r; delete p.full; } else if (!p.full) delete p.full; });
+    const list = [];
+    userParts(el).forEach((x) => { if (x.id === q.id) list.push(...made); else list.push(x); });
+    patch(el, label, { parts: list });
+    sel = made[0].id; formKey = '';
+    refreshPanes();
+    return made;
+  }
+  /** 자르기: 한 축(막대는 길이)을 따라 여러 조각으로 (같은 크기로, 또는 첫 조각 길이를 정해 둘로). 틈(톱날)을 둘 수 있음 */
+  async function cutPart() {
+    const el = cur(), q = curPart();
+    if (!el || !q) { App.ui.toast('자를 부재를 먼저 고르세요 (직접 넣은 부재).'); return null; }
+    if (q.s === 'rnd' || q.s === 'poly' || q.s === 'arc') { App.ui.toast('둥근·곡선 부재는 자를 수 없습니다. ‘둥글게 → 네모로 되돌리기’ 한 뒤 자르세요.'); return null; }
+    const bar = q.s === 'bar', len0 = bar ? D().lenOf(q) : null;
+    let ax = bar ? 'L' : String(longAx(q));
+    const lenOfAx = (a) => (a === 'L' ? len0 : sizesOf(q)[+a]);
+    const r = await App.ui.dialog({
+      title: `자르기 — ${q.n || '부재'}`,
+      html: `${bar ? '<p class="props-meta">막대를 길이 방향으로 자릅니다.</p>' : `<div class="field"><span class="field-label">자를 길이 방향</span>${segHtml('dsCutAx', [0, 1, 2].map((k) => [String(k), `${AXN[k]} ${fmt(sizesOf(q)[k])}`]), ax)}</div>`}
+        <div class="field-grid">${numField('dsCutN', '몇 개로', 2, '개')}${numField('dsCutA', '첫 조각 길이', r1(lenOfAx(ax) / 2))}${numField('dsCutG', '틈 (톱날)', 0)}</div>
+        <p class="props-meta">개수만 바꾸면 같은 크기로 나눕니다. 둘로 자를 때는 첫 조각(왼쪽·앞·아래 쪽) 길이를 정할 수 있습니다. 1200-36 같은 셈도 됩니다.</p>`,
+      actions: [{ id: 'cancel', label: '취소' }, { id: 'ok', label: '자르기', primary: true }],
+      onOpen(body) {
+        const n = body.querySelector('#dsCutN'), a = body.querySelector('#dsCutA');
+        const sync = () => { const k = Math.round(calc(n.value)); a.disabled = k !== 2; if (k !== 2) a.value = r1(lenOfAx(ax) / Math.max(2, k || 2)); };
+        segOn(body, 'dsCutAx', (v) => { ax = v; a.value = r1(lenOfAx(ax) / 2); sync(); });
+        n.addEventListener('input', sync);
+      },
+    });
+    if (r.id !== 'ok') return null;
+    const N = Math.round(calc(r.body.querySelector('#dsCutN').value)), gap = Math.max(0, calc(r.body.querySelector('#dsCutG').value) || 0), total = lenOfAx(ax);
+    if (!(N >= 2 && N <= 30)) { App.ui.toast('2~30개로 자를 수 있습니다.'); return null; }
+    let lens;
+    if (N === 2 && !r.body.querySelector('#dsCutA').disabled) { const a = calc(r.body.querySelector('#dsCutA').value); lens = [a, total - a - gap]; }
+    else { const one = (total - gap * (N - 1)) / N; lens = Array.from({ length: N }, () => one); }
+    if (lens.some((v) => !(v >= 1))) { App.ui.toast('조각 길이가 너무 짧습니다. 길이·틈을 확인하세요.'); return null; }
+    let at = 0;
+    const pieces = lens.map((L) => {
+      const from = at; at += L + gap;
+      if (bar) { const u = q.b.map((v, i) => (v - q.a[i]) / len0); return { a: q.a.map((v, i) => r1(v + u[i] * from)), b: q.a.map((v, i) => r1(v + u[i] * (from + L))) }; }
+      const k = +ax; return { [POS[k]]: r1(q[POS[k]] + from), [SIZE[k]]: r1(L) };
+    });
+    return replacePart(el, q, pieces, `${N}조각으로 자르기`);
+  }
+  /** 꺾기: 정한 자리에서 끝 쪽을 꺾어 두 부재로 (판·각재는 90°로 세우거나 옆으로, 막대·LED는 아무 각도) */
+  async function bendPart() {
+    const el = cur(), q = curPart();
+    if (!el || !q) { App.ui.toast('꺾을 부재를 먼저 고르세요 (직접 넣은 부재).'); return null; }
+    if (q.s === 'rnd' || q.s === 'poly' || q.s === 'arc') { App.ui.toast('둥근·곡선 부재는 꺾을 수 없습니다.'); return null; }
+    const bar = q.s === 'bar', L = bar ? null : longAx(q), len = bar ? D().lenOf(q) : sizesOf(q)[L];
+    const u = bar ? q.b.map((v, i) => (v - q.a[i]) / len) : null;
+    const dirs = Object.keys(DIRN).filter((key) => { const k = +key[0]; if (!bar) return k !== L; return Math.abs(u[k]) < 0.95; }); // 막대와 나란한 쪽은 뺌
+    let dir = dirs.includes('2+') ? '2+' : dirs[0];
+    const r = await App.ui.dialog({
+      title: `꺾기 — ${q.n || '부재'}`,
+      html: `<div class="field-grid">${numField('dsBendAt', `꺾는 자리 (시작에서, 길이 ${fmt(len)})`, r1(len / 2))}${bar ? numField('dsBendDeg', '꺾는 각도', 90, '°') : ''}</div>
+        <div class="field"><span class="field-label">끝 쪽을 어느 쪽으로</span>${segHtml('dsBendDir', dirs.map((k) => [k, DIRN[k]]), dir)}</div>
+        <p class="props-meta">${bar ? '막대·LED 라인은 정한 각도로 꺾여 두 토막이 이어집니다.' : '판·각재는 90°로 꺾여 ㄱ자가 됩니다 (꺾인 쪽이 앞 판 끝에 붙어 섬). 위로 꺾으면 세운 판, 뒤·앞으로 꺾으면 ㄱ자 상판처럼 됩니다.'}</p>`,
+      actions: [{ id: 'cancel', label: '취소' }, { id: 'ok', label: '꺾기', primary: true }],
+      onOpen(body) { segOn(body, 'dsBendDir', (v) => { dir = v; }); },
+    });
+    if (r.id !== 'ok') return null;
+    const sAt = calc(r.body.querySelector('#dsBendAt').value), k = +dir[0], sg = dir[1] === '+' ? 1 : -1;
+    if (!(sAt >= 1 && sAt <= len - 1)) { App.ui.toast('꺾는 자리는 부재 길이 안이어야 합니다.'); return null; }
+    if (bar) {
+      const deg = calc(r.body.querySelector('#dsBendDeg').value), th = ((Number.isFinite(deg) ? Math.max(1, Math.min(179, deg)) : 90) * Math.PI) / 180;
+      const e = [0, 0, 0]; e[k] = sg;
+      const dot = e[0] * u[0] + e[1] * u[1] + e[2] * u[2], v = e.map((x, i) => x - dot * u[i]), vl = Math.hypot(...v) || 1;
+      const d2 = u.map((x, i) => Math.cos(th) * x + (Math.sin(th) * v[i]) / vl), P = q.a.map((x, i) => x + u[i] * sAt), rest = len - sAt;
+      return replacePart(el, q, [{ b: P.map(r1) }, { a: P.map(r1), b: P.map((x, i) => r1(x + d2[i] * rest)) }], '꺾기');
+    }
+    const lo = [q.x, q.y, q.z], sz = sizesOf(q), rest = len - sAt, T = 3 - L - k, p2 = {};
+    p2[POS[L]] = r1(lo[L] + sAt - sz[k]); p2[SIZE[L]] = sz[k];                 // 꺾인 쪽의 두께 = 원래 그 쪽 크기
+    p2[POS[k]] = r1(sg > 0 ? lo[k] + sz[k] : lo[k] - rest); p2[SIZE[k]] = r1(rest); // 꺾인 쪽 길이
+    p2[POS[T]] = lo[T]; p2[SIZE[T]] = sz[T];
+    return replacePart(el, q, [{ [SIZE[L]]: r1(sAt) }, p2], '꺾기');
+  }
+  /** 둥글게: 원·타원으로, 모서리만 둥글게(반지름), 네모로 되돌리기. 둥근 면은 판이면 넓은 면, 기둥이면 단면 */
+  async function roundPart() {
+    const el = cur(), q = curPart();
+    if (!el || !q) { App.ui.toast('둥글게 할 부재를 먼저 고르세요 (직접 넣은 부재).'); return null; }
+    if (q.s === 'bar' || q.s === 'poly' || q.s === 'arc') { App.ui.toast(q.s === 'bar' ? '비스듬한 막대·LED는 둥글게 할 수 없습니다. 둥근 파이프는 자재에서 고르세요.' : '곡선 부재는 둥글게 바꿀 수 없습니다.'); return null; }
+    const z = sizesOf(q), sorted = z.slice().sort((a, b) => a - b);
+    const auto = sorted[0] < sorted[1] * 0.35 ? 'xyz'[z.indexOf(sorted[0])] : sorted[2] > sorted[1] * 2.5 ? 'xyz'[z.indexOf(sorted[2])] : 'z';
+    let ax = q.s === 'rnd' ? q.ax : auto, how = q.s === 'rnd' ? (q.full ? 'full' : 'r') : 'full';
+    const inPlane = (a) => { const [ku, kv] = D().RND_AX[a]; return Math.min(z[ku], z[kv]); };
+    const r = await App.ui.dialog({
+      title: `둥글게 — ${q.n || '부재'}`,
+      html: `<div class="field"><span class="field-label">모양</span>${segHtml('dsRndHow', [['full', '원·타원'], ['r', '모서리만 둥글게'], ...(q.s === 'rnd' ? [['box', '네모로 되돌리기']] : [])], how)}</div>
+        ${numField('dsRndR', '모서리 반지름', q.s === 'rnd' && !q.full ? q.r : r1(Math.min(50, inPlane(ax) / 2)))}
+        <div class="field"><span class="field-label">둥근 면</span>${segHtml('dsRndAx', [['z', '위에서 보면 둥근'], ['y', '앞에서 보면 둥근'], ['x', '옆에서 보면 둥근']], ax)}</div>
+        <p class="props-meta">상판·판은 넓은 면이, 기둥·각재는 단면이 둥글게 됩니다 (지금 크기를 둘러싼 네모 안에서). 부재표에는 둘러싼 네모 크기와 ‘둥글게 자름’이 나옵니다.</p>`,
+      actions: [{ id: 'cancel', label: '취소' }, { id: 'ok', label: '바꾸기', primary: true }],
+      onOpen(body) {
+        const rr = body.querySelector('#dsRndR');
+        const sync = () => { rr.disabled = how !== 'r'; };
+        segOn(body, 'dsRndHow', (v) => { how = v; sync(); });
+        segOn(body, 'dsRndAx', (v) => { ax = v; });
+        sync();
+      },
+    });
+    if (r.id !== 'ok') return null;
+    if (how === 'box') { const c = { ...q, s: 'box' }; delete c.ax; delete c.r; delete c.full; return replacePart(el, q, [c], '네모로 되돌리기'); }
+    const rad = how === 'r' ? Math.max(1, Math.min(inPlane(ax) / 2, calc(r.body.querySelector('#dsRndR').value) || 0)) : 0;
+    return replacePart(el, q, [{ s: 'rnd', ax, ...(how === 'full' ? { full: true, r: 0 } : { full: false, r: r1(rad) }) }], how === 'full' ? '원·타원으로' : '모서리 둥글게');
+  }
+
   /** 보는 그림 바꾸기 (정면·평면·측면·입체·전체) */
   function setView(v, doFit = true) {
     if (!DD().VIEWS.includes(v)) return;
@@ -1173,8 +1308,17 @@
     syncBar();
     quickKey = '';
     renderQuick();
+    sync3d();
+    previewSync();
     if (doFit && isMode()) fit();
     render();
+  }
+  /** 입체 그림이면 3D 작업 화면을 띄움 (위쪽 줄 높이가 정해진 뒤) */
+  function sync3d() {
+    if (!App.design3d) return;
+    App.design3d.sync();
+    const stage = document.getElementById('stage');
+    if (stage) stage.classList.toggle('is-3d', App.design3d.active());
   }
 
   /* ── 전체 미리보기: 작업하는 동안 오른쪽 위에 전체 모습을 3D로 (고치는 대로 바로 바뀜, 고른 부재는 주황, 끌어서 돌리기, 누르면 3D 창) ── */
@@ -1185,7 +1329,7 @@
   function previewSync(refit = false) {
     const box = pvBox();
     if (!box) return;
-    const el = isMode() ? cur() : null, show = !!el && pvOn();
+    const el = isMode() ? cur() : null, show = !!el && pvOn() && viewNow() !== 'iso'; // 입체(3D 작업 화면)에서는 미리보기가 필요 없음
     const was = !box.hidden;
     box.hidden = !show;
     box.classList.toggle('is-big', pv.big);
@@ -1315,12 +1459,15 @@
         return null;
       }
       case 'ds-part-del': return deletePart();
+      case 'ds-part-cut': return cutPart();
+      case 'ds-part-bend': return bendPart();
+      case 'ds-part-round': return roundPart();
       case 'ds-part-rot': { // 가운데를 지키며 두 치수를 맞바꿈
         const q = el && userParts(el).find((x) => x.id === sel);
         if (!q || q.s === 'bar' || q.s === 'poly' || q.s === 'arc') return null;
         const ax = btn && btn.dataset.ax, [a, b] = ax === 'z' ? ['w', 'd'] : ax === 'x' ? ['d', 'h'] : ['w', 'h'], pos = { w: 'x', d: 'y', h: 'z' };
         const r = (v) => Math.round(v * 10) / 10;
-        setPart(el, sel, { [a]: q[b], [b]: q[a], [pos[a]]: r(q[pos[a]] + (q[a] - q[b]) / 2), [pos[b]]: r(q[pos[b]] + (q[b] - q[a]) / 2) }, '부재 돌리기');
+        setPart(el, sel, { [a]: q[b], [b]: q[a], [pos[a]]: r(q[pos[a]] + (q[a] - q[b]) / 2), [pos[b]]: r(q[pos[b]] + (q[b] - q[a]) / 2), ...swapAx(q, SIZE.indexOf(a), SIZE.indexOf(b)) }, '부재 돌리기');
         formKey = ''; refreshPanes();
         return null;
       }
@@ -1480,10 +1627,18 @@
       syncBar();
       renderQuick();
       previewSync();
+      sync3d();
       if (isMode()) { const el = cur(); if (el && App.current.designId !== el.id) App.current.designId = el.id; setTimeout(() => { if (isMode()) fit(); }, 0); }
     });
-    App.ui.on('project', () => { sel = null; formKey = ''; syncBar(); renderQuick(); previewSync(); });
-    App.ui.on('tool', () => { if (isMode()) { formKey = ''; refreshPanes(); } renderQuick(); });
+    App.ui.on('project', () => { sel = null; formKey = ''; syncBar(); renderQuick(); previewSync(); sync3d(); });
+    App.ui.on('tool', () => {
+      if (isMode()) {
+        formKey = ''; refreshPanes();
+        // 그리기 도구(판·막대·LED)는 정면·평면·측면에서 끌어 그림: 입체(3D)에서 고르면 정면도로
+        if (viewNow() === 'iso' && ['dbox', 'dbar', 'dled'].includes(App.ui.tool)) { setView('front'); App.ui.toast('그리기는 정면·평면·측면에서 끌어서 합니다 — 정면도로 바꿨습니다.'); }
+      }
+      renderQuick();
+    });
     App.ui.on('library', () => { if (isMode()) { refreshPanes(); render(); } });
     App.doc.onChange(() => {
       if (!isMode()) return;
@@ -1493,16 +1648,22 @@
       syncBar();
       renderQuick();
       previewKick();
+      if (App.design3d) App.design3d.kick();
     });
+    if (App.design3d) App.design3d.init();
+    // 화면 맞춤 단추: 3D 작업 화면이면 3D를 맞춤
+    const fitBtn = document.getElementById('btnFit');
+    if (fitBtn) fitBtn.addEventListener('click', () => { if (isMode() && App.design3d && App.design3d.active()) App.design3d.fit(!!sel); });
     syncBar();
     renderQuick();
     previewSync();
+    sync3d();
   }
 
   App.designUI = {
     init, renderProps, renderSummary, newDialog, openModel, open3d, toObject, toEstimate, add, remove, duplicate, explode, setCurrent, deletePart, addPart, setParam, act,
     selected: () => sel,
-    setView, previewToggle, preview: () => ({ on: pvOn(), shown: !!pvBox() && !pvBox().hidden, gl: !!pv.orbit, ver: pv.ver, big: pv.big, yaw: pv.orbit ? pv.orbit.cam.yaw : null }),
+    cutPart, bendPart, roundPart, setView, previewToggle, preview: () => ({ on: pvOn(), shown: !!pvBox() && !pvBox().hidden, gl: !!pv.orbit, ver: pv.ver, big: pv.big, yaw: pv.orbit ? pv.orbit.cam.yaw : null }),
     /** 시험용: 전체 미리보기를 지금 그려 그림 주소로 */
     previewShot: () => { if (!pv.orbit) return null; pv.orbit.now(); return pvBox().querySelector('canvas').toDataURL('image/png'); }, addShape, nudge, rotateInView, dupPart, arrayPart, renderQuick, editDim, askNumber, calc,
     /** 시험용: 지금 보이는 손잡이들 (고른 부재의 크기·끝, 값으로 만든 설계의 전체 크기) */
