@@ -168,9 +168,14 @@
     /** 벽 면적에서 빼는 개구부 면적(mm²). 벽보다 넓으면 벽 길이까지만 */
     area(el) {
       const g = openingGeom(el);
-      return g ? g.half * 2 * el.height : 0;
+      if (!g) return 0;
+      // 아치·둥근 모서리는 모서리만큼 덜 뚫림
+      return App.arch && App.arch.isArch(el.head) ? App.arch.area(el.head, g.half * 2, el.height, el.rise) : g.half * 2 * el.height;
     },
   });
+
+  /** 프리셋의 윗모양(아치)을 요소 값으로: 사각이면 아무것도 안 붙임 */
+  const headOf = (p) => (p && p.head && p.head !== 'flat' ? { head: p.head, ...(p.rise > 0 ? { rise: p.rise } : {}) } : {});
 
   /* 요소 종류별 기하 처리. 종류가 늘면 여기에 추가
      pick: 누르기 판정 순서 (0 문·창문·기둥 → 1 벽 → 2 방), catalog: 도면에 그리지 않는 목록 항목 */
@@ -263,12 +268,13 @@
       },
     },
 
-    /* 문: 종류(kind) 여닫이·미닫이·자동문·방화문. side: 열리는 쪽(벽의 왼쪽 +1 / 오른쪽 -1), hinge: 경첩이 있는 끝 */
+    /* 문: 종류(kind) 여닫이·미닫이·자동문·방화문·개구부(문짝 없이 뚫린 통로). side: 열리는 쪽(벽의 왼쪽 +1 / 오른쪽 -1), hinge: 경첩이 있는 끝
+       head: 윗모양 (없으면 사각, 'round' 반원 아치 · 'segment' 완만한 아치 · 'ellipse' 타원 · 'pointed' 뾰족 · 'corner' 둥근 모서리), rise: 아치 높이 — arch.js */
     door: {
       ...opening('문'),
-      KINDS: ['여닫이', '미닫이', '자동문', '방화문'],
+      KINDS: ['여닫이', '미닫이', '자동문', '방화문', '개구부'],
       create(wallId, t, preset, side = 1, hinge = 'start') {
-        return { ...base('door', 'arch'), wallId, t, width: preset.width, height: preset.height, kind: preset.style, side, hinge };
+        return { ...base('door', 'arch'), wallId, t, width: preset.width, height: preset.height, kind: preset.style, side, hinge, ...headOf(preset) };
       },
     },
 
@@ -277,7 +283,7 @@
       ...opening('창문'),
       KINDS: ['미서기', '여닫이', '고정창', '프로젝트창'],
       create(wallId, t, preset) {
-        return { ...base('window', 'arch'), wallId, t, width: preset.width, height: preset.height, sill: preset.sill, kind: preset.style };
+        return { ...base('window', 'arch'), wallId, t, width: preset.width, height: preset.height, sill: preset.sill, kind: preset.style, ...headOf(preset) };
       },
     },
 

@@ -289,6 +289,7 @@
     if (el.type === 'window') {
       // 창문: 벽 두께 안에 세 줄 (양쪽 면 + 유리)
       [[h, h], [-h, -h], [0, 0]].forEach(([o1, o2]) => w.line('A-GLAZ', P(0, o1), P(W, o2), look));
+      if (App.arch && App.arch.isArch(el.head)) w.text('A-GLAZ', P(W / 2, h + FIRE_H * 1.2), FIRE_H, App.arch.label(el), { ha: 1, va: 2 });
       return;
     }
     const line = (p, q) => w.line('A-DOOR', p, q, look);
@@ -304,10 +305,18 @@
       // 미닫이: 가운데 줄 + 열리는 쪽으로 비켜 난 문짝
       line(P(0, 0), P(W, 0));
       line(P(-W * 0.02, side * h * 0.45), P(W, side * h * 0.45));
+    } else if (el.kind === '개구부') {
+      // 문짝 없는 통로: 위로 지나가는 벽(인방·아치) 자리
+      line(P(0, h), P(W, h));
+      line(P(0, -h), P(W, -h));
     } else {
       // 자동문: 가운데에서 양쪽으로 열리는 두 짝
       line(P(0, h * 0.35), P(W / 2, h * 0.35));
       line(P(W / 2, -h * 0.35), P(W, -h * 0.35));
+    }
+    if (App.arch && App.arch.isArch(el.head)) {
+      const swing = el.kind === '여닫이' || el.kind === '방화문';
+      w.text('A-DOOR', P(W / 2, (swing ? -side : 1) * (h + FIRE_H * 1.2)), FIRE_H, App.arch.label(el), { ha: 1, va: 2 });
     }
   }
 

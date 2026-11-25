@@ -23,6 +23,8 @@
     { id: 'lpm15', name: 'LPM 15T', t: 15, color: '#f2f1ec', dens: 680 },
     { id: 'acryl5', name: '아크릴 5T', t: 5, color: '#dcecf5', dens: 1190, alpha: 0.45 },
     { id: 'pvc5', name: '포맥스 5T', t: 5, color: '#f5f5f3', dens: 550 },
+    { id: 'gyp95', name: '석고보드 9.5T', t: 9.5, color: '#efeee9', dens: 700, sw: 1800, sh: 900 }, // 원장 900 × 1800
+    { id: 'bend5', name: '휨합판 5T', t: 5, color: '#e2cba0', dens: 520, bend: true },                // 곡면(아치 안쪽)에 휘어 붙이는 합판
   ];
   const r2 = (v) => Math.round(v * 100) / 100;
   const steel = (sw, sh, t) => r2((sw * sh - (sw - 2 * t) * (sh - 2 * t)) * 7.85e-3 * 0.97); // kg/m (모서리 둥글림 어림)
@@ -59,6 +61,77 @@
     return { s: 'box', n, m, role: 'bar', axis, x: r1(x), y: r1(y), z: r1(z), w: r1(dims[0]), d: r1(dims[1]), h: r1(dims[2]), ...o };
   }
   const brace = (n, m, a, b, o = {}) => ({ s: 'bar', n, m, role: 'bar', a: a.map(r1), b: b.map(r1), ...o });
+
+  /* ── 곡선 부재 (아치 벽·니치·아치문) ──
+     poly: 앞에서 본 윤곽(다각형)을 Y로 d만큼 민 판. { s: 'poly', x, y, z, w, d, h, pts: [[u, v]…] } — 윤곽 점은 (x + u, z + v), 0 ≤ u ≤ w, 0 ≤ v ≤ h
+     arc:  곡선을 따라 휘어 붙이는 띠(휨합판). { s: 'arc', x, y, z, w, d, h, t, pts } — pts는 곡선(열린 선), 띠는 곡선의 왼쪽(왼→오른쪽으로 갈 때 위·바깥)으로 두께 t
+     둘 다 x·y·z·w·d·h(둘러싼 상자)를 가져서 옮기기·크기 계산·끌기는 상자와 같게 됨 */
+  function norm2(pts) {
+    let mx = Infinity, mz = Infinity, Mx = -Infinity, Mz = -Infinity;
+    pts.forEach(([u, v]) => { if (u < mx) mx = u; if (v < mz) mz = v; if (u > Mx) Mx = u; if (v > Mz) Mz = v; });
+    return { pts: pts.map(([u, v]) => [r1(u - mx), r1(v - mz)]), ox: mx, oz: mz, w: r1(Mx - mx), h: r1(Mz - mz) };
+  }
+  /** 윤곽 다각형(절대 [x, z])으로 판 하나: Y로 y부터 두께 d */
+  function poly(n, m, P, y, d, o = {}) {
+    const N = norm2(P);
+    return { s: 'poly', n, m, role: 'panel', x: r1(N.ox), y: r1(y), z: r1(N.oz), w: Math.max(1, N.w), d: r1(d), h: Math.max(1, N.h), pts: N.pts, ...o };
+  }
+  /** 곡선(절대 [x, z])의 띠 다각형: 곡선 + 왼쪽으로 t만큼 띄운 선(거꾸로) */
+  function bandOf(C, t) {
+    const n = C.length, off = C.map((p, i) => {
+      const a = C[Math.max(0, i - 1)], b = C[Math.min(n - 1, i + 1)];
+      let dx = b[0] - a[0], dz = b[1] - a[1];
+      const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
+      return [p[0] - dz * t, p[1] + dx * t];
+    });
+    return [...C, ...off.reverse()];
+  }
+  /** 곡선을 따라 휘어 붙이는 띠: Y로 y부터 깊이 d, 곡선에서 바깥으로 두께 t */
+  function arcPart(n, m, C, y, d, t, o = {}) {
+    const N = norm2(bandOf(C, t));
+    return { s: 'arc', n, m, role: 'panel', x: r1(N.ox), y: r1(y), z: r1(N.oz), w: Math.max(1, N.w), d: r1(d), h: Math.max(1, N.h), t: r1(t), pts: C.map(([u, v]) => [r1(u - N.ox), r1(v - N.oz)]), ...o };
+  }
+  /** 앞에서 본 윤곽 (절대 [x, z]) */
+  const outline2 = (q) => (q.s === 'poly' ? q.pts.map(([u, v]) => [q.x + u, q.z + v])
+    : q.s === 'arc' ? bandOf(q.pts.map(([u, v]) => [q.x + u, q.z + v]), q.t)
+      : [[q.x, q.z], [q.x + q.w, q.z], [q.x + q.w, q.z + q.h], [q.x, q.z + q.h]]);
+  /** 휘어 붙이는 띠의 길이 (곡선을 따라) */
+  const arcLen = (q) => { let L = 0; for (let i = 0; i + 1 < q.pts.length; i++) L += Math.hypot(q.pts[i + 1][0] - q.pts[i][0], q.pts[i + 1][1] - q.pts[i][1]); return L; };
+  /** 다각형을 세로 띠로 나눔: [[xa, xb, 아래a, 아래b, 위a, 위b]…] — 띠 안에는 꼭짓점이 없어서 위·아래 선이 곧음 (3D 모형용) */
+  function polyStrips(P) {
+    const xs = [...new Set(P.map((p) => Math.round(p[0] * 100) / 100))].sort((a, b) => a - b), out = [];
+    for (let i = 0; i + 1 < xs.length; i++) {
+      const xa = xs[i], xb = xs[i + 1];
+      if (xb - xa < 0.01) continue;
+      const xm = (xa + xb) / 2, hits = [];
+      for (let j = 0; j < P.length; j++) {
+        const p = P[j], q = P[(j + 1) % P.length];
+        if ((p[0] <= xm) === (q[0] <= xm)) continue;
+        const k = (q[1] - p[1]) / (q[0] - p[0]), at = (x) => p[1] + k * (x - p[0]);
+        hits.push({ m: at(xm), a: at(xa), b: at(xb) });
+      }
+      hits.sort((u, v) => u.m - v.m);
+      for (let j = 0; j + 1 < hits.length; j += 2) out.push([xa, xb, hits[j].a, hits[j].b, hits[j + 1].a, hits[j + 1].b]);
+    }
+    return out;
+  }
+  /** 3D 모형을 만들 육면체들 (각각 corners와 같은 차례의 여덟 구석) */
+  function hexes(q) {
+    const y0 = q.y, y1 = q.y + q.d;
+    if (q.s === 'poly') {
+      return polyStrips(outline2(q)).filter((s) => s[4] - s[2] > 0.2 || s[5] - s[3] > 0.2)
+        .map(([xa, xb, ba, bb, ta, tb]) => [[xa, y0, ba], [xb, y0, bb], [xb, y1, bb], [xa, y1, ba], [xa, y0, ta], [xb, y0, tb], [xb, y1, tb], [xa, y1, ta]]);
+    }
+    if (q.s === 'arc') {
+      const C = q.pts.map(([u, v]) => [q.x + u, q.z + v]), n = C.length, O = bandOf(C, q.t).slice(n).reverse(), out = [];
+      for (let i = 0; i + 1 < n; i++) {
+        const a = C[i], b = C[i + 1], c = O[i], e = O[i + 1];
+        out.push([[a[0], y0, a[1]], [b[0], y0, b[1]], [b[0], y1, b[1]], [a[0], y1, a[1]], [c[0], y0, c[1]], [e[0], y0, e[1]], [e[0], y1, e[1]], [c[0], y1, c[1]]]);
+      }
+      return out;
+    }
+    return [corners(q)];
+  }
 
   /* ── 종류별 만들기: p(값) → { parts, hw: [{ n, q }], info: [[이름, 값, 덧말]] } ── */
   const num = (v, def, lo, hi) => { const n = Number(v); return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : def; };
@@ -110,7 +183,7 @@
   function handles(parts) {
     const out = [], P = 20, T = 12; // 앞으로 나온 길이, 굵기
     parts.forEach((q) => {
-      if (q.s !== 'box' || !q.an || q.role !== 'panel') return;
+      if ((q.s !== 'box' && q.s !== 'poly') || !q.an || q.role !== 'panel') return;
       const isDoor = !!q.door, isFront = !!q.front && !/^속서랍/.test(q.n);
       if (!isDoor && !isFront) return;
       const o = q.an.t === 'door' ? q.an.out || [0, -1] : q.an.v;         // 앞면이 보는 쪽
@@ -509,6 +582,13 @@
     const mv = !isBar && MOVES.includes(q.mv) ? { mv: q.mv, ...(FACES.includes(q.mo) ? { mo: q.mo } : {}), ...(Number.isFinite(+q.mx) && +q.mx > 0 ? { mx: Math.min(900, r1(+q.mx)) } : {}) } : {};
     const more = keep ? { ...(q.mn ? { mn: String(q.mn).slice(0, 40) } : {}), ...(q.gl ? { gl: true } : {}), ...(q.metal ? { metal: true } : {}) } : {};
     const eb = Number.isFinite(+q.eb) && +q.eb > 0 ? { eb: r1(+q.eb) } : {};
+    if ((q.s === 'poly' || q.s === 'arc') && Array.isArray(q.pts)) { // 곡선 부재 (‘부재로 풀기’한 아치 벽 따위)
+      const pts = q.pts.slice(0, 400).filter((p) => Array.isArray(p) && Number.isFinite(+p[0]) && Number.isFinite(+p[1])).map((p) => [f(p[0]), f(p[1])]);
+      if (pts.length < (q.s === 'poly' ? 3 : 2)) return null;
+      const S = SHEETS.find((s) => s.id === q.m) ? q.m : 'ply9', abs = pts.map(([u, v]) => [f(q.x) + u, f(q.z) + v]);
+      const P = q.s === 'poly' ? poly(n, S, abs, f(q.y), d) : arcPart(n, S, abs, f(q.y), d, Math.max(1, Math.min(100, f(q.t) || 5)));
+      return { ...P, id, ...col, ...mv, user: true };
+    }
     return { id, s: 'box', n, m, role: keep || (isBar ? 'bar' : 'panel'), ...(isBar ? { axis: w >= d && w >= h ? 'x' : d >= h ? 'y' : 'z' } : {}), x: f(q.x), y: f(q.y), z: f(q.z), w, d, h, ...col, ...mv, ...more, ...eb, user: true };
   }
   const cache = new WeakMap(); // 설계물 → { key, out }
@@ -525,7 +605,7 @@
     const b = bounds(parts);
     // 직접 넣은 부재 가운데 문·서랍으로 정한 것: 움직임 값을 달고, 경첩·레일·손잡이를 철물에 더함
     const hw = (made.hw || []).map((h) => ({ ...h })), moved = [];
-    parts.forEach((q, i) => { if (q.user && q.mv && q.s === 'box') { parts[i] = moveOf(q, b); moved.push(parts[i]); } });
+    parts.forEach((q, i) => { if (q.user && q.mv && q.s !== 'bar') { parts[i] = moveOf(q, b); moved.push(parts[i]); } });
     if (moved.length) {
       moved.forEach((q) => { if (q.door) addHw(hw, '경첩 (싱크 경첩)', hingesFor(q.h)); else if (q.mv === 'df') addHw(hw, '서랍 레일 (1조)', 1); });
       const grips = moved.filter((q) => q.mv !== 'dw').length;
@@ -622,8 +702,11 @@
       if (q.role === 'led') { leds++; return; }
       if (q.eb > 0) edge += q.eb;
       if (q.role === 'panel') {
-        const S = sheet(q.m), dims = [q.w, q.d, q.h].sort((a, b) => b - a), fin = q.fin || '', key = `${S.id}|${fin}|${dims[0]}|${dims[1]}|${q.n}`;
-        const cur = panels.get(key) || { m: S.id, g: `${S.id}|${fin}`, mat: fin ? `${S.name} · ${fin}` : S.name, fin, n: q.n, l: dims[0], w: dims[1], t: dims[2], q: 0, eb: 0 };
+        // 곡선 판은 둘러싼 네모(윤곽을 따라 자름), 휨합판 띠는 곡선 길이 × 깊이
+        const cut = q.s === 'poly' ? 'curve' : q.s === 'arc' ? 'bend' : '';
+        const S = sheet(q.m), dims = cut === 'curve' ? [Math.max(q.w, q.h), Math.min(q.w, q.h), q.d] : cut === 'bend' ? [r1(arcLen(q)), q.d, q.t] : [q.w, q.d, q.h].sort((a, b) => b - a);
+        const fin = q.fin || '', key = `${S.id}|${fin}|${dims[0]}|${dims[1]}|${q.n}|${cut}`;
+        const cur = panels.get(key) || { m: S.id, g: `${S.id}|${fin}`, mat: fin ? `${S.name} · ${fin}` : S.name, fin, n: q.n, l: dims[0], w: dims[1], t: dims[2], q: 0, eb: 0, cut };
         cur.q++;
         cur.eb += q.eb || 0;
         panels.set(key, cur);
@@ -647,9 +730,9 @@
     [...new Set(panelRows.map((r) => r.g))].forEach((g) => {
       const rows = panelRows.filter((r) => r.g === g), S = sheet(rows[0].m);
       const pieces = rows.flatMap((r) => Array.from({ length: r.q }, () => ({ l: r.l, w: r.w, n: r.n })));
-      const layout = nest2d(pieces);
+      const SW = S.sw || SHEET_W, SH = S.sh || SHEET_H, layout = nest2d(pieces, SW, SH);
       const area = rows.reduce((t, r) => t + (r.l * r.w * r.q) / 1e6, 0);
-      sheets.push({ m: S.id, g, mat: rows[0].mat, fin: rows[0].fin, count: layout.length, area: Math.round(area * 100) / 100, layout, kg: r1(rows.reduce((t, r) => t + ((r.l * r.w * r.t * r.q) / 1e9) * S.dens, 0)) });
+      sheets.push({ m: S.id, g, mat: rows[0].mat, fin: rows[0].fin, sw: SW, sh: SH, count: layout.length, area: Math.round(area * 100) / 100, layout, kg: r1(rows.reduce((t, r) => t + ((r.l * r.w * r.t * r.q) / 1e9) * S.dens, 0)) });
     });
     [...new Set(barRows.map((r) => r.m))].forEach((m) => {
       const rows = barRows.filter((r) => r.m === m), M = bar(m);
@@ -687,8 +770,8 @@
   /** 재단표를 표(CSV·PDF용 줄)로 */
   function bomRows(el) {
     const b = bom(el), rows = [['구분', '자재', '이름', '길이(mm)', '폭(mm)', '두께(mm)', '수량', '비고']];
-    b.panels.forEach((r) => rows.push(['판재', r.mat, r.n, r.l, r.w, r.t, r.q, r.eb ? `엣지 ${Math.round(r.eb / r.q)}mm씩` : '']));
-    b.sheets.forEach((s) => rows.push(['판재 합계', s.mat, '원장 1220×2440', '', '', '', s.count, `넓이 ${s.area}㎡ · 약 ${s.kg}kg · 톱날 ${KERF}mm 어림`]));
+    b.panels.forEach((r) => rows.push(['판재', r.mat, r.n, r.l, r.w, r.t, r.q, r.cut === 'curve' ? '곡선 — 둘러싼 네모 크기, 윤곽을 따라 자름' : r.cut === 'bend' ? '곡선을 따라 휘어 붙임 (길이는 곡선 길이)' : r.eb ? `엣지 ${Math.round(r.eb / r.q)}mm씩` : '']));
+    b.sheets.forEach((s) => rows.push(['판재 합계', s.mat, `원장 ${s.sh}×${s.sw}`, '', '', '', s.count, `넓이 ${s.area}㎡ · 약 ${s.kg}kg · 톱날 ${KERF}mm 어림`]));
     b.bars.forEach((r) => rows.push(['각재·파이프', r.mat, r.n, r.len, '', '', r.q, r.slant ? '비스듬히 (끝을 각도에 맞춰 자름)' : '']));
     b.stocks.forEach((s) => rows.push(['각재·파이프 합계', s.mat, `원자재 ${s.stock / 1000}m`, s.total, '', '', s.count, `자투리 ${s.waste}mm · 약 ${s.kg}kg${s.joined ? ` · 원자재보다 긴 것 ${s.joined}개 (이어야 함)` : ''}`]));
     b.tops.forEach((t) => rows.push(['상판', t.mat, t.n, t.l, t.w, t.t, t.q, '']));
@@ -713,8 +796,10 @@
     parts.forEach((q) => {
       if (o.hideDoors && q.door) return;
       const M = mat(q.m) || SHEETS[0];
-      let cs = corners(q);
-      const pc = q.pc || [0, 1, 2].map((k) => cs.reduce((t, c) => t + c[k], 0) / cs.length); // 닫힌 자리의 가운데 (손잡이는 문짝의 가운데)
+      const c0 = corners(q);
+      const pc = q.pc || [0, 1, 2].map((k) => c0.reduce((t, c) => t + c[k], 0) / c0.length); // 닫힌 자리의 가운데 (손잡이는 문짝의 가운데)
+      hexes(q).forEach((h0) => {
+      let cs = h0;
       if (open > 0 && q.an) {
         if (q.an.t === 'door') { // 경첩 쪽 모서리를 축으로 100°까지
           const a = open * 1.75 * q.an.dir, ca = Math.cos(a), sa = Math.sin(a), ax = q.an.ax[0], ay = q.an.ax[1];
@@ -738,6 +823,7 @@
         corners: k,
         color: o.pick && o.pick === q.id ? [0.95, 0.45, 0.1] : hexRgb(q.c || M.color), alpha: q.al != null ? q.al : M.alpha, metal,
         mat: led2 || q.gl ? MAT.gloss : metal ? MAT.metal : q.role === 'panel' && !M.alpha ? MAT.grain : undefined, group: M.name || q.n,
+      });
       });
     });
     return out;
@@ -773,7 +859,7 @@
   App.design = {
     SHEETS, BARS, LED_CABS, LED_PITCH, KINDS, SHEET_W, SHEET_H, KERF,
     sheet, bar, mat, create, build, bom, bomRows, cost, prices, setPrice, bounds, corners, lenOf, weightOf, nest1d, nest2d, toBoxes, toModel, movable, cleanPart, box, rail, brace,
-    FINISHES, finish, paint, hingesFor, slideFor, addHw, doorPart, drawerParts, handles, withHandles, HANDLES, MOVES, moveOf, num, int, r1,
+    FINISHES, finish, paint, hingesFor, slideFor, addHw, doorPart, drawerParts, handles, withHandles, HANDLES, MOVES, moveOf, poly, arcPart, bandOf, outline2, arcLen, polyStrips, hexes, num, int, r1,
     /** 도면의 설계물들 (만든 차례) */
     all: () => (App.doc ? [...App.doc.all()].filter((e) => e.type === 'design') : []),
     /** 지금 보고 있는 설계물 */

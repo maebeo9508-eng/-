@@ -66,7 +66,9 @@
     const near = view === 'front' ? (q, c) => -Math.min(...c.map((p) => p[1])) : view === 'top' ? (q, c) => Math.max(...c.map((p) => p[2])) : (q, c) => Math.max(...c.map((p) => p[0]));
     return (vis ? L.B.parts.filter(vis) : L.B.parts).map((q) => {
       const c = D().corners(q);
-      return { q, key: near(q, c), poly: q.s === 'bar' ? hull(c.map(P)) : rectOf(c.map(P)) };
+      // 곡선 부재(아치·니치·아치문): 정면도에서는 윤곽 그대로, 평면·측면은 둘러싼 네모
+      const curved = (q.s === 'poly' || q.s === 'arc') && view === 'front';
+      return { q, key: near(q, c), poly: curved ? D().outline2(q).map(([x, z]) => P([x, q.y, z])) : q.s === 'bar' ? hull(c.map(P)) : rectOf(c.map(P)) };
     }).sort((a, b) => a.key - b.key);
   }
   function rectOf(pts) {
@@ -80,6 +82,21 @@
     const view = [1, -1, 1]; // 보는 사람 쪽 (오른쪽·앞·위)
     const F = [[0, 1, 2, 3], [4, 7, 6, 5], [0, 4, 5, 1], [1, 5, 6, 2], [2, 6, 7, 3], [3, 7, 4, 0]]; // corners 차례 [아래 4, 위 4] 기준의 여섯 면 (바깥에서 봐서 반시계가 아닐 수도 있어 법선으로 가림)
     (vis ? L.B.parts.filter(vis) : L.B.parts).forEach((q) => {
+      if (q.s === 'poly' || q.s === 'arc') { // 곡선 부재: 앞면 윤곽 + 보이는 옆면들
+        const O = D().outline2(q), y0 = q.y, y1 = q.y + q.d;
+        let A = 0;
+        O.forEach((p, i) => { const r = O[(i + 1) % O.length]; A += p[0] * r[1] - r[0] * p[1]; });
+        const cx = O.reduce((t, p) => t + p[0], 0) / O.length, cz = O.reduce((t, p) => t + p[1], 0) / O.length;
+        out.push({ q, key: cx - y0 + cz, poly: O.map(([x, z]) => P([x, y0, z])), shade: 0 });
+        O.forEach((p, i) => {
+          const r = O[(i + 1) % O.length], dx = r[0] - p[0], dz = r[1] - p[1], l = Math.hypot(dx, dz);
+          if (l < 1e-6) return;
+          const nx = (A > 0 ? dz : -dz) / l, nz = (A > 0 ? -dx : dx) / l; // 바깥쪽
+          if (nx * view[0] + nz * view[2] <= 1e-6) return;
+          out.push({ q, key: (p[0] + r[0]) / 2 - (y0 + y1) / 2 + (p[1] + r[1]) / 2, poly: [P([p[0], y0, p[1]]), P([r[0], y0, r[1]]), P([r[0], y1, r[1]]), P([p[0], y1, p[1]])], shade: nz > 0.6 ? 0.28 : nx > 0.5 ? -0.16 : 0 });
+        });
+        return;
+      }
       const c = D().corners(q);
       const faces = q.s === 'bar' ? [[0, 1, 2, 3], [4, 5, 6, 7], [0, 1, 5, 4], [1, 2, 6, 5], [2, 3, 7, 6], [3, 0, 4, 7]] : F;
       const cen = [0, 1, 2].map((k) => c.reduce((t, p) => t + p[k], 0) / 8);

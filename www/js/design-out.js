@@ -132,7 +132,7 @@
       const rows = [];
       b.sheets.forEach((s) => {
         b.panels.filter((r) => r.g === s.g).forEach((r) => rows.push([r.n, s.mat, fmt(r.l), fmt(r.w), fmt(r.t), `${r.q}`]));
-        rows.push({ total: true, cells: [`${s.mat} 원장`, '1220 × 2440', '', '', '', `${s.count}장`] });
+        rows.push({ total: true, cells: [`${s.mat} 원장`, `${s.sh} × ${s.sw}`, '', '', '', `${s.count}장`] });
       });
       table([{ w: 0.26, head: '이름' }, { w: 0.26, head: '자재' }, { w: 0.13, head: '길이', align: 'right' }, { w: 0.12, head: '폭', align: 'right' }, { w: 0.11, head: '두께', align: 'right' }, { w: 0.12, head: '수량', align: 'right' }], rows);
     }
@@ -171,10 +171,10 @@
     }
     // 재단 배치도: 원장마다 판을 놓은 그림 (어림)
     b.sheets.forEach((s) => {
-      const tw = S.W - 2 * M, k = tw / D().SHEET_W, sh = D().SHEET_H * k;
+      const tw = S.W - 2 * M, k = tw / (s.sw || D().SHEET_W), sh = (s.sh || D().SHEET_H) * k;
       s.layout.slice(0, 12).forEach((sheet, i) => {
         if (!cv || y + sh + (i === 0 ? 70 : 20) + 40 > bottom) newPage();
-        if (i === 0) heading(`재단 배치도 — ${s.mat}`, `원장 1220 × 2440 · ${s.count}장 · 톱날 3mm 어림 (결 방향은 따로 확인)`);
+        if (i === 0) heading(`재단 배치도 — ${s.mat}`, `원장 ${s.sh} × ${s.sw} · ${s.count}장 · 톱날 3mm 어림 (결 방향은 따로 확인)`);
         ctx.fillStyle = '#fbfaf7'; ctx.fillRect(M, y, tw, sh);
         ctx.strokeStyle = INK; ctx.lineWidth = 2.5; ctx.strokeRect(M, y, tw, sh);
         sheet.rects.forEach((r) => {

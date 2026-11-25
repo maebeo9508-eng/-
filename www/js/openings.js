@@ -15,9 +15,10 @@
     for (const el of App.doc.all()) {
       if ((el.type !== 'door' && el.type !== 'window') || App.model.phaseOf(el) !== 'new') continue;
       const sill = el.type === 'window' ? mm(el.sill) : null;
-      const key = `${el.type}|${el.kind}|${mm(el.width)}|${mm(el.height)}|${sill == null ? '' : sill}`;
+      const arch = App.arch ? App.arch.label(el) : ''; // ‘반원 아치’, ‘완만한 아치 180’ — 사각이면 빈 글자
+      const key = `${el.type}|${el.kind}|${mm(el.width)}|${mm(el.height)}|${sill == null ? '' : sill}|${arch}`;
       let g = groups.get(key);
-      if (!g) groups.set(key, (g = { key, type: el.type, kind: el.kind || '', width: mm(el.width), height: mm(el.height), sill, ids: [] }));
+      if (!g) groups.set(key, (g = { key, type: el.type, kind: el.kind || '', width: mm(el.width), height: mm(el.height), sill, arch, ids: [] }));
       g.ids.push(el.id);
     }
     const kindOrder = (g) => {
@@ -25,7 +26,7 @@
       return i < 0 ? 99 : i;
     };
     const list = [...groups.values()].sort((a, b) => (a.type === b.type ? 0 : a.type === 'door' ? -1 : 1)
-      || kindOrder(a) - kindOrder(b) || b.width - a.width || b.height - a.height || (a.sill || 0) - (b.sill || 0));
+      || kindOrder(a) - kindOrder(b) || b.width - a.width || b.height - a.height || (a.sill || 0) - (b.sill || 0) || (a.arch || '').localeCompare(b.arch || '', 'ko'));
     const byId = new Map();
     let nd = 0, nw = 0;
     list.forEach((g) => {
@@ -39,7 +40,7 @@
   /** 이 문·창문과 같은 기호의 묶음 (없으면 null) */
   const groupOf = (el) => { const m = markOf(el); return m ? marks().list.find((g) => g.mark === m) : null; };
   /** 규격 글자: ‘여닫이 900×2100’, 창문은 ‘미서기 1500×1200 · 창대 900’ */
-  const specOf = (g) => `${g.kind ? `${g.kind} ` : ''}${g.width}×${g.height}${g.type === 'window' && g.sill ? ` · 창대 ${g.sill}` : ''}`;
+  const specOf = (g) => `${g.kind ? `${g.kind} ` : ''}${g.width}×${g.height}${g.type === 'window' && g.sill ? ` · 창대 ${g.sill}` : ''}${g.arch ? ` · ${g.arch}` : ''}`;
   /** 도면에 기호를 띄우는지 (문·창문이 있을 때 레이어 메뉴에서 켬) */
   const showing = () => !!App.current.openingMarks && !App.modes.is('event'); // 창호 일람표는 인테리어에서만
 

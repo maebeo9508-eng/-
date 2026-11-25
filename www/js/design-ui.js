@@ -67,6 +67,7 @@
     const parts = B.parts.filter((q) => q.role === 'panel' || q.role === 'bar' || q.role === 'slab' || (q.role === 'fix' && !q.hd)).map((q) => {
       const c = { id: uid(), s: q.s, n: q.n, m: q.m, ...(q.c ? { c: q.c, fin: q.fin || '' } : {}) };
       if (q.s === 'bar') Object.assign(c, { a: q.a.slice(), b: q.b.slice() }); else Object.assign(c, { x: q.x, y: q.y, z: q.z, w: q.w, d: q.d, h: q.h });
+      if (q.s === 'poly' || q.s === 'arc') Object.assign(c, { pts: q.pts.map((p) => p.slice()), ...(q.s === 'arc' ? { t: q.t } : {}) }); // 곡선 부재
       if (q.role === 'slab' || q.role === 'fix') Object.assign(c, { role: q.role, ...(q.mn ? { mn: q.mn } : {}), ...(q.gl ? { gl: true } : {}), ...(q.metal ? { metal: true } : {}) });
       if (q.eb > 0) c.eb = q.eb;
       if (q.an && q.s !== 'bar') { // 3D에서 열리는 것은 풀어도 열리게
@@ -132,7 +133,7 @@
       title: '새 설계',
       html: `
         <div class="ds-new" data-keys="local">
-          ${['kitchen', 'closet', 'cabinet', 'table', 'shelf', 'counter', 'frame', 'led'].filter((k) => K[k]).map((k) => `
+          ${['kitchen', 'closet', 'archwall', 'cabinet', 'table', 'shelf', 'counter', 'frame', 'led'].filter((k) => K[k]).map((k) => `
             <section class="ds-kind"><h3>${esc(K[k].label)}</h3>
               <div class="ds-presets">${K[k].presets.map(([name], i) => `<button type="button" class="chip" data-kind="${k}" data-preset="${i}">${esc(name)}</button>`).join('')}</div>
             </section>`).join('')}
@@ -210,13 +211,14 @@
         const pre = c.label ? `${c.label}: ` : '';
         return `<select class="field-select ds-li-${c.k}" data-li="${c.k}" aria-label="${esc(c.label || '종류')}">${c.options.map(([val, label]) => `<option value="${esc(val)}" ${String(val) === String(it[c.k] == null ? c.options[0][0] : it[c.k]) ? 'selected' : ''}>${esc(pre + label)}</option>`).join('')}</select>`;
       }
+      if (c.k !== 'w') return `<span class="field-box ds-li-n"><span class="ds-li-lab">${esc(c.label || '')}</span><input type="text" inputmode="numeric" data-li="${c.k}" value="${it[c.k] == null ? '' : esc(it[c.k])}" autocomplete="off" aria-label="${esc(c.label || c.k)} (mm)"></span>`;
       return `<span class="field-box ds-li-w"><input type="text" inputmode="numeric" data-li="${c.k}" value="${it[c.k] == null ? '' : esc(it[c.k])}" autocomplete="off" aria-label="폭 (mm)" title="폭 (mm)"></span>`;
     };
     const row = (it, i) => `
       <div class="ds-li" data-i="${i}">
         <span class="ds-li-no">${i + 1}</span>
-        <div class="ds-li-main">${f.item.filter((c) => c.k !== 'u').map((c) => ctl(it, c)).join('')}</div>
-        <div class="ds-li-sub">${f.item.filter((c) => c.k === 'u').map((c) => ctl(it, c)).join('')}
+        <div class="ds-li-main">${f.item.slice(0, 2).map((c) => ctl(it, c)).join('')}</div>
+        <div class="ds-li-sub${f.item.length > 3 ? ' is-wrap' : ''}">${f.item.slice(2).filter((c) => !c.when || c.when(it)).map((c) => ctl(it, c)).join('')}
           <span class="ds-li-btns">
             <button type="button" class="btn ds-li-btn" data-act="ds-li-up" title="앞으로" aria-label="앞으로" ${i ? '' : 'disabled'}>▲</button>
             <button type="button" class="btn ds-li-btn" data-act="ds-li-down" title="뒤로" aria-label="뒤로" ${i < list.length - 1 ? '' : 'disabled'}>▼</button>
@@ -228,7 +230,7 @@
     return `<div class="ds-list" data-list="${f.k}">
         <div class="field-group-label">${esc(f.label)} <small>${esc(f.hint || '')} · 폭 합 ${fmt(total)} mm</small></div>
         ${list.map(row).join('')}
-        <button type="button" class="btn ds-li-add" data-act="ds-li-add">＋ ${f.k === 'cols' ? '칸' : '모듈'} 추가</button>
+        <button type="button" class="btn ds-li-add" data-act="ds-li-add">＋ ${esc(f.addLabel || (f.k === 'cols' ? '칸' : '모듈'))} 추가</button>
         ${f.note ? `<p class="props-meta ds-li-note">${esc(f.note)}</p>` : ''}
       </div>`;
   }
@@ -257,8 +259,9 @@
     const M = D().mat(q.m) || {};
     const user = !!q.user;
     const f = (k, label, v) => `<div class="field"><label class="field-label">${label}</label><div class="field-box"><input type="text" inputmode="decimal" data-part="${k}" value="${fmt(v).replace(/,/g, '')}" autocomplete="off" aria-label="${label} (mm)"></div></div>`; // 칸이 좁아 단위(mm)는 묶음 이름에
-    const mats = `<select data-part="m">${q.s === 'bar' ? '' : D().SHEETS.map((s) => `<option value="${s.id}" ${s.id === q.m ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}${D().BARS.map((b) => `<option value="${b.id}" ${b.id === q.m ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</select>`;
-    const sizeText = q.s === 'bar' ? `길이 ${fmt(D().lenOf(q))} mm (비스듬히)` : q.role === 'bar' ? `길이 ${fmt(D().lenOf(q))} mm` : `${[q.w, q.d, q.h].sort((a, b) => b - a).map(fmt).join(' × ')} mm`;
+    const mats = `<select data-part="m">${q.s === 'bar' ? '' : D().SHEETS.map((s) => `<option value="${s.id}" ${s.id === q.m ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}${(q.s === 'poly' || q.s === 'arc') ? '' : D().BARS.map((b) => `<option value="${b.id}" ${b.id === q.m ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</select>`;
+    const curved = q.s === 'poly' || q.s === 'arc';
+    const sizeText = q.s === 'arc' ? `곡선 길이 ${fmt(D().arcLen(q))} × ${fmt(q.d)} × ${fmt(q.t)} mm (휘어 붙임)` : q.s === 'poly' ? `${fmt(q.w)} × ${fmt(q.h)} × ${fmt(q.d)} mm (곡선 윤곽)` : q.s === 'bar' ? `길이 ${fmt(D().lenOf(q))} mm (비스듬히)` : q.role === 'bar' ? `길이 ${fmt(D().lenOf(q))} mm` : `${[q.w, q.d, q.h].sort((a, b) => b - a).map(fmt).join(' × ')} mm`;
     if (!user) {
       return `<div class="field-group-label">고른 부재</div>
         <div class="stats"><div class="stat"><span class="stat-label">${esc(q.n)}</span><span class="stat-value">${esc(sizeText)}</span><small>${esc(M.name || '')} · 자리 X ${fmt(q.s === 'bar' ? q.a[0] : q.x)} · Y ${fmt(q.s === 'bar' ? q.a[1] : q.y)} · Z ${fmt(q.s === 'bar' ? q.a[2] : q.z)}</small></div></div>
@@ -280,8 +283,8 @@
         <div class="field-group-label">시작 점 <small>mm</small></div><div class="field-grid ds-3">${f('a0', 'X', q.a[0])}${f('a1', 'Y (깊이)', q.a[1])}${f('a2', 'Z (높이)', q.a[2])}</div>
         <div class="field-group-label">끝 점 <small>mm</small></div><div class="field-grid ds-3">${f('b0', 'X', q.b[0])}${f('b1', 'Y (깊이)', q.b[1])}${f('b2', 'Z (높이)', q.b[2])}</div>` : `
         <div class="field-group-label">자리 <small>왼쪽·앞·아래 구석, mm</small></div><div class="field-grid ds-3">${f('x', 'X', q.x)}${f('y', 'Y (깊이)', q.y)}${f('z', 'Z (높이)', q.z)}</div>
-        <div class="field-group-label">크기 <small>mm</small></div><div class="field-grid ds-3">${f('w', '폭 (X)', q.w)}${f('d', '깊이 (Y)', q.d)}${f('h', '높이 (Z)', q.h)}</div>`}
-      ${q.s === 'bar' ? '' : `<div class="field-group-label">돌리기 <small>가운데는 그대로, 두 치수를 맞바꿈</small></div>
+        ${curved ? '<p class="props-meta">곡선 부재는 크기를 값으로 바꿀 수 없습니다. 자리만 옮기고, 모양은 원래 설계(되돌리기)에서 고치세요.</p>' : `<div class="field-group-label">크기 <small>mm</small></div><div class="field-grid ds-3">${f('w', '폭 (X)', q.w)}${f('d', '깊이 (Y)', q.d)}${f('h', '높이 (Z)', q.h)}</div>`}`}
+      ${q.s === 'bar' || curved ? '' : `<div class="field-group-label">돌리기 <small>가운데는 그대로, 두 치수를 맞바꿈</small></div>
       <div class="btn-row ds-rot"><button type="button" class="btn" data-act="ds-part-rot" data-ax="z" title="위에서 봐서 90° (폭 ↔ 깊이)">폭 ↔ 깊이</button><button type="button" class="btn" data-act="ds-part-rot" data-ax="x" title="세우기·눕히기 (깊이 ↔ 높이)">깊이 ↔ 높이</button><button type="button" class="btn" data-act="ds-part-rot" data-ax="y" title="세우기·눕히기 (폭 ↔ 높이)">폭 ↔ 높이</button></div>`}
       <div class="btn-row"><button type="button" class="btn" data-act="ds-part-copy">부재 복제</button><button type="button" class="btn btn-danger" data-act="ds-part-del">부재 지우기</button></div>`;
   }
@@ -386,7 +389,7 @@
     if (b.spec.length) html += sec('마감사양', '', b.spec.map((t) => { const i = t.indexOf(':'); return tr(i > 0 ? t.slice(0, i) : t, i > 0 ? t.slice(i + 1).trim() : ''); }));
     b.sheets.forEach((s) => {
       const rows = b.panels.filter((r) => r.g === s.g).map((r) => tr(r.n, `${r.q}장`, `${fmt(r.l)} × ${fmt(r.w)} × ${fmt(r.t)} mm`));
-      rows.push(tr('원장 (1220 × 2440)', `${s.count}장`, `넓이 ${s.area}㎡ · 약 ${s.kg}kg · 톱날 3mm 어림`, 'total'));
+      rows.push(tr(`원장 (${s.sh} × ${s.sw})`, `${s.count}장`, `넓이 ${s.area}㎡ · 약 ${s.kg}kg · 톱날 3mm 어림`, 'total'));
       html += sec(s.mat, '재단 치수: 길이 × 폭 × 두께', rows);
     });
     b.stocks.forEach((s) => {
@@ -749,7 +752,7 @@
       case 'ds-part-del': return deletePart();
       case 'ds-part-rot': { // 가운데를 지키며 두 치수를 맞바꿈
         const q = el && userParts(el).find((x) => x.id === sel);
-        if (!q || q.s === 'bar') return null;
+        if (!q || q.s === 'bar' || q.s === 'poly' || q.s === 'arc') return null;
         const ax = btn && btn.dataset.ax, [a, b] = ax === 'z' ? ['w', 'd'] : ax === 'x' ? ['d', 'h'] : ['w', 'h'], pos = { w: 'x', d: 'y', h: 'z' };
         const r = (v) => Math.round(v * 10) / 10;
         setPart(el, sel, { [a]: q[b], [b]: q[a], [pos[a]]: r(q[pos[a]] + (q[a] - q[b]) / 2), [pos[b]]: r(q[pos[b]] + (q[b] - q[a]) / 2) }, '부재 돌리기');
@@ -783,13 +786,15 @@
       const k = box.dataset.list, i = +row.dataset.i, f = fieldsOf(el).find((x) => x.k === k);
       const list = (Array.isArray(el.p[k]) ? el.p[k] : []).map((x) => ({ ...x }));
       if (!list[i]) return;
-      if (t.dataset.li === 'w') {
-        const v = numIn(t.value);
-        if (Number.isNaN(v) || v < 20) { t.value = list[i].w; return; }
-        list[i].w = Math.round(v);
+      if (t.tagName === 'INPUT') { // 숫자 칸 (폭·높이·바닥에서)
+        const k2 = t.dataset.li, v = numIn(t.value), min = k2 === 'w' ? 20 : 0;
+        if (Number.isNaN(v) || v < min) { t.value = list[i][k2] == null ? '' : list[i][k2]; return; }
+        list[i][k2] = Math.round(v);
       } else {
         // 종류를 바꾸면: 폭이 예전 종류의 기본 폭 그대로였으면 새 종류의 기본 폭으로
         if (t.dataset.li === 't' && f && f.defw && list[i].w === f.defw[list[i].t] && f.defw[t.value]) list[i].w = f.defw[t.value];
+        // 종류마다 기본값이 있는 칸(높이·바닥에서): 예전 종류의 기본값 그대로였으면 새 종류의 기본값으로
+        if (t.dataset.li === 't' && f && f.defs && f.defs[t.value]) Object.entries(f.defs[t.value]).forEach(([k3, v3]) => { const old = (f.defs[list[i].t] || {})[k3]; if (list[i][k3] == null || list[i][k3] === old) list[i][k3] = v3; });
         list[i][t.dataset.li] = t.value;
         formKey = '';
       }
@@ -833,7 +838,8 @@
       if (k === 'mv') { setPart(el, sel, { mv: t.value || undefined, ...(t.value === 'dl' || t.value === 'dr' || !t.value ? { mx: undefined } : {}) }, '움직임 바꾸기'); formKey = ''; refreshPanes(); syncBar(); return; }
       if (k === 'm') {
         const isBar = !!D().BARS.find((b) => b.id === t.value);
-        if (q.s !== 'bar' && isBar !== !!D().BARS.find((b) => b.id === q.m)) {
+        if (q.s === 'poly' || q.s === 'arc') { if (!isBar) setPart(el, sel, q.s === 'arc' ? { m: t.value, t: D().sheet(t.value).t } : { m: t.value, d: D().sheet(t.value).t }); }
+        else if (q.s !== 'bar' && isBar !== !!D().BARS.find((b) => b.id === q.m)) {
           // 판 ↔ 막대로 바꾸면 단면을 새 자재에 맞춤
           if (isBar) { const along = q.w >= q.d && q.w >= q.h ? 'x' : q.d >= q.h ? 'y' : 'z'; const r = D().rail(q.n, t.value, along, q.x, q.y, q.z, Math.max(q.w, q.d, q.h)); setPart(el, sel, { m: t.value, w: r.w, d: r.d, h: r.h }); }
           else { const dims = [['w', q.w], ['d', q.d], ['h', q.h]].sort((a, b) => a[1] - b[1]); setPart(el, sel, { m: t.value, [dims[0][0]]: D().sheet(t.value).t }); }

@@ -547,6 +547,12 @@
       line(tail, tip, 1);
       line(tip, P(W * 0.25 + 5 * px, side * (h + 9 * px)), 1);
       line(tip, P(W * 0.25 + 5 * px, side * (h + 3 * px)), 1);
+    } else if (el.kind === '개구부') {
+      // 문짝 없이 뚫린 통로: 위쪽 벽(인방·아치)이 지나가는 자리를 점선으로
+      ctx.setLineDash([5 * px, 3 * px]);
+      line(P(0, h), P(W, h), 1);
+      line(P(0, -h), P(W, -h), 1);
+      ctx.setLineDash([]);
     } else {
       // 자동문: 가운데에서 양쪽으로 열리는 두 짝
       line(P(0, h * 0.35), P(W / 2, h * 0.35), 3);
@@ -558,6 +564,23 @@
         line(P(to, y), P(to + dir * 5 * px, y + 3 * px), 1);
         line(P(to, y), P(to + dir * 5 * px, y - 3 * px), 1);
       });
+    }
+    // 윗모양이 아치면: 가운데에 점선(위로 지나가는 아치)과 작은 글자
+    if (App.arch && App.arch.isArch(el.head)) {
+      ctx.strokeStyle = ink; ctx.fillStyle = ink;
+      if (el.type === 'door' && el.kind !== '미닫이') { ctx.setLineDash([2 * px, 3 * px]); line(P(0, 0), P(W, 0), 1); ctx.setLineDash([]); }
+      if (W * plan.view.scale > 34) {
+        const swing = el.type === 'door' && (el.kind === '여닫이' || el.kind === '방화문');
+        const mid = P(W / 2, (swing ? -(el.side || 1) : 1) * (h + 9 * px));
+        ctx.save();
+        ctx.translate(mid.x, mid.y);
+        ctx.scale(px, px);
+        ctx.font = '600 10px system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(el.head === 'corner' ? '둥근 모서리' : '아치', 0, 0);
+        ctx.restore();
+      }
     }
     ctx.restore();
   }

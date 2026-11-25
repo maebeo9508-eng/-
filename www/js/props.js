@@ -41,6 +41,13 @@
         return w && top > w.height ? `벽 높이(${App.units.formatLength(w.height)})를 넘습니다.` : null;
       },
     },
+    // 아치 높이(스프링 라인에서 꼭대기까지) · 둥근 모서리의 반지름. 모양에 맞지 않는 값은 arch.js가 들어가게 줄임
+    rise: {
+      label: '아치 높이', min: 10, max: 20000,
+      get: (o) => (App.arch.isArch(o.head) ? App.arch.of(o).rise : null),
+      set: (o, v) => ({ rise: v }),
+      check: (o, v) => (v > o.height ? '문·창 높이보다 클 수 없습니다.' : null),
+    },
     offset: {
       label: '벽 시작에서', min: 0, max: 1000000,
       get: (o) => { const g = geomOf(o); return g ? g.c - g.half : 0; },
@@ -427,6 +434,7 @@
         <button type="button" class="btn" data-act="wall-image">${has ? '사진 바꾸기' : '사진 붙이기 (사진첩)'}</button>
         ${has ? '<button type="button" class="btn" data-act="wall-image-clear">사진 떼기</button>' : ''}
       </div>
+      ${els.length === 1 && App.design && App.design.KINDS.archwall && !App.modes.is('event') ? '<div class="btn-row"><button type="button" class="btn" data-act="wall-arch" title="이 벽의 길이·높이·두께로 아치 통로·니치·아치문이 있는 벽을 설계 모드에서 만듦">아치·니치 벽으로 디자인 (설계)</button></div>' : ''}
       ${has ? `<div class="field-grid">
         ${selectField('f-wallImageSide', '붙이는 면', [['both', '양쪽 면'], ['left', '한쪽 면'], ['right', '반대쪽 면']], commonText((w) => w.imageSide || 'both'))}
         ${selectField('f-wallImageFit', '채우는 방법', [['fit', '사진 다 보이게'], ['cover', '벽에 꽉 채우기'], ['stretch', '벽 크기로 늘이기'], ['tile', '무늬처럼 반복']], commonText((w) => w.imageFit || 'fit'))}
@@ -547,19 +555,24 @@
     const T = App.model.TYPES[type];
     const kind = commonText((e) => e.kind);
     const swings = els.every((e) => e.type === 'door' && (e.kind === '여닫이' || e.kind === '방화문'));
-    const flips = els.every((e) => e.type === 'door' && e.kind !== '자동문');
+    const flips = els.every((e) => e.type === 'door' && e.kind !== '자동문' && e.kind !== '개구부');
+    const headNow = commonText((e) => (App.arch.isArch(e.head) ? e.head : 'flat'));
+    const riseOn = headNow && App.arch.adjustable(headNow);
+    const arch1 = single && App.arch.isArch(els[0].head) ? App.arch.of(els[0]) : null;
     const area = els.reduce((s, e) => s + T.area(e), 0);
     const g = single && geomOf(els[0]);
     const wallType = g && App.catalog.typeOf(g.wall);
     return `
       ${head(T.label, single ? (kind || '') : `${els.length}개 선택`)}
       ${presetSelect(type)}
-      ${selectField('f-kind', '종류', T.KINDS.map((k) => [k, k]), kind)}
+      ${selectField('f-kind', '종류', T.KINDS.map((k) => [k, k === '개구부' ? '개구부 (문짝 없는 통로)' : k]), kind)}
+      ${selectField('f-head', '윗모양 <small>아치·둥근 모서리</small>', App.arch.HEADS.map((h) => [h[0], h[1]]), headNow)}
       ${selectField('f-opPhase', '공사 <small>정하지 않으면 달린 벽을 따름</small>', [['', `벽 따라 (지금 ${({ new: '신설', keep: '기존', demo: '철거' })[App.model.phaseOf({ type, wallId: els[0].wallId })]})`], ['new', '신설 (새로 닮)'], ['keep', '기존 (그대로 둠)'], ['demo', '철거']], common((e) => e.phase || ''))}
       <div class="field-grid">
         ${numberField('width')}
         ${numberField('height')}
         ${type === 'window' ? numberField('sill') : ''}
+        ${riseOn ? numberField('rise', App.arch.riseLabel(headNow)) : ''}
         ${single ? numberField('offset') : ''}
       </div>
       ${swings || flips ? `<div class="btn-row">
@@ -568,6 +581,7 @@
       </div>` : ''}
       <div class="stats">
         ${stat(single ? '면적' : '면적 합계', App.units.formatArea(area), '벽 면적에서 뺌')}
+        ${arch1 ? stat(App.arch.name(arch1.head), `윗선 길이 ${App.units.formatLength(App.arch.topLength(els[0].head, els[0].width, els[0].height, els[0].rise))}`, `옆선이 곧은 높이 ${App.units.formatLength(arch1.spring)} · 그 위 ${App.units.formatLength(arch1.rise)} · 3D에서 벽이 이 모양으로 뚫립니다`) : ''}
         ${type === 'window' && single ? stat('창 위 높이', App.units.formatLength(els[0].sill + els[0].height)) : ''}
         ${g ? stat('붙은 벽', wallType ? wallType.name : '벽', App.units.formatLength(g.L)) : ''}
         ${single && App.openings && !App.modes.is('event') && App.openings.groupOf(els[0]) ? stat('창호 기호', App.openings.markOf(els[0]), `같은 규격 ${App.openings.groupOf(els[0]).ids.length}개 · 집계 ‘전체’의 창호 일람표`) : ''}
@@ -1185,9 +1199,10 @@
         App.ui.toast(`‘${p.name}’을 적용할 수 없습니다. ${problem}`);
         return;
       }
+      const head = App.arch.isArch(p.head) ? { head: p.head, rise: p.rise > 0 ? p.rise : null } : { head: null, rise: null };
       apply('프리셋 적용', () => (p.kind === 'window'
-        ? { width: p.width, height: p.height, sill: p.sill, kind: p.style }
-        : { width: p.width, height: p.height, kind: p.style }));
+        ? { width: p.width, height: p.height, sill: p.sill, kind: p.style, ...head }
+        : { width: p.width, height: p.height, kind: p.style, ...head }));
     } else {
       apply('프리셋 적용', () => ({ shape: p.shape, width: p.width, depth: p.shape === 'circle' ? p.width : p.depth }));
     }
@@ -1264,6 +1279,10 @@
       }
       if (id === 'f-kind') {
         if (t.value) apply('종류 변경', () => ({ kind: t.value }));
+        return;
+      }
+      if (id === 'f-head') { // 윗모양: 사각이면 값을 지움. 아치 높이는 새 모양의 기본값부터
+        if (t.value) apply('윗모양 변경', () => ({ head: t.value === 'flat' ? null : t.value, rise: null }));
         return;
       }
       if (id === 'f-shape') {
@@ -1557,6 +1576,18 @@
         case 'face-image-clear': apply('이미지 빼기', () => ({ imageId: null })); break;
         case 'obj-edit': { const m = els[0] && App.library.meta(els[0].kind); if (m) App.libraryUI.edit(m.id).then(() => { shownKey = null; refresh(); }); break; }
         case 'obj-link': { const m = els[0] && App.library.meta(els[0].kind); if (m && m.url) window.open(m.url, '_blank', 'noopener'); break; }
+        case 'wall-arch': { // 이 벽 크기로 아치 벽 설계를 만들고 설계 모드로
+          const w = els[0];
+          if (!w || !App.designUI) break;
+          const L = Math.round(G.dist(w.start, w.end)), Hh = Math.round(w.height || App.settings.wallHeight || 2400), Tt = Math.max(60, Math.round(w.thickness || 120));
+          const ops = L >= 1500 ? [{ t: 'pass', w: Math.min(900, Math.round(L * 0.4)), h: Math.min(2100, Hh - 250), s: 0, head: 'round' }]
+            : [{ t: 'niche', w: Math.max(200, Math.min(450, Math.round(L * 0.4))), h: Math.max(300, Math.min(900, Hh - 1300)), s: 1000, head: 'round' }];
+          App.modes.set('design', true);
+          App.designUI.add('archwall', { W: L, H: Hh, T: Tt, ops }, `벽 ${L.toLocaleString('ko-KR')} 아치`);
+          App.plan.fitToContent();
+          App.ui.toast('이 벽 크기로 아치 벽 설계를 만들었습니다. 개구부를 고친 뒤 ‘사물로 등록 → 인테리어에 놓기’로 그 자리에 놓으세요.');
+          break;
+        }
         case 'wall-image':
           App.images.pick().then((id) => { if (id) apply('벽에 사진 붙이기', () => ({ imageId: id })); });
           break;

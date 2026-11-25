@@ -1012,7 +1012,7 @@
     render(cam, o = {}) {
       const gl = this.gl;
       const W = gl.drawingBufferWidth, H = gl.drawingBufferHeight;
-      const sun = SUNS[o.sun || 0] || SUNS[0];
+      const sun = o.sun && typeof o.sun === 'object' ? o.sun : SUNS[o.sun || 0] || SUNS[0]; // 일조 보기: 계산한 해 방향을 담은 값
       const sl = Math.hypot(sun.dir[0], sun.dir[1], sun.dir[2]);
       const sunDir = [sun.dir[0] / sl, sun.dir[1] / sl, sun.dir[2] / sl];
       const time = (performance.now() - this.start) / 1000;

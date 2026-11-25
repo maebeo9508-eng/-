@@ -25,9 +25,12 @@
     ['door', { name: '욕실문', style: '여닫이', width: 800, height: 2100 }],
     ['door', { name: '현관 방화문', style: '방화문', width: 1000, height: 2100 }],
     ['door', { name: '미닫이문', style: '미닫이', width: 900, height: 2100 }],
+    ['door', { name: '아치문', style: '여닫이', width: 900, height: 2100, head: 'round' }],
+    ['door', { name: '아치 통로 (문 없음)', style: '개구부', width: 1000, height: 2200, head: 'round' }],
     ['window', { name: '방 창', style: '미서기', width: 1200, height: 1200, sill: 900 }],
     ['window', { name: '거실 창', style: '미서기', width: 2400, height: 2100, sill: 300 }],
     ['window', { name: '욕실 창', style: '프로젝트창', width: 600, height: 600, sill: 1500 }],
+    ['window', { name: '아치 창', style: '고정창', width: 900, height: 1400, sill: 800, head: 'round' }],
     ['column', { name: '사각 기둥', shape: 'rect', width: 400, depth: 400 }],
     ['column', { name: '원형 기둥', shape: 'circle', width: 400, depth: 400 }],
     // 선 종류: size는 관·덕트 지름(폭). 덕트는 이 폭으로 그림
@@ -674,8 +677,8 @@
       if (p.kind === 'column') {
         return p.shape === 'circle' ? `원형 Ø${num(p.width)}` : `사각 ${num(p.width)}×${num(p.depth)}`;
       }
-      const size = `${num(p.width)}×${num(p.height)}`;
-      return p.kind === 'window' ? `${p.style} ${size} · 하단 ${num(p.sill)}` : `${p.style} ${size}`;
+      const size = `${num(p.width)}×${num(p.height)}`, arch = App.arch && App.arch.isArch(p.head) ? ` · ${App.arch.label(p)}` : '';
+      return p.kind === 'window' ? `${p.style} ${size} · 하단 ${num(p.sill)}${arch}` : `${p.style} ${size}${arch}`;
     },
 
     /** 기본 마감재 목록 (예전에 만든 도면에 마감재가 없으면 넣음) */

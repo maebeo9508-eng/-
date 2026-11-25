@@ -1771,6 +1771,12 @@ body:has(> .view3d:not([hidden])) .toast { bottom: auto; top: 36%; }
 .ds-li-btn[disabled] { opacity: 0.35; }
 .ds-li-add { align-self: flex-start; min-height: 36px; }
 .ds-li-note { margin: 2px 0 0; font-size: 11.5px; line-height: 1.5; }
+.ds-li-sub.is-wrap { flex-wrap: wrap; }
+.ds-li-sub.is-wrap .field-select { flex: 1 1 100%; }
+.ds-li-n { flex: 1 1 96px; min-width: 96px; display: flex; align-items: center; gap: 4px; }
+.ds-li-n input { min-width: 40px; }
+.ds-li-sub.is-wrap .ds-li-btns { margin-left: auto; }
+.ds-li-lab { font-size: 11px; color: var(--fg-muted); white-space: nowrap; }
 @media (max-width: 768px) {
   .ds-li-main { grid-template-columns: minmax(0, 1fr) 84px; }
   .ds-li-btn { min-height: 38px; min-width: 40px; }
@@ -1794,3 +1800,13 @@ body:has(> .view3d:not([hidden])) .toast { bottom: auto; top: 36%; }
 .ds-3d-canvas { height: min(58vh, 520px); border: 1px solid var(--line); border-radius: 10px; }
 .ds-sum-acts { flex-wrap: wrap; padding: 4px 12px 0; }
 .ds-props .field-group-label small { font-weight: 500; color: var(--fg-muted); margin-left: 6px; }
+
+/* 3D 일조 보기: 달·시각 막대 */
+.v3-study { display: flex; flex-direction: column; gap: 6px; padding: 4px 0 2px; }
+.v3-study-row { display: grid; grid-template-columns: 34px minmax(0, 1fr) 46px; align-items: center; gap: 8px; font-size: 13px; }
+.v3-study-row input[type=range] { width: 100%; }
+.v3-study-row select { grid-column: 2 / -1; min-height: 34px; }
+.v3-study-row b { font-weight: 600; text-align: right; }
+.v3-study-out { margin: 0; font-size: 12px; color: var(--fg-muted); }
+/* 집계: 점검에서 확인이 필요한 줄 */
+tr.is-warn th, tr.is-warn td { color: #b45309; }

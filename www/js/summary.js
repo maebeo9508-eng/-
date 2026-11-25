@@ -95,8 +95,9 @@
 
     // 리모델링: 새로 다는 문·창문만 개수에 (기존은 그대로 두고, 철거는 따로 셈 — 정하지 않았으면 달린 벽을 따름)
     const phOf = (o) => App.model.phaseOf(o);
-    of('door').filter((d) => phOf(d) === 'new').forEach((d) => add('door', d.kind, `${d.kind} ${num(d.width)}×${num(d.height)}`, (M.openingRoom(d) || {}).id, 1));
-    of('window').filter((w) => phOf(w) === 'new').forEach((w) => add('window', w.kind, `${w.kind} ${num(w.width)}×${num(w.height)}`, (M.openingRoom(w) || {}).id, 1));
+    const archOf = (o) => { const a = App.arch ? App.arch.label(o) : ''; return a ? ` · ${a}` : ''; }; // 아치문·아치창은 따로 셈
+    of('door').filter((d) => phOf(d) === 'new').forEach((d) => add('door', d.kind, `${d.kind} ${num(d.width)}×${num(d.height)}${archOf(d)}`, (M.openingRoom(d) || {}).id, 1));
+    of('window').filter((w) => phOf(w) === 'new').forEach((w) => add('window', w.kind, `${w.kind} ${num(w.width)}×${num(w.height)}${archOf(w)}`, (M.openingRoom(w) || {}).id, 1));
     of('column').forEach((c) => {
       const shape = App.catalog.SHAPE_NAMES[c.shape];
       add('column', shape, c.shape === 'circle' ? `원형 Ø${num(c.width)}` : `사각 ${num(c.width)}×${num(c.depth)}`, c.room, 1, zoneAt(c));
@@ -330,6 +331,8 @@
     }
     const ob = event ? null : openingBlock();
     if (ob) blocks.push(ob);
+    const dl = event ? null : daylightBlock();
+    if (dl) blocks.push(dl);
     const mat = event ? [] : materialRows(s.materials); // 조감도 모드에서는 벽 자재·마감재를 빼고 봄
     if (mat.length) blocks.push({ title: '벽 자재', sub: '본·장 수는 전체 길이·면적을 더한 뒤 올림', rows: mat });
     if (s.finishes.length && !event) blocks.push({ title: '마감재', sub: '방 속성에서 고른 벽·바닥 마감. 장 수는 면적을 더한 뒤 올림', rows: s.finishes.map((f) => finishRow(f, '', ` · 방 ${f.rooms}곳`)) });
@@ -580,6 +583,47 @@
               : '벽과 방, 문·창문, 전기·설비 기호를 그리면 면적·수량·길이·자재가 여기에 자동으로 정리됩니다.'}</p>
         </div>`}`;
     pane.scrollTop = scroll;
+  }
+
+  /** 채광·환기·문 폭 약식 점검 (인테리어, 참고용): 사람이 머무는 방마다 창 면적 ÷ 바닥 면적.
+      채광 1/10 이상, 환기(여는 부분) 1/20 이상 — 미서기는 절반만 열린다고 보고 고정창은 환기 0. 문은 폭 800 미만을 알림 */
+  const NOT_LIVING = /욕실|화장실|파우더|창고|드레스|현관|복도|다용도|발코니|베란다|팬트리|계단|세탁|보일러|기계|전기|샤워|탕비|화물/;
+  function daylightBlock() {
+    const all = [...App.doc.all()], ex = App.layers.excludeHidden();
+    const vis = (e) => !ex || App.layers.visible(e);
+    const wins = all.filter((e) => e.type === 'window' && App.model.phaseOf(e) !== 'demo' && vis(e));
+    const rows = [];
+    let warn = 0;
+    all.filter((e) => e.type === 'room' && Array.isArray(e.points) && e.points.length >= 3 && vis(e)).forEach((r) => {
+      const name = r.name || '이름 없음';
+      if (NOT_LIVING.test(name)) return;
+      const floor = Math.abs(App.geom.signedArea(r.points)) / 1e6;
+      if (floor < 1) return;
+      let glass = 0, vent = 0;
+      wins.forEach((w) => {
+        const g = App.model.openingGeom(w);
+        if (!g) return;
+        const near = [1, -1].some((sd) => App.geom.pointInPolygon({ x: g.center.x + g.n.x * sd * (g.th / 2 + 50), y: g.center.y + g.n.y * sd * (g.th / 2 + 50) }, r.points));
+        if (!near) return;
+        const a = App.model.TYPES.window.area(w) / 1e6;
+        glass += a;
+        vent += a * (w.kind === '고정창' ? 0 : w.kind === '미서기' ? 0.5 : 1);
+      });
+      const okL = glass >= floor / 10 - 1e-9, okV = vent >= floor / 20 - 1e-9;
+      if (!okL || !okV) warn++;
+      const pct = (v) => `${((v / floor) * 100).toFixed(1)}%`;
+      rows.push(row(name, { text: `${okL && okV ? '충족' : '확인 필요'} · 창 ${glass.toFixed(2)}㎡` },
+        `바닥 ${floor.toFixed(1)}㎡ — 채광 ${pct(glass)} (1/10 = 10% ${okL ? '이상' : '모자람'}) · 환기 ${pct(vent)} (1/20 = 5% ${okV ? '이상' : '모자람'})`, okL && okV ? '' : 'warn'));
+    });
+    const doors = all.filter((e) => e.type === 'door' && App.model.phaseOf(e) !== 'demo' && vis(e));
+    if (doors.length) {
+      const narrow = doors.filter((d) => d.width < 800);
+      rows.push(row('문 폭', { text: narrow.length ? `${narrow.length}개 좁음` : `${doors.length}개 모두 800 이상` },
+        narrow.length ? `폭 800mm 미만: ${narrow.slice(0, 4).map((d) => `${d.kind} ${Math.round(d.width)}`).join(', ')}${narrow.length > 4 ? ' …' : ''} — 가구 반입·휠체어가 어려울 수 있음 (휠체어는 문틀 안쪽 유효폭 0.9m 이상 권장)` : '휠체어가 다니려면 문틀 안쪽 유효폭 0.9m 이상 권장 · 문 폭은 문틀 포함 어림', narrow.length ? 'warn' : ''));
+      if (narrow.length) warn++;
+    }
+    if (!rows.length) return null;
+    return { title: '채광·환기·문 폭 약식 점검', sub: `참고용 (법적 효력 없음) · 거실·침실 등 사람이 머무는 방은 바닥면적의 1/10 이상 창(채광), 1/20 이상 여는 창(환기)이 기준 — 「건축물의 피난·방화구조 등의 기준에 관한 규칙」 제17조. 바닥은 벽 중심선 면적, 미서기는 절반만 열린다고 봄${warn ? ` · 확인할 것 ${warn}곳` : ''}`, warn: warn > 0, rows };
   }
 
   /** 창호 일람표 (인테리어): 같은 종류·규격의 새로 다는 문·창문을 한 기호(D1·W1)로 묶어 수량과 방 */

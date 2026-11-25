@@ -375,6 +375,22 @@
           photo.quadUV([p[0], y0, p[1]], [q[0], y0, q[1]], [q[0], y1, q[1]], [p[0], y1, p[1]], [[1 - s1 / len, v(y0)], [1 - s0 / len, v(y0)], [1 - s0 / len, v(y1)], [1 - s1 / len, v(y1)]], [1, 1, 1]);
         }
       };
+      /** 아치 개구부: 윗선과 꼭대기 높이 사이(양쪽 모서리)를 벽으로 메움 — 양쪽 면과 아치 밑면 */
+      const spandrel = (op, a, b, base, topY) => {
+        const pts = App.arch.top(op.head, b - a, op.height, op.rise, 28);
+        const colAt = (runs, sign, sm) => { const r = runs.find((q) => sm >= q.a && sm <= q.b); return r && r.color && !noSkin[sign] ? r.color : wc; };
+        for (let i = 0; i + 1 < pts.length; i++) {
+          const s0 = a + pts[i][0], s1 = a + pts[i + 1][0];
+          const y0 = Math.min(H, base + pts[i][1] / 1000), y1 = Math.min(H, base + pts[i + 1][1] / 1000);
+          if (s1 - s0 < 0.05) continue;
+          const L0 = at(s0, h), L1 = at(s1, h), R0 = at(s0, -h), R1 = at(s1, -h), sm = (s0 + s1) / 2;
+          if (topY - Math.min(y0, y1) > 0.002) {
+            S.quad([L0[0], y0, L0[1]], [L1[0], y1, L1[1]], [L1[0], topY, L1[1]], [L0[0], topY, L0[1]], colAt(runsL, 1, sm), MAT.plain);
+            S.quad([R1[0], y1, R1[1]], [R0[0], y0, R0[1]], [R0[0], topY, R0[1]], [R1[0], topY, R1[1]], colAt(runsR, -1, sm), MAT.plain);
+          }
+          S.quad([L0[0], y0, L0[1]], [R0[0], y0, R0[1]], [R1[0], y1, R1[1]], [L1[0], y1, L1[1]], wc, MAT.plain); // 아치 밑면
+        }
+      };
       const ops = App.measure.openingsOf(w.id).map((op) => ({ op, g: App.model.openingGeom(op) })).filter((x) => x.g && App.layers.visible(x.op) && App.model.phaseOf(x.op) !== 'demo')
         .sort((a, b) => a.g.c - b.g.c);
       let s = 0;
@@ -384,6 +400,7 @@
         const top = (op.type === 'window' ? op.sill + op.height : op.height) / 1000;
         if (op.type === 'window') piece(a, b, 0, Math.min(H, op.sill / 1000));
         piece(a, b, Math.min(H, top), H);
+        if (App.arch.isArch(op.head)) spandrel(op, a, b, (op.type === 'window' ? op.sill : 0) / 1000, Math.min(H, top));
         s = Math.max(s, b);
         opening(op, g, H);
       });
@@ -398,9 +415,55 @@
       dir[0] /= len; dir[1] /= len;
       const nrm = [g.n.x, g.n.y];
       const along = (p, k) => [p[0] + dir[0] * k, p[1] + dir[1] * k];
+      /* 아치: 윗선 [[벽을 따라 m, 높이 m]…] (개구부 왼쪽 끝이 0). 벽 높이를 넘는 곳은 벽 높이까지 */
+      const arch = App.arch.isArch(op.head);
+      const base = op.type === 'window' ? Math.min(H, op.sill / 1000) : 0;
+      const crv = arch ? App.arch.top(op.head, len * 1000, op.height, op.rise, 28).map((q) => [q[0] / 1000, Math.min(H, base + q[1] / 1000)]) : null;
+      const pt3 = (q, sd, t = th) => { const c = along(a, q[0]); return [c[0] + nrm[0] * sd * t / 2, q[1], c[1] + nrm[1] * sd * t / 2]; };
+      /** 윗선에서 u0~u1 구간만 (끝은 이어서 맞춤), 높이는 dy만큼 낮춤 — 문짝·유리의 윗선 */
+      const cut = (u0, u1, dy = 0) => {
+        const yAt = (u) => { for (let i = 0; i + 1 < crv.length; i++) { const p = crv[i], q = crv[i + 1]; if (u <= q[0] + 1e-9) return q[0] - p[0] < 1e-9 ? Math.max(p[1], q[1]) : p[1] + ((q[1] - p[1]) * (u - p[0])) / (q[0] - p[0]); } return crv[crv.length - 1][1]; };
+        return [[u0, yAt(u0) - dy], ...crv.filter((q) => q[0] > u0 + 1e-4 && q[0] < u1 - 1e-4).map((q) => [q[0], q[1] - dy]), [u1, yAt(u1) - dy]];
+      };
+      /** 아치를 따라 도는 틀: 개구부 가장자리에서 안쪽으로 fw만큼, 벽 두께 t */
+      const band = (fw, t, col, mat = MAT.plain) => {
+        const n = crv.length, inner = crv.map((q, i) => { const p0 = crv[Math.max(0, i - 1)], p1 = crv[Math.min(n - 1, i + 1)]; let tx = p1[0] - p0[0], ty = p1[1] - p0[1]; const l = Math.hypot(tx, ty) || 1; tx /= l; ty /= l; return [q[0] + ty * fw, q[1] - tx * fw]; });
+        for (let i = 0; i + 1 < n; i++) {
+          const o0 = crv[i], o1 = crv[i + 1], i0 = inner[i], i1 = inner[i + 1];
+          S.quad(pt3(i0, 1, t), pt3(i1, 1, t), pt3(o1, 1, t), pt3(o0, 1, t), col, mat);
+          S.quad(pt3(i1, -1, t), pt3(i0, -1, t), pt3(o0, -1, t), pt3(o1, -1, t), col, mat);
+          S.quad(pt3(i0, 1, t), pt3(i0, -1, t), pt3(i1, -1, t), pt3(i1, 1, t), col, mat);
+        }
+      };
+      /** 윗선이 굽은 판 (문짝): 평면의 p→q, 두께 t, 아래 y0, 윗선 top [[p에서의 거리 m, 높이 m]…] */
+      const curved = (M, p, q, t, y0, topLine, col, mat) => {
+        const L = Math.hypot(q[0] - p[0], q[1] - p[1]) || 1, ux = (q[0] - p[0]) / L, uz = (q[1] - p[1]) / L, nx = (-uz * t) / 2, nz = (ux * t) / 2;
+        const P3 = (u, y, sd) => [p[0] + ux * u + nx * sd, y, p[1] + uz * u + nz * sd];
+        for (let i = 0; i + 1 < topLine.length; i++) {
+          const [u0, v0] = topLine[i], [u1, v1] = topLine[i + 1];
+          if (u1 - u0 < 1e-5) continue;
+          if (Math.max(v0, v1) - y0 > 1e-4) {
+            M.quad(P3(u0, y0, 1), P3(u1, y0, 1), P3(u1, v1, 1), P3(u0, v0, 1), col, mat);
+            M.quad(P3(u1, y0, -1), P3(u0, y0, -1), P3(u0, v0, -1), P3(u1, v1, -1), col, mat);
+          }
+          M.quad(P3(u0, v0, 1), P3(u1, v1, 1), P3(u1, v1, -1), P3(u0, v0, -1), col, mat);
+        }
+        const f = topLine[0], l = topLine[topLine.length - 1];
+        if (f[1] - y0 > 1e-4) M.quad(P3(f[0], y0, -1), P3(f[0], y0, 1), P3(f[0], f[1], 1), P3(f[0], f[1], -1), col, mat);
+        if (l[1] - y0 > 1e-4) M.quad(P3(l[0], y0, 1), P3(l[0], y0, -1), P3(l[0], l[1], -1), P3(l[0], l[1], 1), col, mat);
+      };
       if (op.type === 'window') {
         const y0 = Math.min(H, op.sill / 1000), y1 = Math.min(H, (op.sill + op.height) / 1000);
         if (y1 - y0 < 0.05) return;
+        if (arch) { // 아치 창: 옆 틀은 스프링 라인까지, 위는 아치를 따라
+          const sp = crv[0][1];
+          slab(S, a, b, th + 0.04, y0 - 0.03, y0 + 0.02, FRAME);
+          if (sp - y0 > 0.01) { slab(S, a, along(a, 0.04), th, y0, sp, FRAME); slab(S, along(b, -0.04), b, th, y0, sp, FRAME); }
+          band(0.04, th, FRAME);
+          if (op.kind !== '고정창') { const mt = cut(len / 2 - 0.02, len / 2 + 0.02, 0.02); curved(S, along(a, len / 2 - 0.02), along(a, len / 2 + 0.02), th * 0.5, y0, mt.map((q) => [q[0] - (len / 2 - 0.02), q[1]]), FRAME, MAT.plain); }
+          for (let i = 0; i + 1 < crv.length; i++) { const p0 = crv[i], p1 = crv[i + 1]; if (p1[0] - p0[0] < 1e-5) continue; L.glass.quad(pt3([p0[0], y0], 0), pt3([p1[0], y0], 0), pt3(p1, 0), pt3(p0, 0), hex('#a9cbe0'), MAT.glass); }
+          return;
+        }
         slab(S, a, b, th + 0.04, y0 - 0.03, y0 + 0.02, FRAME);           // 창대
         slab(S, a, b, th, y1 - 0.04, y1, FRAME);
         slab(S, a, along(a, 0.04), th, y0, y1, FRAME);
@@ -411,18 +474,22 @@
       }
       const y1 = Math.min(H, op.height / 1000);
       if (y1 < 0.3) return;
-      slab(S, a, along(a, 0.035), th, 0, y1, FRAME);
-      slab(S, along(b, -0.035), b, th, 0, y1, FRAME);
-      slab(S, a, b, th, y1 - 0.035, y1, FRAME);
+      if (op.kind === '개구부') return; // 문짝·문틀 없이 뚫린 통로 (벽이 그 모양으로 뚫려 있음)
+      const sp = arch ? crv[0][1] : y1; // 옆 틀이 곧게 올라가는 높이
+      if (sp > 0.01) { slab(S, a, along(a, 0.035), th, 0, sp, FRAME); slab(S, along(b, -0.035), b, th, 0, sp, FRAME); }
+      if (arch) band(0.035, th, FRAME); else slab(S, a, b, th, y1 - 0.035, y1, FRAME);
       const w = len - 0.07;
+      /** 문짝 윗선: 문틀 안쪽(0.035)부터 문짝 폭만큼, 틀 두께 + 틈만큼 낮춤. flip: 끝 쪽 경첩이면 거꾸로 */
+      const leafTop = (flip) => { const t = cut(0.035, len - 0.035, 0.04).map((q) => [flip ? len - 0.035 - q[0] : q[0] - 0.035, q[1]]); return flip ? t.reverse() : t; };
       if (op.kind === '자동문') {
         // 양쪽으로 열린 유리문
+        const ya = arch ? Math.max(0.3, sp - 0.04) : y1 - 0.04; // 아치면 유리문은 스프링 라인 아래까지
         [[a, 1], [b, -1]].forEach(([p, s]) => {
           const p0 = along(p, s * 0.035), p1 = along(p, s * (0.035 + w * 0.2));
-          L.glass.quad([p0[0], 0.02, p0[1]], [p1[0], 0.02, p1[1]], [p1[0], y1 - 0.04, p1[1]], [p0[0], y1 - 0.04, p0[1]], hex('#a9cbe0'), MAT.glass);
-          slab(S, along(p1, -s * 0.02), p1, 0.04, 0, y1 - 0.04, hex('#b9bec6'), MAT.metal);
+          L.glass.quad([p0[0], 0.02, p0[1]], [p1[0], 0.02, p1[1]], [p1[0], ya, p1[1]], [p0[0], ya, p0[1]], hex('#a9cbe0'), MAT.glass);
+          slab(S, along(p1, -s * 0.02), p1, 0.04, 0, ya, hex('#b9bec6'), MAT.metal);
         });
-        slab(S, a, b, th + 0.06, y1, Math.min(H, y1 + 0.16), hex('#b9bec6'), MAT.metal);
+        if (!arch) slab(S, a, b, th + 0.06, y1, Math.min(H, y1 + 0.16), hex('#b9bec6'), MAT.metal);
         return;
       }
       const leaf = op.kind === '방화문' ? hex('#8d939b') : hex('#d6b98c'), mat = op.kind === '방화문' ? MAT.metal : MAT.wood;
@@ -430,7 +497,8 @@
         // 벽을 따라 반쯤 밀어 둠
         const p0 = along(a, 0.035 + w * 0.55), p1 = along(a, 0.035 + w * 1.5);
         const off = [nrm[0] * (th / 2 + 0.03), nrm[1] * (th / 2 + 0.03)];
-        slab(S, [p0[0] + off[0], p0[1] + off[1]], [p1[0] + off[0], p1[1] + off[1]], 0.04, 0.01, y1 - 0.04, leaf, mat);
+        if (arch) curved(S, [p0[0] + off[0], p0[1] + off[1]], [p1[0] + off[0], p1[1] + off[1]], 0.04, 0.01, leafTop(false).map((q) => [q[0] * 0.95, q[1]]), leaf, mat); // 밀어 둔 문짝도 아치 모양
+        else slab(S, [p0[0] + off[0], p0[1] + off[1]], [p1[0] + off[0], p1[1] + off[1]], 0.04, 0.01, y1 - 0.04, leaf, mat);
         return;
       }
       // 여닫이: 경첩 쪽에서 열리는 쪽으로 80도 열어 둠
@@ -440,7 +508,8 @@
       const lx = dir[0] * s * Math.cos(ang) + nrm[0] * side * Math.sin(ang), lz = dir[1] * s * Math.cos(ang) + nrm[1] * side * Math.sin(ang);
       const hp = [hinge[0] + nrm[0] * side * (th / 2 - 0.02), hinge[1] + nrm[1] * side * (th / 2 - 0.02)];
       const tip = [hp[0] + lx * w, hp[1] + lz * w];
-      slab(S, hp, tip, 0.04, 0.01, y1 - 0.04, leaf, mat);
+      if (arch) curved(S, hp, tip, 0.04, 0.01, leafTop(op.hinge === 'end'), leaf, mat); // 아치문: 문짝 위도 아치
+      else slab(S, hp, tip, 0.04, 0.01, y1 - 0.04, leaf, mat);
       const hd = [hp[0] + lx * (w - 0.09), hp[1] + lz * (w - 0.09)];
       S.tube([hd[0] - lz * 0.02, 1.0, hd[1] + lx * 0.02], [hd[0] - lz * 0.08, 1.0, hd[1] + lx * 0.08], 0.011, 0.011, hex('#c9ced6'), MAT.metal, 6);
       S.tube([hd[0] + lz * 0.02, 1.0, hd[1] - lx * 0.02], [hd[0] + lz * 0.08, 1.0, hd[1] - lx * 0.08], 0.011, 0.011, hex('#c9ced6'), MAT.metal, 6);
@@ -552,6 +621,36 @@
   // auto: { route, s, playing }
 
   const sunIndex = () => clamp(App.current.sun3d | 0, 0, SUNS.length - 1);
+  /** 일조: 서울(북위 37.57°, 동경 126.98°, 표준시 135°)에서 그 달 15일·그 시각의 해 높이·방위 — 적위·균시차 근사식 (어림).
+      north: 도면에서 북쪽이 위에서 시계 방향으로 몇 도 돌아가 있는지. dir: 해가 있는 쪽 (3D 좌표: x 오른쪽, y 위, z 도면 아래) */
+  function solar(month, hour, north = 0) {
+    const rad = Math.PI / 180, lat = 37.57 * rad, N = Math.round(30.42 * (month - 1) + 15);
+    const B = ((360 / 365) * (N - 81)) * rad, decl = 23.44 * rad * Math.sin(B);
+    const eot = 9.87 * Math.sin(2 * B) - 7.53 * Math.cos(B) - 1.5 * Math.sin(B); // 균시차(분)
+    const H = (hour + (126.98 - 135) / 15 + eot / 60 - 12) * 15 * rad;           // 시간각
+    const alt = Math.asin(clamp(Math.sin(lat) * Math.sin(decl) + Math.cos(lat) * Math.cos(decl) * Math.cos(H), -1, 1));
+    let az = Math.acos(clamp((Math.sin(decl) - Math.sin(alt) * Math.sin(lat)) / (Math.cos(alt) * Math.cos(lat) || 1e-9), -1, 1));
+    if (H > 0) az = 2 * Math.PI - az;                                              // 오후는 서쪽
+    const a2 = az + north * rad;
+    return { alt: alt / rad, az: az / rad, dir: [Math.sin(a2) * Math.cos(alt), Math.sin(alt), -Math.cos(a2) * Math.cos(alt)] };
+  }
+  const study = () => (App.current.sunStudy && App.current.sunStudy.on ? App.current.sunStudy : null);
+  /** 그릴 때 쓰는 햇빛: 일조 보기면 계산한 해 (해가 지면 밤), 아니면 고른 햇빛 */
+  function sunArg() {
+    const s = study();
+    if (!s) return sunIndex();
+    const P = solar(s.m || 6, s.h == null ? 14 : s.h, App.current.north || 0);
+    if (P.alt <= 0.5) return 3;
+    return { ...SUNS[P.alt > 35 ? 0 : P.alt > 14 ? 1 : 2], dir: P.dir };
+  }
+  const DIRS = ['북', '북동', '동', '남동', '남', '남서', '서', '북서'];
+  function studyText() {
+    const s = study();
+    if (!s) return '';
+    const P = solar(s.m || 6, s.h == null ? 14 : s.h, App.current.north || 0), h = s.h == null ? 14 : s.h;
+    const t = `${s.m || 6}월 15일 ${Math.floor(h)}:${h % 1 ? '30' : '00'}`;
+    return P.alt <= 0.5 ? `${t} · 해가 진 시각 (밤으로 보임)` : `${t} · 해 높이 ${Math.round(P.alt)}° · ${DIRS[Math.round(P.az / 45) % 8]}쪽 하늘`;
+  }
   /** 3D 이름표: 조감도 모드에서 켜 둠 (설정의 ‘이름표’로 끔). 걷기에서는 가까운 것만 크게 보여 어지러우므로 끔 */
   const labelsOn = () => App.modes.is('event') && App.settings.labels3d !== false && mode !== 'walk';
 
@@ -648,7 +747,7 @@
       R.setDynamic(walkers.list.length ? walkerMesh((t0 - walkers.t0) / 1000) : null);
     } else if (R.dyn && R.dyn.count) R.setDynamic(null);
     R.render(camera(), {
-      sun: sunIndex(), ceil: mode === 'walk', clouds: hq, shadows: true, shadowSize: hq ? 2048 : 1024, labels: labelsOn(),
+      sun: sunArg(), ceil: mode === 'walk', clouds: hq, shadows: true, shadowSize: hq ? 2048 : 1024, labels: labelsOn(),
       fog: mode === 'walk' ? 1 / 700 : 1 / 1500,
       focus: mode === 'walk' ? { center: [walk.x, 0, walk.z], radius: Math.min(32, scene.radius + 4) } : null,
     });
@@ -1435,7 +1534,7 @@
       for (const v of views) {
         if (v.saved) Object.assign(cam, viewCam(v.saved)); // 저장한 시점 그대로
         else fitCam(v.yaw, v.pitch, W / H, v.box || [0.9, 0.86, -0.9]);
-        R.render(camera(), { sun: sunIndex(), ceil: false, clouds: true, shadows: true, shadowSize: 2048, fog: 1 / 1500, focus: null, labels: labelsOn() });
+        R.render(camera(), { sun: sunArg(), ceil: false, clouds: true, shadows: true, shadowSize: 2048, fog: 1 / 1500, focus: null, labels: labelsOn() });
         const c = document.createElement('canvas'); // 같은 순간에 옮겨 담아야 그림이 남아 있음
         c.width = W;
         c.height = H;
@@ -1512,7 +1611,22 @@
     el.querySelector('[data-v3="reset"]').setAttribute('aria-pressed', String(mode === 'orbit'));
     el.querySelector('.v3-walk').hidden = mode !== 'walk';
     const set = el.querySelector('.v3-settings');
-    set.querySelectorAll('[data-sun]').forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.sun) === sunIndex())));
+    set.querySelectorAll('[data-sun]').forEach((b) => b.setAttribute('aria-pressed', String(!study() && Number(b.dataset.sun) === sunIndex())));
+    { // 일조 보기
+      const s = study(), box = set.querySelector('.v3-study');
+      set.querySelector('[data-opt="study"]').setAttribute('aria-pressed', String(!!s));
+      box.hidden = !s;
+      if (s) {
+        const m = box.querySelector('[data-study="m"]'), h = box.querySelector('[data-study="h"]'), no = box.querySelector('[data-study="north"]');
+        if (document.activeElement !== m) m.value = String(s.m || 6);
+        if (document.activeElement !== h) h.value = String(s.h == null ? 14 : s.h);
+        no.value = String(App.current.north || 0);
+        box.querySelector('[data-study-out="m"]').textContent = `${s.m || 6}월`;
+        const hh = s.h == null ? 14 : s.h;
+        box.querySelector('[data-study-out="h"]').textContent = `${Math.floor(hh)}:${hh % 1 ? '30' : '00'}`;
+        box.querySelector('.v3-study-out').textContent = studyText();
+      }
+    }
     set.querySelectorAll('[data-ground]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.ground === groundKey())));
     set.querySelector('[data-opt="low"]').setAttribute('aria-pressed', String(low));
     set.querySelector('[data-opt="routes"]').setAttribute('aria-pressed', String(showRoutes));
@@ -1571,6 +1685,13 @@
       <div class="v3-rec" hidden><span class="v3-rec-dot"></span><span class="v3-rec-time">0:00</span><button type="button" class="btn btn-danger" data-v3="rec-stop">멈추고 저장</button></div>
       <div class="v3-settings" hidden>
         <div class="v3-set-row"><span>햇빛</span><div class="v3-seg">${SUNS.map((s, i) => `<button type="button" class="btn" data-sun="${i}">${s.name}</button>`).join('')}</div></div>
+        <div class="v3-set-row"><span>일조</span><div class="v3-seg"><button type="button" class="btn" data-opt="study" title="서울 기준, 고른 달·시각의 해 위치로 그림자를 봄 (집이 받는 햇빛·그늘 확인)">일조 보기</button></div></div>
+        <div class="v3-study" hidden>
+          <label class="v3-study-row"><span>달</span><input type="range" min="1" max="12" step="1" data-study="m" aria-label="달"><b data-study-out="m"></b></label>
+          <label class="v3-study-row"><span>시각</span><input type="range" min="5" max="20" step="0.5" data-study="h" aria-label="시각"><b data-study-out="h"></b></label>
+          <label class="v3-study-row"><span>북쪽</span><select data-study="north" aria-label="도면에서 북쪽"><option value="0">도면 위</option><option value="90">도면 오른쪽</option><option value="180">도면 아래</option><option value="270">도면 왼쪽</option></select></label>
+          <p class="v3-study-out"></p>
+        </div>
         <div class="v3-set-row"><span>바닥</span><div class="v3-seg">${Object.entries(GROUNDS).map(([id, g]) => `<button type="button" class="btn" data-ground="${id}">${g[0]}</button>`).join('')}</div></div>
         <div class="v3-set-row"><span>보기</span><div class="v3-seg">
           <button type="button" class="btn" data-opt="low" title="벽을 낮춰 방 안이 보이게 (조감도에서)">벽 낮추기</button>
@@ -1602,6 +1723,18 @@
       el.querySelector('[data-v3="settings"]').setAttribute('aria-expanded', String(open));
       if (open) { renderViews(); belowBar(settings); }
     };
+    // 일조 보기: 달·시각 막대와 북쪽 방향 — 끌면 바로 그림자가 바뀜
+    const onStudy = (e) => {
+      const t = e.target.closest('[data-study]');
+      if (!t) return;
+      if (t.dataset.study === 'north') App.current.north = Number(t.value) || 0;
+      else App.current.sunStudy = { ...(App.current.sunStudy || { m: 6, h: 14 }), on: true, [t.dataset.study]: Number(t.value) };
+      if (e.type === 'change') App.ui.emit('current');
+      syncUi();
+      requestDraw();
+    };
+    el.addEventListener('input', onStudy);
+    el.addEventListener('change', onStudy);
     el.addEventListener('click', (e) => {
       const pk = e.target.closest('[data-pk]');
       if (pk) { pickAction(pk.dataset.pk); return; }
@@ -1634,6 +1767,12 @@
         App.current.ground = b.dataset.ground;
         App.ui.emit('current');
         setGround();
+      } else if (b.dataset.opt === 'study') { // 일조 보기 켜고 끄기 (처음 켜면 이번 달 오후 2시)
+        const s = App.current.sunStudy || {};
+        App.current.sunStudy = { on: !s.on, m: s.m || new Date().getMonth() + 1, h: s.h == null ? 14 : s.h };
+        App.ui.emit('current');
+        syncUi();
+        requestDraw();
       } else if (b.dataset.opt === 'low') {
         low = !low;
         lowChosen = true;
@@ -1794,6 +1933,7 @@
   const isOpen = () => !!el && !el.hidden;
 
   App.view3d = {
+    solar, sunArg, studyText, // 일조 계산 (시험용으로도)
     open, close, isOpen, build, buildItem, seeded, GROUNDS, crowdInfo, CROWD_MAX, get lastCrowd() { return lastCrowd; }, get walkers() { return walkers ? walkers.list.length : 0; }, walkerMesh: (t) => (walkers ? walkerMesh(t) : null),
     /** 영상: kind 'orbit'|'route'|'free', o: { duration(초), noSave, longSide } → Promise<{ blob, name, type } | null> */
     record: (kind, o) => startRecording(kind, o),
