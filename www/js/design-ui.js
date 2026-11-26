@@ -136,7 +136,7 @@
     bar.hidden = !isMode();
     if (!isMode()) return;
     const el = cur(), list = D().all();
-    bar.innerHTML = `<button type="button" class="cat-btn cat-all" data-act="ds-new" title="수납장·테이블·각파이프 틀·전광판·자유 설계·3D 모델 보기">＋ 새 설계</button>`
+    bar.innerHTML = `<button type="button" class="cat-btn cat-all" data-act="ds-new" title="자유 설계·내려받은 3D 모델·수납장·테이블·각파이프 틀·전광판">＋ 새 설계</button>`
       + list.map((e) => `<button type="button" class="cat-btn" data-design="${esc(e.id)}" aria-pressed="${!!el && e.id === el.id}" title="${esc(D().KINDS[e.kind] ? D().KINDS[e.kind].label : '')}">${esc(e.name)}</button>`).join('');
     const dims = document.getElementById('btnDsDims'), hid = document.getElementById('btnDsHidden');
     if (dims) dims.setAttribute('aria-pressed', String(App.current.designDims !== false));
@@ -161,16 +161,17 @@
       title: '새 설계',
       html: `
         <div class="ds-new" data-keys="local">
+          <section class="ds-kind"><h3>직접 만들기</h3>
+            <div class="ds-starts">
+              <button type="button" class="ds-start is-main" data-kind="free"><b>자유 설계</b><span>판·막대를 하나씩 넣어 직접 모델링</span></button>
+              <button type="button" class="ds-start" data-kind="model"><b>내려받은 3D 모델</b><span>GLB·<wbr>OBJ·<wbr>DAE·<wbr>STL·<wbr>zip 파일 열어 보기</span></button>
+            </div>
+          </section>
+          <div class="ds-new-sub">규격 예시에서 고르기</div>
           ${['kitchen', 'closet', 'archwall', 'cabinet', 'table', 'shelf', 'counter', 'frame', 'led'].filter((k) => K[k]).map((k) => `
             <section class="ds-kind"><h3>${esc(K[k].label)}</h3>
               <div class="ds-presets">${K[k].presets.map(([name], i) => `<button type="button" class="chip" data-kind="${k}" data-preset="${i}">${esc(name)}</button>`).join('')}</div>
             </section>`).join('')}
-          <section class="ds-kind"><h3>그 밖에</h3>
-            <div class="ds-presets">
-              <button type="button" class="chip" data-kind="free">자유 설계 (판·막대를 하나씩 그리기)</button>
-              <button type="button" class="chip" data-kind="model">내려받은 3D 모델 보기 (GLB·OBJ·DAE·STL·zip)</button>
-            </div>
-          </section>
           <p class="props-meta">규격 예시를 고르면 바로 만들어지고, 오른쪽 <b>속성</b>에서 치수·자재·선반 수를 바꾸면 도면과 <b>부재표</b>(집계)가 따라 바뀝니다. 다 되면 ‘사물로 등록’해서 인테리어·조감도 도면에 놓을 수 있습니다.</p>
         </div>`,
       actions: [{ id: 'close', label: '닫기', primary: true }],
@@ -371,7 +372,7 @@
   }
   function emptyHtml() {
     return `<div class="ds-props"><div class="empty"><div class="empty-title">설계물이 없습니다</div>
-      <p>수납장·책장, 테이블, 선반, 카운터, 각파이프 틀, 전광판(LED) 틀을 치수로 만들고 재단표와 설계도면(PDF·DXF)을 뽑습니다. 내려받은 3D 모델(GLB·OBJ·DAE·STL, 압축파일째로도)을 열어 볼 수도 있습니다.</p>
+      <p><b>자유 설계</b>로 판·막대를 하나씩 넣어 직접 만들거나, 수납장·책장, 테이블, 선반, 카운터, 각파이프 틀, 전광판(LED) 틀을 치수로 만들고 재단표와 설계도면(PDF·DXF)을 뽑습니다. 내려받은 3D 모델(GLB·OBJ·DAE·STL, 압축파일째로도)을 열어 볼 수도 있습니다.</p>
       <button type="button" class="btn btn-primary" data-act="ds-new">＋ 새 설계</button></div></div>`;
   }
   /** 속성 칸을 그림 (props.js가 설계 모드일 때 부름) */

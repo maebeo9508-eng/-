@@ -1797,6 +1797,19 @@ body:has(> .view3d:not([hidden])) .toast { bottom: auto; top: 36%; }
 .ds-check input { margin: 0; }
 .ds-kind h3 { margin: 0 0 6px; font-size: 14px; }
 .ds-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+/* 새 설계 창 맨 위: 직접 만들기 (자유 설계 · 내려받은 3D 모델) — 큰 단추 둘, 그 아래로 규격 예시 */
+.ds-starts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.ds-start {
+  display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 3px;
+  min-height: 68px; padding: 10px 12px; border: 1.5px solid var(--line); border-radius: 12px;
+  background: var(--surface); color: var(--fg); font: inherit; text-align: left; cursor: pointer; touch-action: manipulation;
+}
+.ds-start b { font-size: 15px; line-height: 1.25; word-break: keep-all; overflow-wrap: anywhere; }
+.ds-start span { font-size: 12px; line-height: 1.35; color: var(--fg-muted); word-break: keep-all; overflow-wrap: anywhere; } /* 낱말 가운데서 줄이 바뀌지 않게 */
+.ds-start.is-main { border-color: var(--accent); background: var(--accent-soft); }
+.ds-start.is-main b { color: var(--accent); }
+.ds-start:hover, .ds-start:focus-visible { border-color: var(--accent); }
+.ds-new-sub { margin-top: 2px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 12px; font-weight: 700; color: var(--fg-muted); }
 .ds-3d-canvas { height: min(58vh, 520px); border: 1px solid var(--line); border-radius: 10px; }
 .ds-sum-acts { flex-wrap: wrap; padding: 4px 12px 0; }
 .ds-props .field-group-label small { font-weight: 500; color: var(--fg-muted); margin-left: 6px; }
@@ -1937,6 +1950,9 @@ tr.is-warn th, tr.is-warn td { color: #b45309; }
   .ds-prev-tag::before { content: '미리보기'; font-size: 9.5px; }
   .ds-preview.is-empty { display: none; } /* 부재가 없을 때는 타일을 숨김 (작아서 안내 글이 안 들어감) */
   .stage.has-pv .design-bar { max-width: calc(100vw - 124px); }
+  /* 도구 안내 글: 미리보기 타일 앞에서 끝나게 왼쪽에 두고, 길면 줄을 바꿈 (타일에 가려 잘리지 않게) */
+  .stage.has-pv .tool-hint { left: 8px; width: max-content; max-width: calc(100% - 116px); white-space: normal; border-radius: 16px; line-height: 1.35; word-break: keep-all; transform: translate(0, -8px); }
+  .stage.has-pv .tool-hint.is-show { transform: none; }
   /* 속성·집계 서랍을 연 동안: 설계물 줄과 빠른 막대를 접어 도면이 서랍 위에 보이게 */
   .stage.ds-sheet-open .design-bar, .stage.ds-sheet-open .ds-quick { display: none !important; }
   /* 3D 방향 단추: 위쪽 줄 아래 한 줄로 (끌어서 돌리고, 맞춤은 오른쪽 아래 단추) */
