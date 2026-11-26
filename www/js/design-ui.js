@@ -20,6 +20,11 @@
     if (st && App.plan && st.offsetHeight) App.plan.insets.top = st.offsetTop + st.offsetHeight;
     App.plan.fitToContent();
   }
+  /* 맞춘 화면을 사용자가 손으로 확대·이동했는지: 맞춘 직후의 화면 값을 기억해 두고 견줌.
+     그대로면 값이 바뀌거나 서랍을 여닫을 때 다시 맞추고, 손댔으면 그 화면을 지켜 줌 (확대해서 고치는 중에 화면이 튀지 않게) */
+  let fitSig = '';
+  const viewSig = () => { const v = App.plan && App.plan.view; return v ? `${v.ox.toFixed(1)}|${v.oy.toFixed(1)}|${v.scale.toFixed(6)}` : ''; };
+  const autoFitted = () => !!fitSig && fitSig === viewSig();
   /* ── 설계물 다루기 ── */
   function setCurrent(id, doFit = true) {
     if (App.current.designId !== id) { App.current.designId = id; App.ui.emit('current'); }
@@ -45,11 +50,21 @@
   /** 값을 바꿔 도면이 화면 밖으로 나갔거나 너무 작아졌으면 다시 맞춤 */
   function keepInView() {
     if (!isMode() || !cur() || !App.plan) return;
-    const b = DD().bounds(), vr = App.plan.view.worldRect(App.plan.width, App.plan.height);
+    if (App.design3d && App.design3d.active()) return; // 3D 작업 화면은 따로 맞춤
+    const P = App.plan, i = P.insets || {}, b = DD().bounds();
     if (!b) return;
-    const out = b.minX < vr.minX || b.maxX > vr.maxX || b.minY < vr.minY || b.maxY > vr.maxY;
-    const small = b.maxX - b.minX < (vr.maxX - vr.minX) * 0.3 && b.maxY - b.minY < (vr.maxY - vr.minY) * 0.3;
-    if (out || small) App.plan.fitToContent();
+    // 보이는 칸 (위쪽 버튼 줄·서랍을 뺀 곳)
+    const a = P.view.toWorld(i.left || 0, i.top || 0), z = P.view.toWorld(P.width - (i.right || 0), P.height - (i.bottom || 0));
+    if (autoFitted()) { // 맞춘 그대로: 도면이 커져 넘치거나 훨씬 작아졌으면 다시 맞춤
+      const eps = 3 / P.view.scale;
+      const out = b.minX < a.x - eps || b.maxX > z.x + eps || b.minY < a.y - eps || b.maxY > z.y + eps;
+      const small = b.maxX - b.minX < (z.x - a.x) * 0.45 && b.maxY - b.minY < (z.y - a.y) * 0.45;
+      if (out || small) fit();
+      return;
+    }
+    // 손으로 확대·이동한 화면: 그대로 둠. 그림이 화면에서 아주 사라졌을 때만 다시 맞춤
+    const r = DD().viewRect(cur());
+    if (r && (r.maxX < a.x || r.minX > z.x || r.maxY < a.y || r.minY > z.y)) fit();
   }
   let viewTimer = 0;
   const keepSoon = () => { clearTimeout(viewTimer); viewTimer = setTimeout(keepInView, 0); };
@@ -130,6 +145,7 @@
     if (drs) { drs.setAttribute('aria-pressed', String(App.current.designDoors !== false)); drs.hidden = !(el && el.kind !== 'model' && D().movable(el).doors); }
     const v = viewNow();
     document.querySelectorAll('#dsViews [data-dview]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.dview === v)));
+    syncEmpty();
   }
   function refreshPanes() {
     if (!isMode()) return;
@@ -615,8 +631,13 @@
     D().build(el).parts.forEach((q) => { if (q.id === skipId || q.halo) return; const c = D().corners(q); out.push(Math.min(...c.map((p) => p[axis])), Math.max(...c.map((p) => p[axis]))); });
     return out;
   }
-  /** 값 하나를 다른 부재의 면에, 아니면 간격에 붙임 */
-  const snap1 = (el, id, axis, v, step, tol, free) => { if (free) return v; const f = faceSnap([v], facesOf(el, id, axis), tol); return f != null ? v + f : snapTo(v, step); };
+  /** 값 하나를 다른 부재의 면에, 아니면 간격에 붙임. guides를 주면 면에 붙었을 때 그 자리(안내선)를 적어 둠 */
+  const snap1 = (el, id, axis, v, step, tol, free, guides = null) => {
+    if (free) return v;
+    const f = faceSnap([v], facesOf(el, id, axis), tol);
+    if (f != null && guides) guides.push({ axis, at: v + f });
+    return f != null ? v + f : snapTo(v, step);
+  };
 
   /* ── 손잡이: 고른 부재의 크기(모서리·변)와 막대 끝, 값으로 만든 설계의 전체 크기 ── */
   const shownViews = () => { const v = viewNow(); return v === 'all' ? ORTHO : ORTHO.includes(v) ? [v] : []; };
@@ -720,6 +741,7 @@
     setPart(el, q.id, moved(q, sh), label);
   }
 
+  let cycleTip = false;
   class DSelect {
     activate() { this.drag = null; this.pan = null; this.press = null; this.label = null; }
     down(ev) {
@@ -742,10 +764,15 @@
       }
       // 2) 치수 글자 위: 끌면 화면 이동
       if (this.label) { this.pan = { x: ev.x, y: ev.y }; return; }
-      // 3) 부재 고르기 → 직접 그린 부재는 끌어 옮김 (입체도·값으로 만든 부재는 끌면 화면 이동)
+      // 3) 부재 고르기 → 직접 그린 부재는 끌어 옮김 (값으로 만든 부재는 끌면 화면 이동).
+      //    이미 고른 부재가 이 자리 아래(다른 부재 뒤)에 있으면 그대로 두고, 손을 떼면 그 뒤 부재로 넘어감
+      this.stack = null;
       if (h && h.part) {
-        if (sel !== h.part.id) { sel = h.part.id; formKey = ''; refreshPanes(); render(); }
-        const q = h.part.user && h.view !== 'iso' ? userParts(el).find((x) => x.id === h.part.id) : null;
+        const stack = DD().hitAll(el, w, v, nearPx() / s), under = sel ? stack.find((x) => x.id === sel) : null;
+        const part = under || h.part;
+        if (under && stack.length > 1) this.stack = stack;
+        if (sel !== part.id) { sel = part.id; formKey = ''; refreshPanes(); render(); }
+        const q = part.user && h.view !== 'iso' ? userParts(el).find((x) => x.id === part.id) : null;
         if (q) this.drag = { el, kind: 'move', id: q.id, view: h.view, orig: JSON.parse(JSON.stringify(q)), started: false };
         else this.pan = { x: ev.x, y: ev.y };
       } else this.pan = { x: ev.x, y: ev.y };
@@ -764,6 +791,7 @@
       const du = ev.world.x - this.press.world.x, dv = -(ev.world.y - this.press.world.y); // 종이의 y는 아래로, 부재의 세로 축은 위로
       const o = g.orig, step = ev.alt ? 1 : grid(), tol = (App.pointerTouch ? 10 : 7) / App.plan.view.scale, dz = (App.pointerTouch ? 8 : 3) / App.plan.view.scale;
       this.at = ev.world;
+      const guides = (g.guides = []); // 다른 부재의 면에 붙은 자리 (분홍 안내선)
       if (g.kind === 'size') { // 값으로 만든 설계의 전체 폭·깊이·높이
         const k = g.h.key, v0 = Number(o[k]) || 0, d = g.h.ax === ha ? du : dv;
         const v = Math.max(k === 'T' ? 30 : 100, Math.min(30000, snapTo(v0 + d, Math.max(step, 10))));
@@ -779,15 +807,15 @@
           if (!sg) return;
           const lo = o[POS[ax]], hi = lo + o[SIZE[ax]];
           if (Math.abs(d) < dz) return; // 거의 안 움직인 쪽은 그대로 (손가락이 조금 비뚤어도 다른 치수가 붙어 바뀌지 않게)
-          if (sg > 0) { const v = Math.max(lo + 5, snap1(g.el, g.id, ax, hi + d, step, tol, ev.alt)); next[SIZE[ax]] = r1(v - lo); }
-          else { const v = Math.min(hi - 5, snap1(g.el, g.id, ax, lo + d, step, tol, ev.alt)); next[POS[ax]] = r1(v); next[SIZE[ax]] = r1(hi - v); }
+          if (sg > 0) { const v = Math.max(lo + 5, snap1(g.el, g.id, ax, hi + d, step, tol, ev.alt, guides)); next[SIZE[ax]] = r1(v - lo); }
+          else { const v = Math.min(hi - 5, snap1(g.el, g.id, ax, lo + d, step, tol, ev.alt, guides)); next[POS[ax]] = r1(v); next[SIZE[ax]] = r1(hi - v); }
         });
         const nq = { ...o, ...next };
         g.text = `${AXNAME[g.view][0]} ${fmt(nq[SIZE[ha]])} × ${AXNAME[g.view][1]} ${fmt(nq[SIZE[va]])}`;
       } else if (g.kind === 'end') { // 막대·LED 끝
         const P = o[g.h.end].slice(), Q = o[g.h.end === 'a' ? 'b' : 'a'];
-        P[ha] = r1(snap1(g.el, g.id, ha, o[g.h.end][ha] + du, step, tol, ev.alt));
-        P[va] = r1(snap1(g.el, g.id, va, o[g.h.end][va] + dv, step, tol, ev.alt));
+        P[ha] = r1(snap1(g.el, g.id, ha, o[g.h.end][ha] + du, step, tol, ev.alt, guides));
+        P[va] = r1(snap1(g.el, g.id, va, o[g.h.end][va] + dv, step, tol, ev.alt, guides));
         if (!ev.alt) { const ang = (Math.atan2(Math.abs(P[va] - Q[va]), Math.abs(P[ha] - Q[ha])) * 180) / Math.PI; if (ang < 4) P[va] = Q[va]; else if (ang > 86) P[ha] = Q[ha]; } // 거의 가로·세로면 곧게
         if (Math.hypot(P[0] - Q[0], P[1] - Q[1], P[2] - Q[2]) < 10) return;
         next = { [g.h.end]: P };
@@ -798,7 +826,7 @@
           if (Math.abs(d) < dz) return 0; // 거의 안 움직인 축은 그대로
           const c = cornersAt(axis === ha ? d : 0, axis === va ? d : 0), lo = Math.min(...c.map((p) => p[axis])), hi = Math.max(...c.map((p) => p[axis]));
           const f = ev.alt ? null : faceSnap([lo, hi], facesOf(g.el, g.id, axis), tol);
-          if (f != null) return d + f;
+          if (f != null) { const faces = facesOf(g.el, g.id, axis), hitLo = faces.some((x) => Math.abs(x - (lo + f)) < 0.01); guides.push({ axis, at: hitLo ? lo + f : hi + f }); return d + f; }
           const base = Math.min(...D().corners(o).map((p) => p[axis]));
           return snapTo(base + d, step) - base;
         };
@@ -816,13 +844,21 @@
       if (!press || dragged(ev, press)) return;
       if (lab) { editDim(lab); return; }
       if (g && g.kind !== 'move') return; // 손잡이를 눌렀다 뗌: 그대로
-      const el = cur();
+      const el = cur(), stack = this.stack;
+      this.stack = null;
+      if (stack && sel) { // 이미 고른 부재를 다시 누름: 그 자리 뒤에 있는 부재로 (끝이면 맨 앞으로)
+        const i = stack.findIndex((x) => x.id === sel);
+        sel = stack[(i + 1) % stack.length].id; formKey = '';
+        refreshPanes(); render();
+        if (!cycleTip) { cycleTip = true; App.ui.toast('같은 자리를 다시 누르면 뒤에 있는 부재가 골라집니다.'); }
+        return;
+      }
       const h = el ? DD().hit(el, ev.world, 0, viewNow(), nearPx() / App.plan.view.scale) : null;
       if ((!h || !h.part) && sel) { sel = null; formKey = ''; refreshPanes(); render(); }
     }
     cancel() {
       if (this.drag && this.drag.started) { DD().freeze(null); App.doc.rollback(); }
-      this.pan = null; this.drag = null; this.press = null; this.label = null;
+      this.pan = null; this.drag = null; this.press = null; this.label = null; this.stack = null;
       render();
     }
     escape() { if (sel) { sel = null; formKey = ''; refreshPanes(); render(); return true; } return false; }
@@ -854,6 +890,18 @@
         ctx.restore();
       });
       const g = this.drag;
+      if (g && g.started && g.guides && g.guides.length && g.kind !== 'size') { // 다른 부재의 면에 붙은 자리: 분홍 안내선
+        const L = DD().layout(el), { ha } = axesOf(g.view), vr = plan.view.worldRect(plan.width, plan.height);
+        ctx.save();
+        ctx.strokeStyle = '#e64980'; ctx.lineWidth = 1.4 * px; ctx.setLineDash([6 * px, 4 * px]);
+        ctx.beginPath();
+        g.guides.forEach((gd) => {
+          if (gd.axis === ha) { const x = DD().paperOf(L, g.view, gd.at, 0).x; ctx.moveTo(x, vr.minY); ctx.lineTo(x, vr.maxY); }
+          else { const y = DD().paperOf(L, g.view, 0, gd.at).y; ctx.moveTo(vr.minX, y); ctx.lineTo(vr.maxX, y); }
+        });
+        ctx.stroke();
+        ctx.restore();
+      }
       if (g && g.started && g.text) { // 끄는 동안: 크기·옮긴 거리 (손가락에 가리지 않게 위쪽에)
         const at = this.at || null;
         const t = g.text;
@@ -971,8 +1019,8 @@
   function nudge(d, label = '부재 옮기기') {
     const el = cur(), q = curPart();
     if (!el || !q) return false;
-    const { ha, hs, va, ta, toward } = axesOf(viewNow());
-    const sh = [0, 0, 0]; sh[ha] += d[0] * (hs || 1); sh[va] += d[1]; sh[ta] += d[2] * toward;
+    const { ha, hs, va, vs, ta, toward } = axesOf(viewNow());
+    const sh = [0, 0, 0]; sh[ha] += d[0] * (hs || 1); sh[va] += d[1] * (vs || 1); sh[ta] += d[2] * toward;
     setPart(el, q.id, moved(q, sh), label);
     return true;
   }
@@ -995,13 +1043,14 @@
     setPart(el, q.id, { [A]: q[Bk], [Bk]: q[A], ...swapAx(q, ha, va) }, '부재 돌리기');
     return true;
   }
+  /** 부재가 축 하나에서 차지하는 길이 */
+  const extentOn = (q, ax) => { const c = D().corners(q); return Math.max(...c.map((p) => p[ax])) - Math.min(...c.map((p) => p[ax])); };
   /** 복제: 세운 것은 옆에(50 띄워), 눕힌 것(선반 따위)은 위에(250 띄워) */
   function dupPart() {
     const el = cur(), q = curPart();
     if (!el || !q) return null;
-    const { ha, va } = axesOf(viewNow()), sp = DD().partSpan(q, ORTHO.includes(viewNow()) ? viewNow() : 'front');
-    const w = sp.hi[0] - sp.lo[0], h = sp.hi[1] - sp.lo[1], sh = [0, 0, 0];
-    if (w <= h) sh[ha] = r1(w + 50); else sh[va] = r1(h + 250);
+    const { ha, hs, va, vs } = axesOf(viewNow()), w = extentOn(q, ha), h = extentOn(q, va), sh = [0, 0, 0];
+    if (w <= h) sh[ha] = r1(w + 50) * (hs || 1); else sh[va] = r1(h + 250) * (vs || 1);
     const c = JSON.parse(JSON.stringify(q));
     delete c.id;
     return addPart(el, { ...c, ...moved(c, sh) }, '부재 복제');
@@ -1010,8 +1059,8 @@
   async function arrayPart() {
     const el = cur(), q = curPart();
     if (!el || !q) return null;
-    const v = ORTHO.includes(viewNow()) ? viewNow() : 'front', sp = DD().partSpan(q, v), w = sp.hi[0] - sp.lo[0], h = sp.hi[1] - sp.lo[1];
-    const dirs = [['r', '오른쪽 →'], ['u', '위 ↑'], ['l', '← 왼쪽'], ['d', '아래 ↓'], ['f', DEPTH[v][2].replace(/ \(.*\)/, '')], ['b', DEPTH[v][3]]];
+    const v = viewNow(), A = axesOf(v), w = extentOn(q, A.ha), h = extentOn(q, A.va);
+    const dirs = [['r', '오른쪽 →'], ['u', '위 ↑'], ['l', '← 왼쪽'], ['d', '아래 ↓'], ['f', (DEPTH[v] || DEPTH.front)[2].replace(/ \(.*\)/, '')], ['b', (DEPTH[v] || DEPTH.front)[3]]];
     const def = w <= h ? 'r' : 'u';
     let dir = def;
     const r = await App.ui.dialog({
@@ -1020,7 +1069,7 @@
           <div class="field"><label class="field-label" for="dsArrN">몇 개 더</label><div class="field-box"><input id="dsArrN" type="text" inputmode="numeric" value="3" autocomplete="off"><span class="field-unit">개</span></div></div>
           <div class="field"><label class="field-label" for="dsArrP">중심 간격</label><div class="field-box"><input id="dsArrP" type="text" inputmode="decimal" value="${r1(def === 'r' ? w + 50 : h + 250)}" autocomplete="off"><span class="field-unit">mm</span></div></div>
         </div>
-        <div class="field"><span class="field-label">방향 <small>(${esc({ front: '정면도', top: '평면도', side: '측면도' }[v])} 기준)</small></span>
+        <div class="field"><span class="field-label">방향 <small>(${esc({ front: '정면도', top: '평면도', side: '측면도', iso: '지금 보는 방향', all: '정면도' }[v] || '정면도')} 기준)</small></span>
           <div class="seg seg-inline" role="radiogroup" id="dsArrDir">${dirs.map(([id, t]) => `<button type="button" class="seg-btn" role="radio" data-dir="${id}" aria-checked="${id === def}">${esc(t)}</button>`).join('')}</div></div>
         <p class="props-meta">선반을 같은 간격으로 넣거나 칸막이·각재를 나란히 세울 때 씁니다. 한 번의 실행 취소로 모두 없어집니다.</p>`,
       actions: [{ id: 'cancel', label: '취소' }, { id: 'ok', label: '늘어놓기', primary: true }],
@@ -1037,8 +1086,8 @@
     if (r.id !== 'ok') return null;
     const n = Math.round(calc(r.body.querySelector('#dsArrN').value)), pitch = calc(r.body.querySelector('#dsArrP').value);
     if (!(n >= 1 && n <= 50) || !(pitch > 0)) { App.ui.toast('개수(1~50)와 간격을 넣어 주세요.'); return null; }
-    const { ha, va, ta, toward } = axesOf(v), unit = [0, 0, 0];
-    if (dir === 'r' || dir === 'l') unit[ha] = dir === 'r' ? 1 : -1; else if (dir === 'u' || dir === 'd') unit[va] = dir === 'u' ? 1 : -1; else unit[ta] = (dir === 'f' ? 1 : -1) * toward;
+    const { ha, hs, va, vs, ta, toward } = A, unit = [0, 0, 0];
+    if (dir === 'r' || dir === 'l') unit[ha] = (dir === 'r' ? 1 : -1) * (hs || 1); else if (dir === 'u' || dir === 'd') unit[va] = (dir === 'u' ? 1 : -1) * (vs || 1); else unit[ta] = (dir === 'f' ? 1 : -1) * toward;
     const base = JSON.parse(JSON.stringify(q));
     delete base.id;
     const made = [];
@@ -1069,17 +1118,60 @@
     })();
     const pick = (k) => (at && at[k] != null ? Math.max(min[k], Math.min(min[k] + size[k], at[k])) : mid(k));
     const S = D().sheet(App.current.dsSheet || 'ply18'), t = S.t;
+    // 사이에 맞춰 넣기: 씨앗 점에서 양쪽으로 가장 가까운 부재 면까지 (다른 두 축에서 band와 겹치는 부재만 막음, 씨앗을 품는 뒤판 따위는 지나침)
+    const boxes = B.parts.filter((q) => !q.halo && q.role !== 'lite').map((q) => { const c = D().corners(q); return [0, 1, 2].map((k) => [Math.min(...c.map((p) => p[k])), Math.max(...c.map((p) => p[k]))]); });
+    const span = (ax, seed, band) => {
+      let lo = min[ax], hi = min[ax] + size[ax];
+      boxes.forEach((bx) => {
+        for (let k = 0; k < 3; k++) if (k !== ax && (bx[k][1] <= band[k][0] + 1 || bx[k][0] >= band[k][1] - 1)) return;
+        const [a, b] = bx[ax];
+        if (a < seed && b > seed) return;
+        if (b <= seed && b > lo) lo = b;
+        if (a >= seed && a < hi) hi = a;
+      });
+      return hi - lo >= 50 ? [lo, hi] : [min[ax], min[ax] + size[ax]];
+    };
+    const sy = mid(1), thin = (v) => [v - 1, v + 1];
+    /** 축 ax를 따라 비어 있는 칸들 [[lo, hi]] (다른 두 축에서 band와 겹치는 부재가 막음) */
+    const gapsOf = (ax, band) => {
+      const blocks = [];
+      boxes.forEach((bx) => { for (let k = 0; k < 3; k++) if (k !== ax && (bx[k][1] <= band[k][0] + 1 || bx[k][0] >= band[k][1] - 1)) return; blocks.push(bx[ax]); });
+      blocks.sort((p, q) => p[0] - q[0]);
+      const out = [], end = min[ax] + size[ax];
+      let p = min[ax];
+      blocks.forEach(([lo, hi]) => { if (lo > p + 0.5) out.push([p, lo]); p = Math.max(p, hi); });
+      if (end > p + 0.5) out.push([p, end]);
+      return out;
+    };
+    /** 새 부재(두께 th)가 들어갈 칸의 가운데: 화면을 확대해 보고 있으면 보는 자리(seed)의 칸, 전체를 보고 있으면 가장 넓은 칸 */
+    const looking = !!at && !autoFitted();
+    const center = (ax, seed, band, th) => {
+      const gs = gapsOf(ax, band).filter(([lo, hi]) => hi - lo >= th + 20);
+      if (!gs.length) return null;
+      const here = looking && at[ax] != null ? gs.find(([lo, hi]) => seed >= lo && seed <= hi) || gs.slice().sort((p, q) => Math.abs((p[0] + p[1]) / 2 - seed) - Math.abs((q[0] + q[1]) / 2 - seed))[0] : null;
+      const g = here || gs.slice().sort((p, q) => q[1] - q[0] - (p[1] - p[0]))[0];
+      return { g, v: Math.max(g[0], Math.min(g[1] - th, snapTo(g[0] + (g[1] - g[0] - th) / 2, 10))) };
+    };
     let part;
-    if (kind === 'hp') part = { s: 'box', n: '가로판', m: S.id, x: min[0], y: min[1], z: Math.min(pick(2), min[2] + size[2] - t), w: size[0], d: size[1], h: t };
-    else if (kind === 'vp') part = { s: 'box', n: '세로판', m: S.id, x: Math.min(pick(0), min[0] + size[0] - t), y: min[1], z: min[2], w: t, d: size[1], h: size[2] };
-    else if (kind === 'fp') part = { s: 'box', n: '정면판', m: S.id, x: min[0], y: has ? min[1] + size[1] - t : 0, z: min[2], w: size[0], d: t, h: size[2] };
-    else if (kind === 'bar') {
-      const M = D().bar(App.current.dsBar || 'sq50'), r = D().rail('막대', M.id, 'x', 0, 0, 0, size[0]);
-      part = { s: 'box', n: '막대', m: M.id, x: min[0], y: min[1], z: Math.min(pick(2), min[2] + size[2] - r.h), w: r.w, d: r.d, h: r.h };
-    } else if (kind === 'led') {
-      const sp = App.ledstrip.spec(el.p || {}), z = pick(2), y = min[1] - 5;
-      part = { s: 'bar', n: 'LED 라인', m: 'ledline', role: 'lite', a: [min[0], y, z], b: [min[0] + size[0], y, z], lt: sp.type, k: sp.k, pf: sp.prof };
-    } else return null;
+    if (kind === 'hp' || kind === 'bar' || kind === 'led') { // 가로로 눕는 것: 양옆 판 사이 (가로판은 뒤판 앞까지)
+      const M = kind === 'bar' ? D().bar(App.current.dsBar || 'sq50') : null, r = M ? D().rail('막대', M.id, 'x', 0, 0, 0, 100) : null, th = kind === 'hp' ? t : r ? r.h : 10;
+      const sx = pick(0), cz = has && kind === 'hp' ? center(2, pick(2), [thin(sx), thin(sy), null], th) : null; // 가로판은 칸(위아래 판 사이)의 가운데 높이에
+      const z = cz ? cz.v : has ? Math.max(min[2], Math.min(pick(2), min[2] + size[2] - th)) : 0;
+      const X = has ? span(0, sx, [null, thin(sy), [z, z + th]]) : [min[0], min[0] + size[0]];
+      const Y = has && kind === 'hp' ? span(1, sy, [[X[0] + 1, X[1] - 1], null, [z, z + th]]) : [min[1], min[1] + size[1]];
+      if (kind === 'hp') part = { s: 'box', n: '가로판', m: S.id, x: r1(X[0]), y: r1(Y[0]), z, w: r1(X[1] - X[0]), d: r1(Y[1] - Y[0]), h: t };
+      else if (kind === 'bar') part = { s: 'box', n: '막대', m: M.id, x: r1(X[0]), y: min[1], z, w: r1(X[1] - X[0]), d: r.d, h: r.h };
+      else { const sp = App.ledstrip.spec(el.p || {}), y = min[1] - 5, zz = has ? pick(2) : 0; part = { s: 'bar', n: 'LED 라인', m: 'ledline', role: 'lite', a: [r1(X[0]), y, zz], b: [r1(X[1]), y, zz], lt: sp.type, k: sp.k, pf: sp.prof }; }
+    } else if (kind === 'vp') { // 세로판: 위아래 판 사이, 뒤판 앞까지
+      // 세로판은 칸(위아래 판 사이)을 먼저 정하고, 그 칸의 양옆 판 사이 가운데에
+      const sx = pick(0), cz = has ? center(2, pick(2), [thin(sx), thin(sy), null], 30) : null, sz = cz ? (cz.g[0] + cz.g[1]) / 2 : pick(2);
+      const cx = has && cz ? center(0, sx, [null, thin(sy), [cz.g[0] + 1, cz.g[1] - 1]], t) : null;
+      const x = cx ? cx.v : Math.max(min[0], Math.min(sx, min[0] + size[0] - t));
+      const Z = has ? span(2, sz, [[x, x + t], thin(sy), null]) : [min[2], min[2] + size[2]];
+      const Y = has ? span(1, sy, [[x, x + t], null, [Z[0] + 1, Z[1] - 1]]) : [min[1], min[1] + size[1]];
+      part = { s: 'box', n: '세로판', m: S.id, x, y: r1(Y[0]), z: r1(Z[0]), w: t, d: r1(Y[1] - Y[0]), h: r1(Z[1] - Z[0]) };
+    } else if (kind === 'fp') part = { s: 'box', n: '정면판', m: S.id, x: min[0], y: has ? min[1] + size[1] - t : 0, z: min[2], w: size[0], d: t, h: size[2] };
+    else return null;
     const made = addPart(el, part, { hp: '가로판 넣기', vp: '세로판 넣기', fp: '정면판 넣기', bar: '막대 넣기', led: 'LED 라인 넣기' }[kind]);
     render();
     if (!has) setTimeout(() => App.plan.fitToContent(), 0);
@@ -1095,6 +1187,9 @@
     setTimeout(() => { const p = document.getElementById('dsPart'); if (p) p.scrollIntoView({ block: 'start', behavior: 'smooth' }); }, 60);
   }
   let quickKey = '';
+  let barOpen = false;   // 좁은 화면: ‘⋯’로 펼친 줄(조금씩 옮기기·여러 개·자르기·꺾기·둥글게)
+  /** 화면(도면 칸)이 좁거나 낮으면 빠른 막대를 한 줄로 */
+  const compactBar = () => { const st = document.getElementById('stage'); return !!st && (st.clientWidth < 900 || st.clientHeight < 520); };
   function renderQuick() {
     const bar = document.getElementById('dsQuick');
     if (!bar) return;
@@ -1103,27 +1198,26 @@
     if (bar.hidden !== !show) { bar.hidden = !show; quickKey = ''; if (App.plan) render(); }
     if (!show) return;
     const v = viewNow(), q = sel ? D().build(el).parts.find((x) => x.id === sel && !x.halo) : null, user = q && q.user;
-    const open = addOpen == null ? el.kind === 'free' : addOpen;
-    const key = q ? `${el.id}|${q.id}|${user ? 'u' : 'g'}|${v}|${step}|${q.s}|${q.n}` : `${el.id}|none|${open}|${el.kind === 'free'}`;
+    const open = addOpen == null ? el.kind === 'free' : addOpen, compact = compactBar(), top3d = !!axesOf(v).top; // 3D에서 내려다볼 때: 앞·뒤 단추가 위·아래
+    const key = q ? `${el.id}|${q.id}|${user ? 'u' : 'g'}|${v}|${step}|${q.s}|${q.n}|${compact}|${barOpen}|${top3d}` : `${el.id}|none|${open}|${el.kind === 'free'}|${compact}`;
     const sizeText = q ? (q.s === 'bar' ? `길이 ${fmt(D().lenOf(q))}` : q.s === 'arc' ? `곡선 ${fmt(D().arcLen(q))}` : `${fmt(q.w)} × ${fmt(q.d)} × ${fmt(q.h)}`) : '';
     if (key !== quickKey) {
       quickKey = key;
       bar.dataset.state = q ? (user ? 'part' : 'gen') : 'add';
       bar.classList.toggle('is-3d', v === 'iso');
+      bar.classList.toggle('is-compact', compact);
+      bar.classList.toggle('is-open', !!(q && user && barOpen));
       if (q && user) {
-        const dp = DEPTH[v] || DEPTH.front, in3d = v === 'iso';
+        const dp = top3d ? DEPTH.top : DEPTH[v] || DEPTH.front, curved = q.s === 'poly' || q.s === 'arc';
         bar.innerHTML = `
-          <div class="ds-q-row">
+          <div class="ds-q-row ds-q-main">
             <button type="button" class="btn ds-q-name" data-dq="edit" title="이름·자재·크기·자리를 숫자로 (속성 칸)"><b>${esc(q.n || '부재')}</b><small id="dsQSize">${esc(sizeText)}</small></button>
-            ${in3d ? `<button type="button" class="btn" data-dq="cut" title="한 방향으로 여러 조각으로">자르기</button>
-            <button type="button" class="btn" data-dq="bend" title="정한 자리에서 끝 쪽을 꺾어 ㄱ자로">꺾기</button>
-            <button type="button" class="btn" data-dq="round" title="원·타원으로, 모서리만 둥글게, 네모로 되돌리기">둥글게</button>
-            <button type="button" class="btn" data-dq="dup" title="옆이나 위에 하나 더">복제</button>` : `${q.s === 'poly' || q.s === 'arc' ? '' : '<button type="button" class="btn" data-dq="rot" title="지금 보는 면에서 90° 돌리기">90°</button>'}
-            <button type="button" class="btn" data-dq="dup" title="옆이나 위에 하나 더">복제</button>
-            <button type="button" class="btn" data-dq="array" title="같은 간격으로 여러 개">여러 개</button>`}
+            ${curved ? '' : '<button type="button" class="btn" data-dq="rot" title="지금 보는 면에서 90° 돌리기 (세우기·눕히기)">90°</button>'}
+            <button type="button" class="btn" data-dq="dup" title="옆이나 위에 하나 더 (Ctrl+D)">복제</button>
             <button type="button" class="btn btn-danger" data-dq="del" title="이 부재 지우기 (Del)">삭제</button>
+            <button type="button" class="btn ds-q-morebtn" data-dq="more" aria-expanded="${barOpen}" aria-label="${barOpen ? '접기' : '더 보기: 조금씩 옮기기 · 여러 개 · 자르기 · 꺾기 · 둥글게'}" title="조금씩 옮기기 · 여러 개 · 자르기 · 꺾기 · 둥글게">${barOpen ? '접기' : '더보기'}</button>
           </div>
-          <div class="ds-q-row">
+          <div class="ds-q-row ds-q-extra ds-q-nudge">
             <button type="button" class="btn ds-q-sq" data-dq="nudge" data-d="-1,0" aria-label="왼쪽으로" title="왼쪽으로 (←)">←</button>
             <button type="button" class="btn ds-q-sq" data-dq="nudge" data-d="0,1" aria-label="위로" title="위로 (↑)">↑</button>
             <button type="button" class="btn ds-q-sq" data-dq="nudge" data-d="0,-1" aria-label="아래로" title="아래로 (↓)">↓</button>
@@ -1131,21 +1225,27 @@
             <button type="button" class="btn ds-q-dp" data-dq="depth" data-d="1" title="${esc(dp[2])}">${esc(dp[0])}</button>
             <button type="button" class="btn ds-q-dp" data-dq="depth" data-d="-1" title="${esc(dp[3])}">${esc(dp[1])}</button>
             <button type="button" class="btn ds-q-step" data-dq="step" title="화살표 한 번에 옮기는 거리 (누르면 바뀜)">${step}mm</button>
+          </div>
+          <div class="ds-q-row ds-q-extra ds-q-ops">
+            <button type="button" class="btn" data-dq="array" title="같은 간격으로 여러 개 (선반 여러 단)">여러 개</button>
+            <button type="button" class="btn" data-dq="cut" title="한 방향으로 여러 조각으로">자르기</button>
+            <button type="button" class="btn" data-dq="bend" title="정한 자리에서 끝 쪽을 꺾어 ㄱ자로">꺾기</button>
+            <button type="button" class="btn" data-dq="round" title="원·타원으로, 모서리만 둥글게, 네모로 되돌리기">둥글게</button>
           </div>`;
       } else if (q) {
         bar.innerHTML = `
-          <div class="ds-q-row">
+          <div class="ds-q-row ds-q-main">
             <button type="button" class="btn ds-q-name" data-dq="edit" title="이 부재의 크기·자리 보기"><b>${esc(q.n || '부재')}</b><small id="dsQSize">${esc(sizeText)}</small></button>
             ${el.kind !== 'free' ? '<button type="button" class="btn btn-primary" data-dq="explode" title="값으로 만든 부재를 하나씩 옮기고 고칠 수 있게 풀기">부재로 풀어 고치기</button>' : ''}
           </div>
           <p class="ds-q-note">값으로 만든 부재 — 크기는 속성의 값으로 바꾸거나, 풀어서 직접 고칩니다.</p>`;
       } else {
         bar.innerHTML = `
-          <div class="ds-q-row">
+          <div class="ds-q-row ds-q-main">
             ${open ? '' : '<button type="button" class="btn ds-q-add" data-dq="add-open" title="판·막대·LED를 바로 넣기">＋ 부재 넣기</button>'}
             ${open ? `
-            <button type="button" class="btn ds-q-add" data-dq="add" data-k="hp" title="선반·바닥판·상판처럼 눕힌 판">+가로판</button>
-            <button type="button" class="btn ds-q-add" data-dq="add" data-k="vp" title="옆판·칸막이처럼 세운 판">+세로판</button>
+            <button type="button" class="btn ds-q-add" data-dq="add" data-k="hp" title="선반·바닥판·상판처럼 눕힌 판 (양옆 판 사이에 맞춰 들어감)">+가로판</button>
+            <button type="button" class="btn ds-q-add" data-dq="add" data-k="vp" title="옆판·칸막이처럼 세운 판 (위아래 판 사이에 맞춰 들어감)">+세로판</button>
             <button type="button" class="btn ds-q-add" data-dq="add" data-k="fp" title="뒤판·문짝처럼 정면을 보는 판 (뒤쪽에 넣음)">+정면판</button>
             <button type="button" class="btn ds-q-add" data-dq="add" data-k="bar" title="각재·각파이프 (가로로 넣음, 90°로 세움)">+막대</button>
             <button type="button" class="btn ds-q-add" data-dq="add" data-k="led" title="LED 라인 (앞면에)">+LED</button>
@@ -1153,6 +1253,7 @@
           </div>`;
       }
       App.icons.apply(bar);
+      document.documentElement.style.setProperty('--dsq-h', `${bar.offsetHeight || 54}px`); // 알림이 막대 위에 뜨게
     } else {
       const sz = bar.querySelector('#dsQSize');
       if (sz && sz.textContent !== sizeText) sz.textContent = sizeText;
@@ -1164,6 +1265,11 @@
       case 'nudge': return nudge([d[0] * step, d[1] * step, 0]);
       case 'depth': return nudge([0, 0, d[0] * step]);
       case 'step': step = STEPS[(STEPS.indexOf(step) + 1) % STEPS.length]; quickKey = ''; renderQuick(); return step;
+      case 'more': { // 펼친 줄이 도면 아래쪽을 가리지 않게, 맞춘 화면이면 막대 위로 다시 맞춤
+        const auto = autoFitted();
+        barOpen = !barOpen; quickKey = ''; renderQuick(); refitSoon(auto);
+        return barOpen;
+      }
       case 'rot': return rotateInView();
       case 'cut': return cutPart();
       case 'bend': return bendPart();
@@ -1300,6 +1406,55 @@
     return replacePart(el, q, [{ s: 'rnd', ax, ...(how === 'full' ? { full: true, r: 0 } : { full: false, r: r1(rad) }) }], how === 'full' ? '원·타원으로' : '모서리 둥글게');
   }
 
+  /* ── 서랍(속성·집계)을 여닫을 때, 창 크기가 바뀔 때: 휴대폰은 설계물 줄·빠른 막대를 접고 보이는 칸에 다시 맞춤 ── */
+  let sheetTimer = 0;
+  function refitSoon(auto = autoFitted()) {
+    clearTimeout(sheetTimer);
+    sheetTimer = setTimeout(() => {
+      if (!isMode() || !cur()) return;
+      if (App.design3d && App.design3d.active()) { App.design3d.refit(); return; }
+      if (auto) fit(); else keepInView();
+    }, 140);
+  }
+  function syncSheet() {
+    const stage = document.getElementById('stage'), sh = App.ui.sheet;
+    if (!stage || !sh) return;
+    const open = !!(App.ui.mobile && App.ui.mobile.matches) && sh.isOpen(), was = stage.classList.contains('ds-sheet-open'), auto = autoFitted();
+    if (was !== open) { stage.classList.toggle('ds-sheet-open', open); previewSync(); quickKey = ''; renderQuick(); }
+    refitSoon(auto || was !== open);
+  }
+  /** 설계물이 하나도 없으면 가운데 안내 카드 */
+  function syncEmpty() {
+    const box = document.getElementById('dsEmpty');
+    if (box) box.hidden = !(isMode() && !cur());
+  }
+  /** 쓰는 법 (표시 → 쓰는 법) */
+  function helpDialog() {
+    return App.ui.dialog({
+      title: '설계 모드 쓰는 법',
+      html: `<div class="ds-help">
+        <h3>1. 그림 고르기</h3>
+        <ul><li>위쪽 <b>정면 · 평면 · 측면</b>으로 보는 방향을 바꿉니다. <b>입체</b>는 돌려 보며 고치는 3D 화면, <b>전체</b>는 네 그림 한 장(PDF와 같음).</li>
+          <li>휠·두 손가락으로 확대하고 빈 곳을 끌면 화면이 움직입니다. 확대해서 고치는 동안 화면은 그대로 있습니다.</li></ul>
+        <h3>2. 부재 넣기</h3>
+        <ul><li>아래 <b>+가로판 · +세로판 · +정면판 · +막대 · +LED</b>를 누르면 바로 생깁니다. 가로판은 양옆 판 사이에 맞는 크기로 가장 넓은 칸 가운데에, 세로판은 위아래 판 사이에 맞춰 들어갑니다 (확대해 보고 있으면 보는 칸에).</li>
+          <li>왼쪽(아래) 도구 <b>판 · 막대 · LED</b>로 끌어서 그려도 됩니다.</li></ul>
+        <h3>3. 고치기</h3>
+        <ul><li>부재를 눌러 고르고 <b>끌면 옮겨집니다</b> (다른 판의 면에 붙으면 분홍 선이 보임).</li>
+          <li><span class="ds-dot"></span> <b>주황 점</b>을 끌면 크기가 바뀝니다. <b>주황 치수 숫자</b>를 누르면 숫자로 고칩니다 (1200-36 같은 셈도 됨).</li>
+          <li>아래 막대: <b>90°</b> 세우기·눕히기, <b>복제</b>, <b>삭제</b>, <b>더보기</b>(조금씩 옮기기 · 여러 개 · 자르기 · 꺾기 · 둥글게).</li>
+          <li>같은 자리를 다시 누르면 <b>뒤에 있는 부재</b>가 골라집니다.</li>
+          <li><span class="ds-dot is-teal"></span> 수납장·테이블처럼 값으로 만든 설계는 청록 점을 끌거나 전체 치수 숫자를 눌러 크기를 바꾸고, 하나씩 고치려면 부재를 눌러 <b>부재로 풀어 고치기</b>.</li></ul>
+        <h3>4. 입체(3D)에서</h3>
+        <ul><li>빈 곳을 끌면 돌아가고, 방향 단추(앞·오른쪽·뒤·왼쪽·위)로 보는 쪽을 정합니다.</li>
+          <li>고른 부재를 끌면 바닥을 따라(옆에서 보면 좌우·위아래로) 옮겨지고, 위쪽 <b>↕</b> 점은 높이, 주황 점은 그 면을 늘이고 줄입니다. 점을 그냥 누르면 숫자로 넣습니다.</li></ul>
+        <h3>5. 뽑기</h3>
+        <ul><li><b>집계</b>에 부재표(재단 치수·원장 수·재료비), <b>설계도면</b>(PDF)·DXF·CSV. <b>사물로 등록</b>하면 인테리어·조감도 도면에 놓을 수 있습니다.</li></ul>
+      </div>`,
+      actions: [{ id: 'close', label: '닫기', primary: true }],
+    });
+  }
+
   /** 보는 그림 바꾸기 (정면·평면·측면·입체·전체) */
   function setView(v, doFit = true) {
     if (!DD().VIEWS.includes(v)) return;
@@ -1330,9 +1485,11 @@
     const box = pvBox();
     if (!box) return;
     const el = isMode() ? cur() : null, show = !!el && pvOn() && viewNow() !== 'iso'; // 입체(3D 작업 화면)에서는 미리보기가 필요 없음
-    const was = !box.hidden;
+    const was = !box.hidden, mobile = !!(App.ui.mobile && App.ui.mobile.matches), stage0 = document.getElementById('stage');
+    if (mobile) pv.big = false; // 휴대폰은 작은 타일만 (크게 보려면 눌러서 입체 화면으로)
     box.hidden = !show;
     box.classList.toggle('is-big', pv.big);
+    if (stage0) stage0.classList.toggle('has-pv', show && mobile);
     const btn = document.getElementById('btnDsPreview');
     if (btn) btn.setAttribute('aria-pressed', String(pvOn()));
     if (!show) {
@@ -1344,12 +1501,14 @@
       if (was && isMode()) fit();
       return;
     }
-    // 자리: 위쪽 버튼 줄(보는 그림·설계물 막대)과 겹치지 않게. PC에서 버튼 줄이 오른쪽까지 오지 않으면 맨 위에
+    // 자리: 위쪽 버튼 줄(보는 그림·설계물 막대)과 겹치지 않게. PC에서 버튼 줄이 오른쪽까지 오지 않으면 맨 위에.
+    // 휴대폰: 설계물 줄(둘째 줄) 옆에 — 줄은 타일 앞에서 끝남 (style.css .has-pv)
     const st = document.getElementById('stageTop'), stage = document.getElementById('stage');
     if (st && stage) {
       const sr = stage.getBoundingClientRect(), tr = st.getBoundingClientRect(), bw = box.offsetWidth || 120;
+      const chips = document.getElementById('designBar'), cr = chips && chips.offsetParent ? chips.getBoundingClientRect() : null;
       const clear = tr.right < sr.right - bw - 24;
-      box.style.top = `${Math.round(clear ? 12 : tr.bottom - sr.top + 8)}px`;
+      box.style.top = `${Math.round(mobile ? (cr ? cr.top - sr.top : tr.bottom - sr.top + 6) : clear ? 12 : tr.bottom - sr.top + 8)}px`;
     }
     if (!pv.orbit && !pv.failed) {
       const cv = box.querySelector('canvas');
@@ -1377,8 +1536,9 @@
     pv.el = el; pv.B = B; pv.sel = sel; pv.doors = doors; pv.ver++;
     box.dataset.ver = String(pv.ver);
     if (el.kind === 'model') return previewModel(el);
-    const m = D().toModel(el, { pick: sel, hideDoors: !doors });
+    const m = D().toModel(el, { pick: sel, hideDoors: !doors }), wasEmpty = box.classList.contains('is-empty');
     box.classList.toggle('is-empty', !m);
+    if (wasEmpty !== !m && App.ui.mobile && App.ui.mobile.matches) refitSoon(); // 휴대폰: 타일이 나타나거나 사라지면(첫 부재를 넣음·다 지움) 도면 자리를 다시 맞춤
     if (!m) return;
     if (pv.orbit) {
       const scene = App.library.sceneOf(m), same = pv.id === el.id;
@@ -1608,12 +1768,23 @@
         if (b) { e.stopPropagation(); if (b.dataset.pv === 'close') previewToggle(false); else { pv.big = !pv.big; b.setAttribute('aria-label', pv.big ? '미리보기 작게' : '미리보기 크게'); previewSync(true); if (pv.orbit) { pv.el = null; pv.id = null; previewKick(); } } return; }
         const d = pv.down; pv.down = null;
         if (d && Math.hypot(e.clientX - d.x, e.clientY - d.y) > 6) return; // 돌리려고 끈 것
-        if (isMode() && cur()) open3d(cur()); // 누르면 큰 3D 창
+        if (isMode() && cur()) setView('iso'); // 누르면 입체(3D) 작업 화면으로
       });
     }
     const pbtn = document.getElementById('btnDsPreview');
     if (pbtn) pbtn.addEventListener('click', () => previewToggle());
-    window.addEventListener('resize', () => { if (isMode()) previewSync(); });
+    window.addEventListener('resize', () => { if (isMode()) { const auto = autoFitted(); previewSync(); quickKey = ''; renderQuick(); refitSoon(auto); } });
+    // 맞춤이 어디서 불리든(화면 맞춤 단추·값 바꾸기) 맞춘 화면 값을 기억
+    if (App.plan && !App.plan._dsFitHook) {
+      const orig = App.plan.fitToContent.bind(App.plan);
+      App.plan.fitToContent = (...a) => { const r = orig(...a); if (isMode()) fitSig = viewSig(); return r; };
+      App.plan._dsFitHook = true;
+    }
+    App.ui.on('sheet', () => { if (isMode()) syncSheet(); });
+    const help = document.getElementById('btnDsHelp');
+    if (help) help.addEventListener('click', () => { const sh = document.getElementById('dsShows'); if (sh) sh.classList.remove('is-open'); helpDialog(); });
+    const empty = document.getElementById('dsEmpty');
+    if (empty) empty.addEventListener('click', (e) => { const b = e.target.closest('[data-act]'); if (b) act(b.dataset.act); });
     const quick = document.getElementById('dsQuick');
     if (quick) quick.addEventListener('click', (e) => { const b = e.target.closest('[data-dq]'); if (b && isMode()) quickAct(b.dataset.dq, b); });
     ['pane-props', 'pane-summary'].forEach((id) => {
@@ -1628,6 +1799,9 @@
       renderQuick();
       previewSync();
       sync3d();
+      const stg = document.getElementById('stage');
+      if (stg) stg.classList.toggle('ds-sheet-open', isMode() && !!(App.ui.mobile && App.ui.mobile.matches) && !!App.ui.sheet && App.ui.sheet.isOpen());
+      if (!isMode() && stg) stg.classList.remove('has-pv');
       if (isMode()) { const el = cur(); if (el && App.current.designId !== el.id) App.current.designId = el.id; setTimeout(() => { if (isMode()) fit(); }, 0); }
     });
     App.ui.on('project', () => { sel = null; formKey = ''; syncBar(); renderQuick(); previewSync(); sync3d(); });
@@ -1663,7 +1837,10 @@
   App.designUI = {
     init, renderProps, renderSummary, newDialog, openModel, open3d, toObject, toEstimate, add, remove, duplicate, explode, setCurrent, deletePart, addPart, setParam, act,
     selected: () => sel,
-    cutPart, bendPart, roundPart, setView, previewToggle, preview: () => ({ on: pvOn(), shown: !!pvBox() && !pvBox().hidden, gl: !!pv.orbit, ver: pv.ver, big: pv.big, yaw: pv.orbit ? pv.orbit.cam.yaw : null }),
+    cutPart, bendPart, roundPart, helpDialog, setView, previewToggle,
+    /** 고른 부재(직접 넣은 것)의 값을 바꿈 — 3D 작업 화면에서 숫자로 고칠 때 */
+    setPart(id, p, label) { const el = cur(); if (!el || !userParts(el).some((q) => q.id === id)) return false; setPart(el, id, p, label); refreshPanes(); return true; },
+    autoFitted: () => autoFitted(), preview: () => ({ on: pvOn(), shown: !!pvBox() && !pvBox().hidden, gl: !!pv.orbit, ver: pv.ver, big: pv.big, yaw: pv.orbit ? pv.orbit.cam.yaw : null }),
     /** 시험용: 전체 미리보기를 지금 그려 그림 주소로 */
     previewShot: () => { if (!pv.orbit) return null; pv.orbit.now(); return pvBox().querySelector('canvas').toDataURL('image/png'); }, addShape, nudge, rotateInView, dupPart, arrayPart, renderQuick, editDim, askNumber, calc,
     /** 시험용: 지금 보이는 손잡이들 (고른 부재의 크기·끝, 값으로 만든 설계의 전체 크기) */

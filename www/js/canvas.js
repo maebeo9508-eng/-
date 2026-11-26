@@ -168,7 +168,8 @@
     /** 도면 전체(또는 준 범위)가 한 화면에 들어오게. 그린 것이 없으면 기본 범위 */
     fitToContent(rect = this.contentBounds() || App.DEFAULT_VIEW_RECT) {
       const i = this.insets;
-      const pad = Math.min(48, Math.min(this.width, this.height) * 0.08);
+      // 설계 모드: 좁은 화면(휴대폰)은 바깥 여백을 줄임 — 치수선·제목 자리는 도면 범위에 이미 들어 있음
+      const pad = App.modes && App.modes.is('design') && App.designDraw && App.designDraw.pad ? App.designDraw.pad(this) : Math.min(48, Math.min(this.width, this.height) * 0.08);
       this.view.fitRect(rect, {
         x: i.left + pad,
         y: i.top + pad,

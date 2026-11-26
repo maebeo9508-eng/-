@@ -633,7 +633,8 @@
     const eb = Number.isFinite(+q.eb) && +q.eb > 0 ? { eb: r1(+q.eb) } : {};
     if (q.s === 'rnd') { // 둥근 부재 (원·타원·모서리 R)
       const ax = ['x', 'y', 'z'].includes(q.ax) ? q.ax : 'z', r = Math.max(0, Math.min(5000, f(q.r)));
-      return { id, s: 'rnd', n, m, role: keep || (isBar ? 'bar' : 'panel'), ...(isBar ? { axis: ax } : {}), x: f(q.x), y: f(q.y), z: f(q.z), w, d, h, ax, r, ...(q.full ? { full: true } : {}), ...col, ...eb, user: true };
+      // 각재·파이프의 길이는 둥근 면과 상관없이 가장 긴 쪽 (부재표의 절단 길이)
+      return { id, s: 'rnd', n, m, role: keep || (isBar ? 'bar' : 'panel'), ...(isBar ? { axis: w >= d && w >= h ? 'x' : d >= h ? 'y' : 'z' } : {}), x: f(q.x), y: f(q.y), z: f(q.z), w, d, h, ax, r, ...(q.full ? { full: true } : {}), ...col, ...eb, user: true };
     }
     if ((q.s === 'poly' || q.s === 'arc') && Array.isArray(q.pts)) { // 곡선 부재 (‘부재로 풀기’한 아치 벽 따위)
       const pts = q.pts.slice(0, 400).filter((p) => Array.isArray(p) && Number.isFinite(+p[0]) && Number.isFinite(+p[1])).map((p) => [f(p[0]), f(p[1])]);
