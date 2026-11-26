@@ -138,6 +138,14 @@
     const el = cur(), list = D().all();
     bar.innerHTML = `<button type="button" class="cat-btn cat-all" data-act="ds-new" title="자유 설계·내려받은 3D 모델·수납장·테이블·각파이프 틀·전광판">＋ 새 설계</button>`
       + list.map((e) => `<button type="button" class="cat-btn" data-design="${esc(e.id)}" aria-pressed="${!!el && e.id === el.id}" title="${esc(D().KINDS[e.kind] ? D().KINDS[e.kind].label : '')}">${esc(e.name)}</button>`).join('');
+    // 휴대폰: 설계물 줄 대신 위쪽 단추 하나(지금 설계물 이름)와 그 메뉴 안의 목록
+    const nm = document.getElementById('dsShowName'), menu = document.getElementById('dsMenuList');
+    if (nm) nm.textContent = el ? el.name : '설계물';
+    if (menu) {
+      const kind = (e) => (D().KINDS[e.kind] ? D().KINDS[e.kind].label.replace(/\s*\(.*$/, '') : '');
+      menu.innerHTML = list.map((e) => `<button type="button" class="ds-menu-item" data-design="${esc(e.id)}" aria-pressed="${!!el && e.id === el.id}"><b>${esc(e.name)}</b><small>${esc(kind(e))}</small></button>`).join('')
+        + `<button type="button" class="ds-menu-item ds-menu-new" data-act="ds-new">＋ 새 설계</button>`;
+    }
     const dims = document.getElementById('btnDsDims'), hid = document.getElementById('btnDsHidden');
     if (dims) dims.setAttribute('aria-pressed', String(App.current.designDims !== false));
     if (hid) hid.setAttribute('aria-pressed', String(App.current.designHidden !== false));
@@ -380,7 +388,7 @@
     const el = cur();
     const key = el ? `${el.id}|${el.kind}|${sel || ''}|${App.ui.tool}|${userParts(el).length}|${listSig(el)}|${fieldsOf(el).map((f) => f.k).join(',')}` : 'none';
     const badge = document.getElementById('propsBadge');
-    if (badge) { badge.hidden = true; }
+    if (badge) { badge.hidden = true; App.ui.syncSheetButton(); }
     if (key !== formKey || !pane.querySelector('.ds-props')) {
       formKey = key;
       const top = pane.scrollTop;
@@ -743,6 +751,7 @@
   }
 
   let cycleTip = false;
+  let closeShow = () => {}; // 휴대폰의 설계물·표시 메뉴 닫기 (init에서 채움)
   class DSelect {
     activate() { this.drag = null; this.pan = null; this.press = null; this.label = null; }
     down(ev) {
@@ -1436,7 +1445,8 @@
       html: `<div class="ds-help">
         <h3>1. 그림 고르기</h3>
         <ul><li>위쪽 <b>정면 · 평면 · 측면</b>으로 보는 방향을 바꿉니다. <b>입체</b>는 돌려 보며 고치는 3D 화면, <b>전체</b>는 네 그림 한 장(PDF와 같음).</li>
-          <li>휠·두 손가락으로 확대하고 빈 곳을 끌면 화면이 움직입니다. 확대해서 고치는 동안 화면은 그대로 있습니다.</li></ul>
+          <li>휠·두 손가락으로 확대하고 빈 곳을 끌면 화면이 움직입니다. 확대해서 고치는 동안 화면은 그대로 있습니다.</li>
+          ${App.ui.mobile && App.ui.mobile.matches ? '<li><b>휴대폰</b>: 위쪽의 <b>설계물 이름</b> 단추에 설계물 바꾸기·＋ 새 설계·치수/숨은선/미리보기·3D 보기가 있고, 속성·집계는 아래 도구 줄 오른쪽 끝의 <b>속성·집계</b>로 엽니다.</li>' : ''}</ul>
         <h3>2. 부재 넣기</h3>
         <ul><li>아래 <b>+가로판 · +세로판 · +정면판 · +막대 · +LED</b>를 누르면 바로 생깁니다. 가로판은 양옆 판 사이에 맞는 크기로 가장 넓은 칸 가운데에, 세로판은 위아래 판 사이에 맞춰 들어갑니다 (확대해 보고 있으면 보는 칸에).</li>
           <li>왼쪽(아래) 도구 <b>판 · 막대 · LED</b>로 끌어서 그려도 됩니다.</li></ul>
@@ -1753,13 +1763,24 @@
     toggle('btnDsDoors', 'designDoors');
     // 보는 그림 (정면·평면·측면·입체·전체)
     const views = document.getElementById('dsViews');
-    if (views) views.addEventListener('click', (e) => { const b = e.target.closest('[data-dview]'); if (b) setView(b.dataset.dview); });
+    if (views) views.addEventListener('click', (e) => { const b = e.target.closest('[data-dview]'); if (b) { closeShow(); setView(b.dataset.dview); } });
     // 휴대폰: 치수·숨은선·문짝을 ‘표시’ 메뉴로 접음
     const showBtn = document.getElementById('btnDsShow'), shows = document.getElementById('dsShows');
     if (showBtn && shows) {
-      const setOpen = (on) => { shows.classList.toggle('is-open', on); showBtn.setAttribute('aria-expanded', String(on)); };
+      const setOpen = (on) => { shows.classList.toggle('is-open', on); showBtn.setAttribute('aria-expanded', String(on)); if (on) shows.scrollTop = 0; };
+      closeShow = () => setOpen(false);
       showBtn.addEventListener('click', (e) => { e.stopPropagation(); setOpen(!shows.classList.contains('is-open')); });
       document.addEventListener('pointerdown', (e) => { if (shows.classList.contains('is-open') && !e.target.closest('.ds-show-wrap')) setOpen(false); });
+      // 메뉴 안의 설계물 목록·새 설계·3D 보기: 고르면 메뉴를 닫음 (치수·숨은선 같은 켜고 끄기는 열어 둠)
+      const list = document.getElementById('dsMenuList');
+      if (list) list.addEventListener('click', (e) => {
+        const b = e.target.closest('[data-design], [data-act]');
+        if (!b) return;
+        setOpen(false);
+        if (b.dataset.design) setCurrent(b.dataset.design); else act(b.dataset.act);
+      });
+      const big = document.getElementById('btnDsBig3d');
+      if (big) big.addEventListener('click', () => { setOpen(false); open3d(); });
     }
     const pbox = document.getElementById('dsPreview');
     if (pbox) {
@@ -1783,7 +1804,7 @@
     }
     App.ui.on('sheet', () => { if (isMode()) syncSheet(); });
     const help = document.getElementById('btnDsHelp');
-    if (help) help.addEventListener('click', () => { const sh = document.getElementById('dsShows'); if (sh) sh.classList.remove('is-open'); helpDialog(); });
+    if (help) help.addEventListener('click', () => { closeShow(); helpDialog(); });
     const empty = document.getElementById('dsEmpty');
     if (empty) empty.addEventListener('click', (e) => { const b = e.target.closest('[data-act]'); if (b) act(b.dataset.act); });
     const quick = document.getElementById('dsQuick');
@@ -1795,6 +1816,7 @@
       pane.addEventListener('keydown', (e) => { if (isMode() && e.key === 'Enter' && e.target.tagName === 'INPUT' && (e.target.closest('.ds-props') || e.target.dataset.dprice != null) && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); e.target.blur(); } });
     });
     App.ui.on('mode', () => {
+      closeShow();
       sel = null; formKey = '';
       syncBar();
       renderQuick();

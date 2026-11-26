@@ -114,9 +114,20 @@
     syncDirButtons();
     draw();
   }
+  const DIR_NAME = { front: '앞', right: '오른쪽', back: '뒤', left: '왼쪽', top: '위', iso: '비스듬히' };
   function syncDirButtons() {
     if (!st.box) return;
-    st.box.querySelectorAll('[data-dir]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.dir === st.dirNow)));
+    st.box.querySelectorAll('[data-dir]:not(.ds-dir-toggle)').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.dir === st.dirNow)));
+    const now = st.box.querySelector('.ds-dir-now'); // 휴대폰: 접어 둔 단추에 지금 보는 쪽 이름
+    if (now) now.textContent = DIR_NAME[st.dirNow] || '방향';
+  }
+  /** 휴대폰: 방향 단추 줄을 펼치고 접음 (접으면 단추 하나만 남아 화면을 가리지 않음) */
+  function openDirs(on) {
+    const pad = st.box && st.box.querySelector('.ds-dir');
+    if (!pad) return;
+    pad.classList.toggle('is-open', !!on);
+    const t = pad.querySelector('.ds-dir-toggle');
+    if (t) t.setAttribute('aria-expanded', String(!!on));
   }
 
   /* ── 장면 ── */
@@ -658,13 +669,19 @@
   function init() {
     st.box = document.getElementById('ds3dView');
     if (!st.box) return;
-    st.box.addEventListener('pointerdown', (e) => { if (e.target.closest('.ds-dir')) return; onDown(e); });
+    st.box.addEventListener('pointerdown', (e) => { if (e.target.closest('.ds-dir')) return; openDirs(false); onDown(e); });
     st.box.addEventListener('pointermove', onMove);
     st.box.addEventListener('pointerup', onUp);
     st.box.addEventListener('pointercancel', onCancel);
     st.box.addEventListener('contextmenu', (e) => e.preventDefault());
     st.box.addEventListener('wheel', (e) => { if (!active()) return; e.preventDefault(); zoom(Math.exp(Math.max(-300, Math.min(300, e.deltaY)) * 0.0015)); busy(); draw(); }, { passive: false });
-    st.box.querySelector('.ds-dir').addEventListener('click', (e) => { const b = e.target.closest('[data-dir]'); if (b) setDir(b.dataset.dir); });
+    st.box.querySelector('.ds-dir').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-dir]');
+      if (!b) return;
+      if (b.dataset.dir === 'toggle') { openDirs(!b.parentNode.classList.contains('is-open')); return; }
+      setDir(b.dataset.dir);
+      openDirs(false); // 골랐으면 다시 접음
+    });
     window.addEventListener('resize', () => { if (active()) { placeDirs(); draw(); } });
   }
 

@@ -221,7 +221,7 @@
         }
         else if (p.hit) ev.shift ? sel.toggleAll(withGroups([p.hit])) : sel.set(withGroups([p.hit]));
         else if (!ev.shift) sel.clear();
-        if (ev.touch) App.ui.emit('picked', !!p.hit); // 휴대폰: 누른 것의 속성이 보이게 서랍을 올림
+        if (ev.touch) App.ui.emit('picked', !!p.hit); // 휴대폰: 도구 줄의 ‘속성·집계’ 단추에 고른 개수가 뜸 (서랍은 올리지 않음)
       } else if (['move', 'stretch', 'vertex', 'ihandle', 'slide', 'remount'].includes(p.mode)) {
         App.doc.commit();
       } else if (p.mode === 'box') {
@@ -1517,7 +1517,7 @@
         if (!App.layers.visible(el)) App.layers.set(el.layer, true); // 메모 레이어를 숨겨 두었으면 보이게 (안 보이는 핀이 생기지 않게)
         App.doc.transact('사진 핀', () => App.doc.add(el));
         App.selection.set([el.id]);
-        App.ui.emit('picked', true);
+        App.ui.emit('picked', true, { edit: true }); // 제목·메모를 바로 적게 (휴대폰은 서랍을 올림)
         App.ui.toast(`사진 ${photos.length}장을 꽂았습니다. 오른쪽(휴대폰은 아래) 속성에서 제목·메모를 적고 사진을 더할 수 있습니다.`);
       });
     }

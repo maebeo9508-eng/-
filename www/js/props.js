@@ -1171,6 +1171,7 @@
     const badge = document.getElementById('propsBadge');
     badge.textContent = els.length;
     badge.hidden = !els.length;
+    App.ui.syncSheetButton(); // 휴대폰: 도구 줄의 ‘속성·집계’ 단추에도 고른 개수
   }
 
   function showError(box, msg) {
