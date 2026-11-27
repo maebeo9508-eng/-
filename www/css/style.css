@@ -2187,3 +2187,14 @@ tr.is-warn th, tr.is-warn td { color: #b45309; }
 .ai-url { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; color: var(--fg); word-break: break-all; user-select: all; -webkit-user-select: all; }
 .ai-thumb { display: block; width: 100%; max-height: 34vh; object-fit: contain; margin-bottom: 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
 .ai-wait { display: flex; align-items: center; gap: 12px; padding: 6px 0 10px; font-weight: 700; }
+
+/* ── 3.9.1: 고른 판을 문·서랍으로 정하기 ── */
+.ds-mv { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.ds-mv-opt { flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; min-height: 52px; padding: 7px 12px; text-align: left; }
+.ds-mv-opt span { overflow: visible; white-space: normal; }
+.ds-mv-opt small { white-space: normal; line-height: 1.3; font-size: 12px; }
+.ds-mv-opt[aria-checked="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.ds-mv-opt[aria-checked="true"] b { color: var(--accent); }
+.ds-quick .ds-q-mv { font-weight: 700; color: var(--accent); }
+.ds-quick .ds-q-mv[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+.ds-3d-nomove { padding: 8px 10px; border: 1px dashed var(--line); border-radius: 10px; }

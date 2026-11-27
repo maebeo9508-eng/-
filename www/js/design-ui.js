@@ -557,6 +557,7 @@
           ${hasLite(el) ? '<button type="button" class="btn" data-act="ds3d-night" aria-pressed="false">LED 켜고 밤으로</button>' : ''}
         </div>`}
         <div class="btn-row"><button type="button" class="btn" data-act="ds3d-png">사진 저장 (PNG)</button>${isModel ? '' : '<button type="button" class="btn" data-act="ds-glb">3D 파일 (GLB)</button>'}</div>
+        ${!isModel && !mv.doors && !mv.drawers ? '<p class="props-meta ds-3d-nomove">열리는 문·서랍이 아직 없습니다. <b>판을 고르고 더보기 → 문·서랍</b>으로 문(경첩 방향)·서랍을 정하거나, 정면도에서 <b>빈 칸을 눌러 문짝·서랍</b>을 넣으면 여기서 열어 볼 수 있습니다.</p>' : ''}
         <p class="props-meta">끌어서 돌리고 휠·두 손가락으로 확대합니다.${sel && !isModel ? ' 고른 부재는 주황색으로 보입니다.' : ''}</p></div>`,
       actions: [{ id: 'close', label: '닫기', primary: true }],
       onOpen(body) {
@@ -1472,7 +1473,7 @@
     const stray = !q && !cell ? strays(el) : null;
     const blank = !q && !cell && el.kind === 'free' && !D().build(el).parts.some((x) => !x.halo); // 아직 아무것도 없는 자유 설계: 통부터 만들 수 있게
     const open = addOpen == null ? (tight ? blank : el.kind === 'free') : addOpen;
-    const key = q ? `${el.id}|${q.id}|${user ? 'u' : 'g'}|${v}|${step}|${q.s}|${q.n}|${compact}|${barOpen}|${top3d}`
+    const key = q ? `${el.id}|${q.id}|${user ? 'u' : 'g'}|${v}|${step}|${q.s}|${q.n}|${q.mv || ''}|${compact}|${barOpen}|${top3d}`
       : cell ? `${el.id}|cell|${cell.x.join()}|${cell.z.join()}|${cellKind}|${compact}` : `${el.id}|none|${open}|${el.kind === 'free'}|${compact}|${stray ? stray.count : 0}|${blank}|${tight}`;
     // 접어 둔 휴대폰 화면: 고른 것이 있거나 넣기 줄을 폈으면 아래 줄을 이 막대가 차지함 (도구·화면 맞춤 단추는 잠깐 숨음)
     if (stageEl) stageEl.classList.toggle('has-dsq', !!(q || cell || open));
@@ -1504,6 +1505,7 @@
             <button type="button" class="btn ds-q-step" data-dq="step" title="화살표 한 번에 옮기는 거리 (누르면 바뀜)">${step}mm</button>
           </div>
           <div class="ds-q-row ds-q-extra ds-q-ops">
+            ${q.role === 'panel' && !curved && q.s !== 'bar' ? `<button type="button" class="btn ds-q-mv" data-dq="move" aria-pressed="${!!q.mv}" title="이 판을 문(경첩 방향)·서랍으로 정함 — 3D 보기에서 열립니다">문·서랍</button>` : ''}
             <button type="button" class="btn" data-dq="array" title="같은 간격으로 여러 개 (선반 여러 단)">여러 개</button>
             <button type="button" class="btn" data-dq="cut" title="한 방향으로 여러 조각으로">자르기</button>
             <button type="button" class="btn" data-dq="bend" title="정한 자리에서 끝 쪽을 꺾어 ㄱ자로">꺾기</button>
@@ -1576,6 +1578,7 @@
       case 'cut': return cutPart();
       case 'bend': return bendPart();
       case 'round': return roundPart();
+      case 'move': return movePart();
       case 'dup': return dupPart();
       case 'array': return arrayPart();
       case 'del': return deletePart();
@@ -1678,6 +1681,43 @@
     p2[POS[T]] = lo[T]; p2[SIZE[T]] = sz[T];
     return replacePart(el, q, [{ [SIZE[L]]: r1(sAt) }, p2], '꺾기');
   }
+  /** 문·서랍으로: 고른 판을 문(왼쪽·오른쪽 경첩)·서랍 앞판·서랍 통으로 정하거나 되돌림 — 3D 보기에서 열리고, 경첩·레일·손잡이가 철물에 들어감.
+      속성의 ‘3D에서 움직임’과 같은 값(mv). 뒤쪽에 있는 정면판을 문·앞판으로 정하면 몸통 앞으로 옮겨 줌 (고를 수 있음) */
+  const MV_NAMES = { dl: '문짝', dr: '문짝', df: '서랍 앞판', dw: '서랍 통' }, PLAIN_NAMES = ['가로판', '세로판', '정면판', '판', '부재', '문짝', '서랍 앞판', '서랍 통'];
+  async function movePart() {
+    const el = cur(), q = curPart();
+    if (!el || !q) { App.ui.toast('문·서랍으로 정할 판을 먼저 고르세요 (직접 넣은 부재).'); return null; }
+    const built = D().build(el).parts.find((x) => x.id === q.id);
+    if (!built || built.role !== 'panel' || q.s === 'bar' || q.s === 'poly' || q.s === 'arc') { App.ui.toast('판만 문·서랍으로 정할 수 있습니다 (막대·곡선 부재는 안 됩니다).'); return null; }
+    // 몸통(다른 부재들)의 앞면과 견줘, 이 판이 정면을 보는 판인데 뒤쪽에 있으면 앞으로 옮길지 물어봄
+    const others = userParts(el).filter((x) => x.id !== q.id && x.s !== 'bar' && Number.isFinite(x.y) && Number.isFinite(x.d));
+    const front = others.length ? Math.min(...others.map((x) => x.y)) : null, back = others.length ? Math.max(...others.map((x) => x.y + x.d)) : null;
+    const facing = q.d <= q.w && q.d <= q.h, behind = facing && front != null && q.y + q.d / 2 > (front + back) / 2;
+    let mv = q.mv || 'dl';
+    const OPT = [['dl', '문 — 왼쪽 경첩', '마주 보고 왼쪽이 경첩 (오른쪽이 열림)'], ['dr', '문 — 오른쪽 경첩', '마주 보고 오른쪽이 경첩 (왼쪽이 열림)'], ['df', '서랍 앞판', '앞으로 나옴 — 레일·손잡이가 철물에'], ['dw', '서랍 통', '앞판과 함께 나오는 옆·밑·뒤판'], ['', '움직이지 않음', '그냥 판으로 되돌림']];
+    const r = await App.ui.dialog({
+      title: `문·서랍으로 — ${q.n || '부재'}`,
+      html: `<div class="ds-mv" role="radiogroup" id="dsMv">${OPT.map(([v, t, sub]) => `<button type="button" class="btn btn-list ds-mv-opt" role="radio" data-v="${v}" aria-checked="${v === mv}"><span><b>${t}</b></span><small>${sub}</small></button>`).join('')}</div>
+        ${behind ? '<label class="check-row" for="dsMvFront"><input type="checkbox" id="dsMvFront" checked><span><b>몸통 앞으로 옮기기</b><small>지금은 뒤쪽에 있습니다. 문·서랍 앞판은 몸통 앞에 덧댑니다</small></span></label>' : ''}
+        <p class="props-meta">정한 뒤 3D 보기에서 ‘문 열기’를 누르면 열립니다. 문에는 경첩이, 서랍 앞판에는 레일이 부재표의 철물에 들어가고, 손잡이는 속성에서 고릅니다. 빈 칸에 맞는 문짝·서랍을 새로 넣으려면 정면도에서 빈 칸을 누르세요.</p>`,
+      actions: [{ id: 'cancel', label: '취소' }, { id: 'ok', label: '정하기', primary: true }],
+      onOpen(body) {
+        const box = body.querySelector('#dsMv'), chk = body.querySelector('#dsMvFront');
+        const sync = () => { if (chk) chk.closest('.check-row').hidden = !(mv === 'dl' || mv === 'dr' || mv === 'df'); };
+        box.addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b) return; mv = b.dataset.v; box.querySelectorAll('[data-v]').forEach((x) => x.setAttribute('aria-checked', String(x === b))); sync(); });
+        sync();
+      },
+    });
+    if (r.id !== 'ok') return null;
+    const toFront = behind && (mv === 'dl' || mv === 'dr' || mv === 'df') && !!(r.body.querySelector('#dsMvFront') || {}).checked;
+    const p = { mv: mv || undefined, ...(mv === 'df' || mv === 'dw' ? {} : { mx: undefined }), ...(toFront ? { y: r1(front - q.d) } : {}) };
+    if (PLAIN_NAMES.includes(q.n || '부재')) p.n = mv ? MV_NAMES[mv] : (q.n === '문짝' || /^서랍/.test(q.n || '') ? '정면판' : q.n); // 흔한 이름이면 부재표에 알아보게 바꿔 줌
+    setPart(el, q.id, p, mv ? '문·서랍으로 정하기' : '움직이지 않는 판으로');
+    formKey = ''; quickKey = '';
+    refreshPanes(); syncBar(); renderQuick();
+    App.ui.toast(mv === 'dl' || mv === 'dr' ? `문으로 정했습니다 (${mv === 'dl' ? '왼쪽' : '오른쪽'} 경첩)${toFront ? ' — 몸통 앞으로 옮겼습니다' : ''}. 3D 보기에서 ‘문 열기’로 열어 보세요.` : mv === 'df' ? `서랍 앞판으로 정했습니다${toFront ? ' — 몸통 앞으로 옮겼습니다' : ''}. 3D 보기에서 ‘서랍 열기’로 열어 보세요.` : mv === 'dw' ? '서랍 통으로 정했습니다 (앞판과 함께 나옵니다).' : '움직이지 않는 판으로 되돌렸습니다.');
+    return mv;
+  }
   /** 둥글게: 원·타원으로, 모서리만 둥글게(반지름), 네모로 되돌리기. 둥근 면은 판이면 넓은 면, 기둥이면 단면 */
   async function roundPart() {
     const el = cur(), q = curPart();
@@ -1750,6 +1790,7 @@
         <ul><li>부재를 눌러 고르고 <b>끌면 옮겨집니다</b> (다른 판의 면에 붙으면 분홍 선이 보임).</li>
           <li><span class="ds-dot"></span> <b>주황 점</b>을 끌면 크기가 바뀝니다. <b>주황 치수 숫자</b>를 누르면 숫자로 고칩니다 (1200-36 같은 셈도 됨).</li>
           <li>아래 막대: <b>90°</b> 세우기·눕히기, <b>복제</b>, <b>삭제</b>, <b>더보기</b>(조금씩 옮기기 · 여러 개 · 자르기 · 꺾기 · 둥글게).</li>
+          <li><b>문·서랍</b>: 판을 고르고 <b>더보기 → 문·서랍</b>에서 문(왼쪽·오른쪽 경첩)·서랍 앞판·서랍 통으로 정하면 <b>3D 보기</b>에서 열립니다 (속성의 ‘3D에서 움직임’과 같음). 빈 칸에 맞는 문짝·서랍은 빈 칸을 눌러 넣습니다.</li>
           <li>같은 자리를 다시 누르면 <b>뒤에 있는 부재</b>가 골라집니다.</li>
           <li><span class="ds-dot is-teal"></span> 수납장·테이블처럼 값으로 만든 설계는 청록 점을 끌거나 전체 치수 숫자를 눌러 크기를 바꾸고, 하나씩 고치려면 부재를 눌러 <b>부재로 풀어 고치기</b>.</li></ul>
         <h3>4. 입체(3D)에서</h3>
@@ -2175,7 +2216,7 @@
     cellAt: (x, z) => { const c = cellAt(cur(), x, z); return c ? { x: c.x, y: c.y, z: c.z, bound: c.bound, front: c.front } : null; },
     pickCell: (x, z) => { setCell(x == null ? null : cellAt(cur(), x, z)); return !!cell; },
     makeBox, boxParts, fillCell, strays: () => { const S = strays(); return S ? { count: S.count, list: S.list.map((g) => ({ names: g.names, gap: g.gap })) } : null; }, bringStrays,
-    cutPart, bendPart, roundPart, helpDialog, setView, previewToggle,
+    cutPart, bendPart, roundPart, movePart, helpDialog, setView, previewToggle,
     /** 고른 부재(직접 넣은 것)의 값을 바꿈 — 3D 작업 화면에서 숫자로 고칠 때 */
     setPart(id, p, label) { const el = cur(); if (!el || !userParts(el).some((q) => q.id === id)) return false; setPart(el, id, p, label); refreshPanes(); return true; },
     autoFitted: () => autoFitted(), preview: () => ({ on: pvOn(), shown: !!pvBox() && !pvBox().hidden, gl: !!pv.orbit, ver: pv.ver, big: pv.big, yaw: pv.orbit ? pv.orbit.cam.yaw : null }),
