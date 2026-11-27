@@ -28,6 +28,9 @@
     theme: 'light',       // light | dark | auto(기기 설정 따라)
     // 화면 돌리기: 휴대폰(짧은 쪽 600 미만)은 세로 고정이 기본 — 도면을 만지다 화면이 저절로 돌아가지 않게. 태블릿·PC는 기기 따라
     rotate: Math.min((window.screen && window.screen.width) || 9999, (window.screen && window.screen.height) || 9999) < 600 ? 'lock' : 'free',
+    // 휴대폰(좁은 화면): 위 막대·도구 줄을 접어 두고 필요할 때만 엶 — 도면을 손으로 만지는 자리가 먼저. 'open'이면 늘 보임 (3.8까지의 배치)
+    phoneTop: 'fold',
+    phoneTools: 'fold',
   };
   App.SETTING_CHOICES = {
     lengthUnit: ['mm', 'cm', 'm', 'ft'],
@@ -36,6 +39,8 @@
     runUnit: ['m', 'unit'],
     theme: ['light', 'dark', 'auto'],
     rotate: ['lock', 'free'],
+    phoneTop: ['fold', 'open'],
+    phoneTools: ['fold', 'open'],
   };
   App.settings = App.storage.loadSettings(App.DEFAULT_SETTINGS, App.SETTING_CHOICES);
   App.saveSettings = () => App.storage.saveSettings(App.settings);
@@ -66,11 +71,16 @@
   // 축척 막대: 화면에서 110px 안팎이 되는 1·2·5 단위 길이
   const scaleBar = document.getElementById('scaleBar');
   const scaleLabel = document.getElementById('scaleLabel');
-  let lastScale = 0;
+  let lastScale = 0, zoomTimer = 0;
   App.ui.on('settings', () => { lastScale = 0; }); // 단위가 바뀌면 축척 글자도 다시
   plan.onRender(() => {
     const scale = plan.view.scale;
     if (scale === lastScale) return;
+    if (lastScale) { // 접어 둔 휴대폰 화면: 축척 막대는 확대·축소하는 동안만 잠깐 보임 (style.css .is-zooming)
+      plan.host.classList.add('is-zooming');
+      clearTimeout(zoomTimer);
+      zoomTimer = setTimeout(() => plan.host.classList.remove('is-zooming'), 1400);
+    }
     lastScale = scale;
     // 단위가 m 등일 때 0.2처럼 작은 값도 보이게, ft는 1·2·5 ft 단위로 (내보내기 그림과 같은 계산)
     const bar = App.units.niceBar(110, scale);
@@ -93,6 +103,7 @@
   const stage = document.getElementById('stage');
   const applyRulers = () => {
     stage.classList.toggle('has-rulers', !!plan.rulerSize);
+    document.documentElement.classList.toggle('has-rulers', !!plan.rulerSize); // 접어 둔 휴대폰 화면: 떠 있는 위 줄을 자 안쪽으로
     plan.insets.left = plan.rulerSize;
     plan.requestRender();
   };
@@ -100,9 +111,10 @@
   App.ui.on('mode', applyRulers); // 설계 모드에서는 눈금자를 그리지 않음 (도면에 치수가 있고, 자리가 아까움)
 
   // 모바일 서랍이 캔버스 아래쪽을 덮는 만큼 화면 맞춤에서 피함
-  App.ui.on('sheet', (h) => {
-    plan.insets.bottom = h;
-  });
+  // 접어 둔 휴대폰 화면: 떠 있는 아래 줄(도구·화면 맞춤·속성·집계)만큼도 피함
+  const setBottomInset = () => { plan.insets.bottom = App.ui.bottomInset ? App.ui.bottomInset() : 0; };
+  App.ui.on('sheet', setBottomInset);
+  App.ui.on('bars', setBottomInset);
   App.ui.on('tool', (id) => App.tools.set(id));
 
   App.doc.onChange(() => {
@@ -117,6 +129,7 @@
   App.catalogUI.init();
   App.summary.init();
   App.underlay.init();
+  App.ai.init(); // AI 연결 (선택): 파일 → AI로 평면도 읽기
   App.edit.init();
   App.settingsUI.init();
   App.libraryUI.init();
@@ -128,8 +141,9 @@
   // 화면 맞춤 때 위쪽 버튼 묶음에 도면이 가리지 않게
   const stageTop = document.getElementById('stageTop');
   const setTopInset = () => {
-    plan.insets.top = stageTop.offsetTop + stageTop.offsetHeight;
+    plan.insets.top = App.ui.topInset ? App.ui.topInset() : stageTop.offsetTop + stageTop.offsetHeight;
   };
+  App.ui.on('bars', setTopInset);
   document.getElementById('btn3d').addEventListener('click', () => (App.modes.is('design') ? App.designUI.open3d() : App.view3d.open()));
   document.getElementById('btnFit').addEventListener('click', () => {
     setTopInset();

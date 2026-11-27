@@ -6,7 +6,7 @@
   const $ = (sel) => document.querySelector(sel);
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-  const APP_VERSION = '3.8.0'; // sw.js의 VERSION과 같이 올림
+  const APP_VERSION = '3.9.0'; // sw.js의 VERSION과 같이 올림
   const LENGTHS = {
     gridSize: { label: '격자 간격', min: 1, max: 10000 },
     dimTextSize: { label: '치수 글자 크기', min: 10, max: 5000 },
@@ -46,6 +46,9 @@
       else if (so.unlock) so.unlock();
     } catch (_) { /* 지원하지 않는 곳에서는 그대로 */ }
   }
+
+  /** 막대 접기 설정을 보여 줄 기기인지: 좁은 화면(휴대폰 배치)이거나 손가락으로 쓰는 기기 */
+  const phoneLayout = () => !!(App.ui && App.ui.mobile && App.ui.mobile.matches) || (!!window.matchMedia && window.matchMedia('(hover: none), (pointer: coarse)').matches);
 
   /* ── 칸 만들기 ── */
   function choice(key, label, options, note = '') {
@@ -114,6 +117,8 @@
         <h3 class="set-title">화면</h3>
         ${choice('theme', '색', [['light', '밝게'], ['dark', '어둡게'], ['auto', '기기 설정 따라']], '현장에서 밝은 햇빛 아래는 ‘밝게’, 실내·밤에는 ‘어둡게’가 눈이 덜 부십니다.')}
         ${rotationCapable() ? choice('rotate', '화면 돌리기', [['lock', '세로 고정'], ['free', '기기 따라 돌리기']], '도면을 만지다 휴대폰이 기울어도 화면이 저절로 돌아가지 않게 세로로 고정합니다. 가로로 넓게 쓰려면 ‘기기 따라 돌리기’.') : ''}
+        ${phoneLayout() ? `${choice('phoneTop', '휴대폰 — 위쪽 막대 (모드·파일·설정)', [['fold', '접어 두기'], ['open', '늘 보이기']])}
+        ${choice('phoneTools', '휴대폰 — 도구 줄', [['fold', '접어 두기'], ['open', '늘 보이기']], '휴대폰에서는 도면을 넓게 쓰도록 막대를 접어 둡니다. 왼쪽 위 ☰와 왼쪽 아래 도구 단추로 열고, 고르면 닫힙니다. 예전처럼 늘 보이게 하려면 ‘늘 보이기’.')}` : ''}
         ${toggle('showGrid', '격자 보이기')}
         ${toggle('showRulers', '눈금자 보이기', '도면 위쪽과 왼쪽에 자 눈금을 표시합니다 (설정한 길이 단위). 설계 모드에서는 보이지 않습니다.')}
         ${toggle('showDistances', '벽까지 거리 보이기', '기호·가구·기둥을 고르거나 옮기거나 놓을 때 위·아래·왼쪽·오른쪽 벽까지 거리를 점선으로 보여 줍니다')}
@@ -143,6 +148,13 @@
         <p class="props-meta">벽 종류·프리셋 목록은 도면마다 저장됩니다.</p>
       </section>
 
+      <section class="set-sec" id="set-ai">
+        <h3 class="set-title">AI 연결 (선택)</h3>
+        <p class="props-meta">평면도 사진을 AI(Claude)가 읽어 벽·문·창문을 만들어 줍니다. 쓰고 싶은 분만 자기 API 키를 넣어 연결합니다 — 키는 이 기기에만 저장되고, 요금은 내 AI 계정에 청구됩니다.</p>
+        <p class="props-meta" id="setAiState">${App.ai && App.ai.connected() ? `연결됨 · ${esc(App.ai.cfg().keyMask)} · ${esc((App.ai.MODELS.find(([m]) => m === App.ai.cfg().model) || [])[1] || '')}` : '연결하지 않음 (앱은 인터넷을 쓰지 않습니다)'}</p>
+        <button type="button" class="btn" data-act="ai">${App.ai && App.ai.connected() ? 'AI 연결 바꾸기 · 지우기' : 'AI 연결하기'}</button>
+      </section>
+
       <section class="set-sec">
         <h3 class="set-title">데이터</h3>
         <p class="props-meta">이 기기에 저장된 도면과 설정을 모두 지우고 처음 상태로 돌립니다. 되돌릴 수 없으니 필요한 도면은 먼저 파일로 백업하세요.</p>
@@ -151,8 +163,9 @@
 
       <section class="set-sec">
         <h3 class="set-title">정보</h3>
-        <p class="props-meta">현장도면 ${APP_VERSION}. 인터넷 없이 이 기기 안에서만 동작합니다.<br>
-        DWG 열기에 GNU LibreDWG(GPL v3)를 씁니다. 라이선스 전문: lib/libredwg/LICENSE</p>
+        <p class="props-meta">현장도면 ${APP_VERSION}. 인터넷 없이 이 기기 안에서만 동작합니다 (AI 연결을 켜서 평면도를 읽을 때만 그 그림을 보냅니다).<br>
+        DWG 열기에 GNU LibreDWG(GPL v3)를 씁니다. 라이선스 전문: lib/libredwg/LICENSE<br>
+        AI 연결에 Anthropic SDK(Apache 2.0)를 씁니다. 라이선스 전문: lib/anthropic/LICENSE</p>
       </section>`;
   }
 
@@ -249,6 +262,7 @@
         return;
       }
       if (e.target.closest('[data-act="reset"]')) resetAll();
+      if (e.target.closest('[data-act="ai"]')) App.ai.settingsDialog().then(() => { if (!modal.hidden) { const top = body.scrollTop; render(); body.scrollTop = top; } });
     });
     body.addEventListener('input', (e) => {
       const key = e.target.dataset.len;

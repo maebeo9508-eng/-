@@ -94,6 +94,7 @@
       bindCanvasControls();
       bindToolOptions();
       initSheet();
+      bindBars();
       bindDialog();
       bindBack();
       bindPicked();
@@ -111,14 +112,16 @@
     closeTop,
     openPicker,
     openEstimate,
+    syncRow: () => syncRow(),
   });
 
   /* ── 도구 바 ───────────────────────────── */
   function buildToolbar() {
     $('#toolbar').addEventListener('click', (e) => {
-      if (e.target.closest('.tool-sheet')) { sheet.toggle(); return; } // 휴대폰: 속성·집계 서랍 여닫기
+      // 휴대폰: 맨 앞의 ‘고정’ — 도구 줄을 늘 펴 두기 ↔ 접어 두기
+      if (e.target.closest('.tool-pin')) { bars.pin('tools', bars.folded('tools')); return; }
       const btn = e.target.closest('.tool');
-      if (btn) pickTool(btn.dataset.tool);
+      if (btn) { pickTool(btn.dataset.tool); bars.set('tools', false); } // 접어 둔 도구 줄은 고르면 닫힘
     });
     rebuildToolbar();
   }
@@ -126,22 +129,23 @@
   function rebuildToolbar() {
     const bar = $('#toolbar');
     const ids = App.modes.tools();
-    const html = ids.map((id) => {
-      if (id === '|') return '<span class="tool-sep" role="separator"></span>';
-      const t = TOOLS.find((x) => x.id === id);
-      return `<button type="button" class="tool" data-tool="${t.id}" title="${t.label} (${t.key})" aria-pressed="false">` +
-        `<span class="ico" data-icon="${t.id}"></span><span class="tool-label">${t.label}</span>` +
-        `<kbd class="tool-key">${t.key}</kbd></button>`;
-    }).join('') +
-      // 휴대폰: 속성·집계 서랍을 여는 단추 (도구 줄 오른쪽 끝에 붙어 있음 — 닫힌 서랍은 자리를 차지하지 않음)
-      '<button type="button" class="tool-sheet" id="btnSheet" aria-expanded="false" aria-controls="panel" title="속성·집계 열기·닫기">' +
-      '<span class="ico" data-icon="sheet"></span><span class="tool-label">속성·집계</span><span class="tab-badge" id="sheetBadge" hidden></span></button>';
+    // 휴대폰: 맨 앞에 ‘고정’ (도구 줄을 늘 펴 두기 ↔ 접어 두기). 속성·집계 단추는 도구 줄 밖(index.html)에 있어 줄을 접어도 남음
+    const html = '<button type="button" class="tool-pin" id="btnToolPin" aria-pressed="false"><span class="ico" data-icon="pin"></span><span class="tool-label">고정</span></button>' +
+      '<span class="tool-sep tool-pin-sep" role="separator"></span>' +
+      ids.map((id) => {
+        if (id === '|') return '<span class="tool-sep" role="separator"></span>';
+        const t = TOOLS.find((x) => x.id === id);
+        return `<button type="button" class="tool" data-tool="${t.id}" title="${t.label} (${t.key})" aria-pressed="false">` +
+          `<span class="ico" data-icon="${t.id}"></span><span class="tool-label">${t.label}</span>` +
+          `<kbd class="tool-key">${t.key}</kbd></button>`;
+      }).join('');
     if (bar.dataset.tools !== ids.join(',')) {
       bar.dataset.tools = ids.join(',');
       bar.innerHTML = html;
       App.icons.apply(bar);
       bar.scrollTo({ left: 0, top: 0 });
       syncSheetButton();
+      syncPin();
     }
     setTool(ids.includes(ui.tool) ? ui.tool : ids[0]);
   }
@@ -154,6 +158,7 @@
     // 지우개: 선택한 것이 있으면 바로 지우고, 없으면 지우개 모드 (스케치업과 같음)
     if (id === 'erase' && App.actions.deleteSelection()) return;
     setTool(id);
+    bars.set('pal', PAL_TOOLS.includes(id) && bars.folded('top')); // 휴대폰: 놓을 기호·가구·물건부터 고르게 팔레트를 펼침 (고르면 접힘)
     if (USAGE[id]) hint(isTouch() ? USAGE[id].touch : USAGE[id].pc, 4000);
     else if (!App.tools.implemented(id)) hint(`‘${t.label}’ 도구는 아직 쓸 수 없습니다.`);
     else $('#toolHint').classList.remove('is-show'); // 이전 도구 안내가 남지 않게
@@ -169,7 +174,32 @@
       b.setAttribute('aria-pressed', String(on));
       if (on) revealInBar(bar, b);
     });
+    syncToolButton();
     ui.emit('tool', id);
+  }
+
+  /** 휴대폰의 ‘도구’ 단추(접어 둔 도구 줄을 여는 단추)에 지금 도구의 그림·이름 */
+  function syncToolButton() {
+    const b = $('#btnTool');
+    if (!b) return;
+    const t = TOOLS.find((x) => x.id === ui.tool) || TOOLS[0];
+    const ico = b.querySelector('.ico');
+    if (ico.dataset.icon !== t.id) { ico.dataset.icon = t.id; App.icons.apply(b); }
+    $('#btnToolLabel').textContent = t.label;
+    b.title = `도구 고르기 (지금: ${t.label})`;
+    b.setAttribute('aria-label', b.title);
+    b.classList.toggle('is-draw', !(t.id === 'select' || t.id === 'dselect')); // 그리는 도구를 쥐고 있으면 강조색으로
+    document.documentElement.style.setProperty('--tool-fab-w', `${b.offsetWidth || 84}px`); // 설계: ‘＋ 넣기’ 단추가 바로 옆에 붙게
+  }
+  /** 도구 줄 맨 앞 ‘고정’ 단추의 눌림·이름 */
+  function syncPin() {
+    const b = $('#btnToolPin');
+    if (!b) return;
+    const open = !bars.folded('tools');
+    b.setAttribute('aria-pressed', String(open));
+    b.querySelector('.tool-label').textContent = open ? '접기' : '고정';
+    b.title = open ? '도구 줄 접어 두기 (‘도구’ 단추로 열고, 고르면 닫힘)' : '도구 줄을 늘 펴 두기';
+    b.setAttribute('aria-label', b.title);
   }
 
   /** 서랍 단추(휴대폰 도구 줄 오른쪽 끝)의 눌림·배지를 지금 상태로 */
@@ -186,8 +216,8 @@
     const horizontal = bar.scrollWidth > bar.clientWidth;
     const start = horizontal ? btn.offsetLeft : btn.offsetTop;
     const size = horizontal ? btn.offsetWidth : btn.offsetHeight;
-    const pin = horizontal ? bar.querySelector('.tool-sheet') : null; // 오른쪽 끝에 붙어 있는 서랍 단추에 가리지 않게
-    const view = (horizontal ? bar.clientWidth : bar.clientHeight) - (pin && pin.offsetWidth ? pin.offsetWidth + 6 : 0);
+    const pin = horizontal ? $('#btnSheet') : null; // 오른쪽 끝에 고정된 서랍 단추에 가리지 않게
+    const view = (horizontal ? bar.clientWidth : bar.clientHeight) - (pin && pin.offsetWidth ? pin.offsetWidth + 12 : 0);
     const pos = horizontal ? bar.scrollLeft : bar.scrollTop;
     let next = pos;
     if (start < pos) next = start - 8;
@@ -413,6 +443,7 @@
       if (owner) owner.setAttribute('aria-expanded', 'false');
       return true;
     }
+    if (bars.closeAll()) return true; // 휴대폰: 잠깐 연 위 막대·도구 줄·팔레트
     if (App.tools.escape()) return true; // 그리던 것 끝내기, 선택 풀기
     if (ui.mobile.matches && sheet.isOpen()) {
       sheet.collapse();
@@ -617,13 +648,16 @@
   /** 전기·설비·가구·조감도 물건 팔레트. 조감도 물건은 분류 탭으로 나눠 보여 줌 */
   function renderPalette() {
     const pal = $('#palette'), cats = $('#paletteCats');
-    const cat = ['elec', 'mech', 'furn', 'event'].includes(ui.tool) ? ui.tool : null;
+    const cat = PAL_TOOLS.includes(ui.tool) ? ui.tool : null;
     const grouped = cat === 'event' || cat === 'furn'; // 분류 탭과 미리보기 그림으로 고름
     pal.hidden = !cat;
     cats.hidden = !grouped;
-    if (!cat) return;
+    const chip = $('#palChip');
+    chip.hidden = !cat;
+    if (!cat) { if (bars.pal) bars.set('pal', false); return; }
     App.catalog.ensureCurrent();
     const current = App.current[`${cat}Kind`];
+    $('#palChipName').textContent = current || '고르기'; // 휴대폰: 접어 둔 팔레트 단추에 지금 고른 것
     let list = App.catalog.ITEM_KINDS[cat];
     pal.classList.toggle('is-pictures', grouped);
     if (grouped) {
@@ -720,6 +754,7 @@
           ui.emit('current');
           document.querySelector('#dialogFoot [data-id="close"]').click();
           setTool(category);
+          bars.set('pal', false);
           hint(`${kind}: 놓을 곳을 누르세요`, 3500);
         };
         body.addEventListener('click', (e) => {
@@ -752,13 +787,16 @@
     const els = App.selection.list().map((id) => App.doc.get(id)).filter(Boolean);
     const show = els.length > 0 && ui.tool === 'select' && (App.modes.is('event') || els.some((e) => e.type === 'item' || e.type === 'column' || e.type === 'text'));
     bar.hidden = !show;
-    if (!show) return;
+    $('#stage').classList.toggle('has-quick', show); // 휴대폰(접어 둔 화면): 아래 줄을 이 막대가 차지함
+    if (!show) { quickMore = false; bar.classList.remove('is-more'); syncRow(); return; }
     const items = els.filter((e) => e.type === 'item' && !e.wallId && !e.locked);
     const one = els.length === 1 ? els[0] : null;
     const name = one ? (one.type === 'item' ? one.kind : one.name || App.model.TYPES[one.type].label) : `${els.length}개 고름`;
-    const key = `${name}|${items.length}|${els.length}`;
-    if (bar.dataset.key === key) return;
+    const key = `${name}|${items.length}|${els.length}|${quickMore}`;
+    bar.classList.toggle('is-more', quickMore);
+    if (bar.dataset.key === key) { syncRow(); return; }
     bar.dataset.key = key;
+    // 휴대폰은 한 줄(이름·90°·복제·삭제·더보기)만 보이고, ‘더보기’를 누르면 윗줄에 15° 돌리기·줄 세우기 (차례는 style.css의 order)
     bar.innerHTML = `
       <span class="quick-name">${escHtml(name)}</span>
       ${items.length ? `<button type="button" class="btn" data-q="rot-" title="왼쪽으로 15° 돌리기" aria-label="왼쪽으로 15도 돌리기">↺ 15°</button>
@@ -766,9 +804,20 @@
       <button type="button" class="btn" data-q="rot90" title="90° 돌리기 (Q)">90°</button>
       <button type="button" class="btn" data-q="dup" title="복제 (Ctrl+D)">복제</button>
       <button type="button" class="btn" data-q="array" title="같은 간격으로 여러 개 늘어놓기">줄 세우기</button>
-      <button type="button" class="btn btn-danger" data-q="del" title="삭제 (Del)">삭제</button>`;
+      <button type="button" class="btn btn-danger" data-q="del" title="삭제 (Del)">삭제</button>
+      <button type="button" class="btn quick-more" data-q="more" aria-expanded="${quickMore}" title="15°씩 돌리기 · 줄 세우기">${quickMore ? '접기' : '더보기'}</button>
+      <span class="quick-break" aria-hidden="true"></span>`;
+    syncRow();
+  }
+  let quickMore = false; // 휴대폰: ‘더보기’로 펼친 윗줄
+  /** 아래 줄(빠른 막대)의 지금 높이: 알림이 그 위에 뜨게 (접어 둔 화면) */
+  function syncRow() {
+    const q = $('#quickBar'), d = $('#dsQuick');
+    const h = Math.max(44, q && !q.hidden ? q.offsetHeight : 0, d && !d.hidden ? d.offsetHeight : 0);
+    document.documentElement.style.setProperty('--row-h', `${h}px`);
   }
   function quickAction(act) {
+    if (act === 'more') { quickMore = !quickMore; renderQuick(); return; }
     const ids = App.selection.list().filter((id) => App.doc.has(id));
     const items = ids.map((id) => App.doc.get(id)).filter((e) => e.type === 'item' && !e.wallId && !e.locked);
     if (act === 'rot-' || act === 'rot+') {
@@ -889,6 +938,7 @@
       App.current[`${ui.tool}Kind`] = b.dataset.kind;
       ui.emit('current');
       setTool(ui.tool); // 기호 놓기 ↔ 선 그리기 바꿈
+      bars.set('pal', false); // 휴대폰: 골랐으면 팔레트를 접어 도면을 비움
       const line = paletteLine(ui.tool);
       hint(line ? `${line}: 끌거나 점을 차례로 눌러 그립니다` : `${b.dataset.kind}: 놓을 곳을 누르세요`);
     });
@@ -960,9 +1010,12 @@
     App.doc.onChange(updateToolOption);
 
     // 캔버스 위쪽 버튼 묶음 높이: 안내 문구와 '화면 맞춤'이 그 아래를 쓰도록
+    // (버튼 묶음의 아래 끝에서 12px 위까지의 높이 — 접어 둔 휴대폰 화면처럼 묶음이 다른 자리에서 시작해도 그 바로 아래를 가리키게)
     const top = $('#stageTop');
-    const setTop = () => $('#stage').style.setProperty('--stage-top-h', `${top.offsetHeight}px`);
+    const setTop = () => $('#stage').style.setProperty('--stage-top-h', `${Math.max(0, top.offsetTop + top.offsetHeight - 12 - (App.plan ? App.plan.rulerSize : 0))}px`);
     if ('ResizeObserver' in window) new ResizeObserver(setTop).observe(top);
+    ui.on('bars', setTop);
+    ui.on('settings', setTop);
     setTop();
   }
 
@@ -1014,8 +1067,8 @@
       return $('#sheetHead').offsetHeight + 1;
     },
     max() {
-      const top = $('.topbar').getBoundingClientRect().bottom;
-      const bottom = $('#toolbar').getBoundingClientRect().top;
+      const top = bars.folded('top') ? $('#btnTop').getBoundingClientRect().bottom : $('.topbar').getBoundingClientRect().bottom;
+      const bottom = bars.folded('tools') ? window.innerHeight : $('#toolbar').getBoundingClientRect().top;
       return Math.max(this.head(), bottom - top - 12);
     },
     set(h) {
@@ -1099,6 +1152,129 @@
     });
     applyLayout();
   }
+
+  /* ── 휴대폰: 막대를 접어 두고 필요할 때만 열기 (3.9) ──
+     도면을 손으로 만지며 쓰는 화면이라 도면 말고는 접어 둔다. 왼쪽 위 ☰(모드·파일·설정), 왼쪽 아래 ‘도구’ 단추로 열고,
+     고르면 닫힌다 (바깥을 눌러도 닫힘). 설정 → 화면에서 ‘늘 보이기’로 바꿀 수 있고, 도구 줄은 줄 맨 앞의 ‘고정’으로도 바꿈.
+     화면 표시는 <html>의 fold-top · fold-tools · top-open · tools-open · pal-open · views-open (style.css 3.9) */
+  const PAL_TOOLS = ['elec', 'mech', 'furn', 'event']; // 놓을 것을 팔레트에서 고르는 도구
+  const bars = {
+    top: false,   // 위 막대를 잠깐 열었는지
+    tools: false, // 도구 줄을 잠깐 열었는지
+    pal: false,   // 기호·가구·물건 팔레트를 펼쳤는지
+    views: false, // (설계) 보는 그림 탭을 펼쳤는지
+    /** 그 막대를 접어 두는 화면인지 (휴대폰 폭이고 설정이 ‘늘 보이기’가 아닐 때) */
+    folded(which) {
+      return ui.mobile.matches && App.settings[which === 'tools' ? 'phoneTools' : 'phoneTop'] !== 'open';
+    },
+    /** 지금 상태를 화면에 (html의 표시, 손잡이 단추, 도면 여백) */
+    apply() {
+      const root = document.documentElement, ft = this.folded('top'), fb = this.folded('tools');
+      if (!ft) this.top = this.pal = this.views = false;
+      if (!fb) this.tools = false;
+      const was = `${root.classList.contains('fold-top')}|${root.classList.contains('fold-tools')}`;
+      root.classList.toggle('fold-top', ft);
+      root.classList.toggle('fold-tools', fb);
+      root.classList.toggle('top-open', this.top);
+      root.classList.toggle('tools-open', this.tools);
+      root.classList.toggle('pal-open', this.pal);
+      root.classList.toggle('views-open', this.views);
+      const topBtn = $('#btnTop');
+      topBtn.setAttribute('aria-expanded', String(this.top));
+      topBtn.setAttribute('aria-label', this.top ? '메뉴 닫기' : '메뉴 열기 (모드 · 파일 · 설정)');
+      $('#btnTool').setAttribute('aria-expanded', String(this.tools));
+      $('#palChip').setAttribute('aria-expanded', String(this.pal));
+      $('#barsShade').hidden = !(this.top || this.tools);
+      if (!this.top && ft) { // 위 막대를 닫으면 거기서 펼친 메뉴도 닫음
+        const fm = $('#fileMenu');
+        if (!fm.hidden) { fm.hidden = true; $('#btnFile').setAttribute('aria-expanded', 'false'); }
+        if (ui.closeSnap) ui.closeSnap();
+        const lm = $('#layerMenu');
+        if (lm && !lm.hidden) { lm.hidden = true; $('#btnLayers').setAttribute('aria-expanded', 'false'); $('#stageTop').classList.remove('menu-open'); }
+      }
+      root.style.setProperty('--top-h', `${this.top ? $('.topbar').offsetHeight : 0}px`); // 연 위 막대 아래로 스냅·레이어 줄이 내려감
+      syncPin();
+      if (this.tools) { const on = $(`.tool[data-tool="${ui.tool}"]`); if (on) revealInBar($('#toolbar'), on); }
+      if (was !== `${ft}|${fb}`) { // 접기 ↔ 늘 보이기를 바꿈: 도면 칸 크기가 달라짐
+        if (ui.mobile.matches) sheet.set(sheet.h);
+        syncToolButton();
+      }
+      ui.emit('bars');
+    },
+    /** 하나를 열거나 닫음 (한 번에 하나만 열림) */
+    set(which, on) {
+      on = !!on;
+      if (this[which] === on) return false;
+      if (on) this.top = this.tools = this.pal = this.views = false;
+      this[which] = on;
+      this.apply();
+      return true;
+    },
+    /** 잠깐 연 것을 모두 닫음. 닫은 것이 있었으면 true */
+    closeAll() {
+      if (!(this.top || this.tools || this.pal || this.views)) return false;
+      this.top = this.tools = this.pal = this.views = false;
+      this.apply();
+      return true;
+    },
+    /** 늘 펴 두기(open) ↔ 접어 두기 */
+    pin(which, open) {
+      App.settings[which === 'tools' ? 'phoneTools' : 'phoneTop'] = open ? 'open' : 'fold';
+      App.saveSettings();
+      this[which] = false;
+      this.apply();
+      if (which === 'tools') toast(open ? '도구 줄을 늘 펴 둡니다. 맨 앞의 ‘접기’를 누르면 다시 접힙니다.' : '도구 줄을 접었습니다. 왼쪽 아래 단추로 열고, 고르면 닫힙니다.');
+    },
+  };
+  ui.bars = bars;
+
+  function bindBars() {
+    $('#btnTop').addEventListener('click', () => bars.set('top', !bars.top));
+    $('#btnTool').addEventListener('click', () => bars.set('tools', !bars.tools));
+    $('#palChip').addEventListener('click', () => bars.set('pal', !bars.pal));
+    $('#btnSheet').addEventListener('click', () => { bars.closeAll(); sheet.toggle(); }); // 속성·집계 서랍 여닫기
+    $('#sheetClose').addEventListener('click', () => sheet.collapse());
+    // 위 막대·도구 줄을 연 동안: 도면을 누르면 닫기만 함 (도면에 잘못 그려지거나 고른 것이 풀리지 않게 얇은 막이 받음)
+    $('#barsShade').addEventListener('pointerdown', (e) => { e.preventDefault(); bars.closeAll(); });
+    // 위 막대에서 고르면 닫힘 (모드 · 설정 · 찾기 · 도면 목록 · 메뉴 항목). ‘파일’ 단추와 되돌리기는 열어 둠
+    $('.topbar').addEventListener('click', (e) => {
+      if (bars.top && e.target.closest('.mode-tab, .menu-item, #btnSettings, #btnSearch, #btnProject')) setTimeout(() => bars.set('top', false), 0);
+    });
+    // 팔레트·보는 그림 탭: 바깥(도면 포함)을 누르면 닫힘 — 도면은 그대로 눌림 (고른 것을 바로 놓을 수 있게)
+    document.addEventListener('pointerdown', (e) => {
+      if (bars.pal && !e.target.closest('#palette, #paletteCats, #palChip, .modal')) bars.set('pal', false);
+      if (bars.views && !e.target.closest('#dsViews')) bars.set('views', false);
+    }, true);
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') bars.closeAll(); });
+    ui.mobile.addEventListener('change', () => bars.apply());
+    ui.on('settings', () => bars.apply());
+    bars.apply();
+    // 처음 한 번: 막대가 접혀 있다는 것과 여는 곳
+    if (bars.folded('tools')) {
+      let seen = false;
+      try { seen = localStorage.getItem('hjdm.foldHint') === '1'; } catch (_) { /* 저장이 막혀 있으면 매번 */ }
+      if (!seen) setTimeout(() => {
+        if (!bars.folded('tools') || !$('#dialog').hidden) return;
+        toast('도면을 넓게 쓰도록 막대를 접어 두었습니다. 왼쪽 아래 단추로 도구, 왼쪽 위 ☰로 모드·파일·설정을 엽니다.', 7000);
+        try { localStorage.setItem('hjdm.foldHint', '1'); } catch (_) { /* 무시 */ }
+      }, 1800);
+    }
+  }
+
+  /** 도면 위쪽에서 버튼들이 가리는 높이(px) — 화면 맞춤이 피함 */
+  ui.topInset = () => {
+    const st = $('#stageTop'), stage = $('#stage');
+    if (bars.folded('top')) return Math.round($('#btnTop').getBoundingClientRect().bottom - stage.getBoundingClientRect().top) + 8;
+    return st.offsetTop + st.offsetHeight;
+  };
+  /** 도면 아래쪽에서 서랍·떠 있는 아래 줄이 가리는 높이(px) */
+  ui.bottomInset = () => {
+    if (!ui.mobile.matches) return 0;
+    if (sheet.h > 0) return sheet.h;
+    if (!bars.folded('tools')) return 0;
+    const b = $('#btnSheet'), r = b.getBoundingClientRect();
+    return r.height ? Math.round(window.innerHeight - r.top) + 8 : 60;
+  };
 
   /* ── 안내 문구 ────────────────────────── */
   let toastTimer = 0;

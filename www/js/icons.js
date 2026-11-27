@@ -263,6 +263,17 @@
     sheet(c) {
       [6.5, 12, 17.5].forEach((y) => { dot(c, 5, y, 1.5); stroke(c, [9, y, 20, y], 2); });
     },
+    // 메뉴: 줄 셋 (휴대폰에서 접어 둔 위 막대를 여는 단추)
+    menu(c) {
+      [6.5, 12, 17.5].forEach((y) => stroke(c, [4, y, 20, y], 2.2));
+    },
+    // 고정: 압정 (도구 줄을 늘 펴 두기)
+    pin(c) {
+      c.lineWidth = 1.7;
+      path(c, [9, 3.5, 15, 3.5, 14.2, 9, 17.5, 13, 6.5, 13, 9.8, 9]); c.stroke();
+      c.globalAlpha = 0.22; path(c, [9, 3.5, 15, 3.5, 14.2, 9, 17.5, 13, 6.5, 13, 9.8, 9]); c.fill(); c.globalAlpha = 1;
+      stroke(c, [12, 13, 12, 21], 1.9);
+    },
     ruler(c) {
       c.lineWidth = 1.7; c.strokeRect(2.5, 8, 19, 8);
       for (let i = 0; i < 5; i++) {

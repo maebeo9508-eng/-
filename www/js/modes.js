@@ -72,7 +72,9 @@
     App.ui.dialog({
       title: g.title,
       html: `<ol class="guide-steps">${g.steps.map(([, html], i) => `<li><span class="guide-no">${i + 1}</span><p>${html}</p></li>`).join('')}</ol>
-        ${App.ui.mobile && App.ui.mobile.matches ? `<p class="props-meta"><b>휴대폰</b>: 속성·집계는 아래 도구 줄 오른쪽 끝의 <b>속성·집계</b> 단추로 엽니다 (닫아 두면 도면이 그만큼 넓습니다).${id === 'design' ? ' ＋ 새 설계·치수 표시·3D 보기는 위쪽의 설계물 이름 단추를 누르면 나옵니다.' : ''}</p>` : ''}
+        ${!(App.ui.mobile && App.ui.mobile.matches) ? '' : App.ui.bars && App.ui.bars.folded('tools')
+    ? `<p class="props-meta"><b>휴대폰</b>: 도면을 넓게 쓰도록 막대를 접어 두었습니다. <b>왼쪽 아래 단추</b>로 도구를 열어 고르고(고르면 닫힘), <b>왼쪽 위 ☰</b>에 모드·파일·설정이, <b>오른쪽 아래</b>에 화면 맞춤과 속성·집계가 있습니다.${id === 'design' ? ' 보는 그림은 위쪽 단추(정면 ▾)로 바꾸고, ＋ 새 설계·치수 표시·3D 보기는 ☰를 열면 나오는 설계물 이름 단추에 있습니다.' : ''} 늘 보이게 하려면 설정 → 화면.</p>`
+    : `<p class="props-meta"><b>휴대폰</b>: 속성·집계는 아래 도구 줄 오른쪽 끝의 <b>속성·집계</b> 단추로 엽니다 (닫아 두면 도면이 그만큼 넓습니다).${id === 'design' ? ' ＋ 새 설계·치수 표시·3D 보기는 위쪽의 설계물 이름 단추를 누르면 나옵니다.' : ''}</p>`}
         <p class="props-meta">이 안내는 파일 메뉴의 ‘사용 안내’에서 다시 볼 수 있습니다. PC에서는 ? 키로 단축키를 봅니다.</p>`,
       actions: [{ id: 'ok', label: '시작하기', primary: true }],
     }).then(() => { try { localStorage.setItem(key, '1'); } catch (_) { /* 무시 */ } });

@@ -562,6 +562,25 @@
       input.click();
     });
   }
+  /** 담아 둔 사진(imageId)을 밑그림 요소로 도면에 넣음. o: { width(mm), x, y (왼쪽 위, mm), opacity } */
+  function place(file, imageId, o) {
+    const ratio = App.images.aspect(imageId) || 1.5; // 가로 ÷ 세로
+    const d = index({ id: `udl-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name: String((file && file.name) || '사진').slice(0, 80), width: o.width, height: o.width / ratio, polys: [], texts: [], lines: 0, textCount: 0, kind: 'image', imageId });
+    store.set(d.id, d);
+    const el = App.model.TYPES.underlay.create(d);
+    el.imageId = imageId; // 이미지 정리·백업이 이 사진을 알도록
+    el.opacity = o.opacity == null ? 0.75 : o.opacity;
+    el.x = o.x;
+    el.y = o.y;
+    App.doc.transact('사진 밑그림', () => App.doc.add(el));
+    persist(d);
+    return el;
+  }
+  /** 사진을 물어보지 않고 정한 크기·자리에 밑그림으로 (AI로 읽은 평면도 밑에 원래 그림을 깔 때). 돌려주는 것: 요소 id */
+  async function addPhoto(file, o) {
+    const imageId = await App.images.add(file, { maxSide: 3000 });
+    return place(file, imageId, o).id;
+  }
   async function importPhoto(file) {
     file = file || await pickPhoto();
     if (!file) return null;
@@ -595,17 +614,9 @@
       width = parseM(last);
     }
     if (width == null) return null;
-    const d = index({ id: `udl-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name: String(file.name || '사진').slice(0, 80), width, height: width / ratio, polys: [], texts: [], lines: 0, textCount: 0, kind: 'image', imageId });
-    store.set(d.id, d);
-    const el = App.model.TYPES.underlay.create(d);
-    el.imageId = imageId; // 이미지 정리·백업이 이 사진을 알도록
-    el.opacity = 0.75;
     // 지금 화면 가운데에
-    const v = App.plan.view.worldRect(App.plan.width, App.plan.height);
-    el.x = (v.minX + v.maxX) / 2 - d.width / 2;
-    el.y = (v.minY + v.maxY) / 2 - d.height / 2;
-    App.doc.transact('사진 밑그림', () => App.doc.add(el));
-    persist(d);
+    const v = App.plan.view.worldRect(App.plan.width, App.plan.height), height = width / ratio;
+    const el = place(file, imageId, { width, x: (v.minX + v.maxX) / 2 - width / 2, y: (v.minY + v.maxY) / 2 - height / 2 });
     App.plan.fitToContent(App.doc.bounds([el.id]));
     App.ui.toast('사진 밑그림을 깔았습니다. 잠겨 있어 그 위에 바로 그릴 수 있고, 3D 바닥에도 보입니다.');
     return el.id;
@@ -747,7 +758,7 @@
   }
 
   App.underlay = {
-    init, draw, importFile, pickFile, importPhoto, calibrate, build, store, loadAll, exportData, importData, cleanup,
+    init, draw, importFile, pickFile, importPhoto, addPhoto, calibrate, build, store, loadAll, exportData, importData, cleanup,
     data: (u) => store.get(u.dataId) || null,
     list: () => [...App.doc.all()].filter((e) => e.type === 'underlay'),
   };

@@ -17,7 +17,7 @@
   /** 화면 맞춤: 위쪽 버튼 줄(보는 그림·설계물 막대) 높이를 다시 재고 맞춤 */
   function fit() {
     const st = document.getElementById('stageTop');
-    if (st && App.plan && st.offsetHeight) App.plan.insets.top = st.offsetTop + st.offsetHeight;
+    if (st && App.plan && st.offsetHeight) App.plan.insets.top = App.ui.topInset ? App.ui.topInset() : st.offsetTop + st.offsetHeight;
     App.plan.fitToContent();
   }
   /* 맞춘 화면을 사용자가 손으로 확대·이동했는지: 맞춘 직후의 화면 값을 기억해 두고 견줌.
@@ -794,7 +794,9 @@
   }
 
   let cycleTip = false;
-  let closeShow = () => {}; // 휴대폰의 설계물·표시 메뉴 닫기 (init에서 채움)
+  let closeShow = () => {};
+  /** 접어 둔 휴대폰 화면: 위 막대에서 고른 뒤 막대를 닫음 */
+  const closeTopBar = () => { if (App.ui.bars) App.ui.bars.set('top', false); }; // 휴대폰의 설계물·표시 메뉴 닫기 (init에서 채움)
   class DSelect {
     activate() { this.drag = null; this.pan = null; this.press = null; this.label = null; }
     down(ev) {
@@ -1449,6 +1451,8 @@
   }
   let quickKey = '';
   let barOpen = false;   // 좁은 화면: ‘⋯’로 펼친 줄(조금씩 옮기기·여러 개·자르기·꺾기·둥글게)
+  /** 막대를 접어 둔 휴대폰 화면인지 (3.9 — 도면 말고는 접어 두고 필요할 때만 엶) */
+  const foldedPhone = () => !!(App.ui.bars && App.ui.bars.folded('tools'));
   /** 화면(도면 칸)이 좁거나 낮으면 빠른 막대를 한 줄로 */
   const compactBar = () => { const st = document.getElementById('stage'); return !!st && (st.clientWidth < 900 || st.clientHeight < 520); };
   function renderQuick() {
@@ -1457,16 +1461,22 @@
     const el = isMode() ? cur() : null;
     const show = !!el && el.kind !== 'model' && App.ui.tool === 'dselect';
     if (bar.hidden !== !show) { bar.hidden = !show; quickKey = ''; if (App.plan) render(); }
-    if (!show) return;
+    const stageEl = document.getElementById('stage');
+    if (!show) { if (stageEl) stageEl.classList.remove('has-dsq'); if (App.ui.syncRow) App.ui.syncRow(); return; }
     const v = viewNow(), q = sel ? D().build(el).parts.find((x) => x.id === sel && !x.halo) : null, user = q && q.user;
-    const open = addOpen == null ? el.kind === 'free' : addOpen, compact = compactBar(), top3d = !!axesOf(v).top; // 3D에서 내려다볼 때: 앞·뒤 단추가 위·아래
+    const compact = compactBar(), top3d = !!axesOf(v).top; // 3D에서 내려다볼 때: 앞·뒤 단추가 위·아래
+    const tight = foldedPhone(); // 접어 둔 휴대폰 화면: 넣기 줄도 접어 둠 (‘＋ 넣기’ 하나만 — 누르면 펼쳐지고, 넣거나 도면을 만지면 접힘)
     // 고른 칸: 부재를 고르거나 설계물·그림이 바뀌면 풀고, 부재가 바뀌었으면(되돌리기 따위) 같은 칸이 아직 있는지 다시 봄
     if (cell && (q || cell.id !== el.id || !(v === 'front' || v === 'all'))) { cell = null; cellKind = ''; }
     if (cell && cell.B !== D().build(el)) { const c2 = cellAt(el, (cell.x[0] + cell.x[1]) / 2, (cell.z[0] + cell.z[1]) / 2); cell = sameCell(c2, cell) ? { ...c2, B: D().build(el) } : null; if (!cell) cellKind = ''; }
     const stray = !q && !cell ? strays(el) : null;
     const blank = !q && !cell && el.kind === 'free' && !D().build(el).parts.some((x) => !x.halo); // 아직 아무것도 없는 자유 설계: 통부터 만들 수 있게
+    const open = addOpen == null ? (tight ? blank : el.kind === 'free') : addOpen;
     const key = q ? `${el.id}|${q.id}|${user ? 'u' : 'g'}|${v}|${step}|${q.s}|${q.n}|${compact}|${barOpen}|${top3d}`
-      : cell ? `${el.id}|cell|${cell.x.join()}|${cell.z.join()}|${cellKind}|${compact}` : `${el.id}|none|${open}|${el.kind === 'free'}|${compact}|${stray ? stray.count : 0}|${blank}`;
+      : cell ? `${el.id}|cell|${cell.x.join()}|${cell.z.join()}|${cellKind}|${compact}` : `${el.id}|none|${open}|${el.kind === 'free'}|${compact}|${stray ? stray.count : 0}|${blank}|${tight}`;
+    // 접어 둔 휴대폰 화면: 고른 것이 있거나 넣기 줄을 폈으면 아래 줄을 이 막대가 차지함 (도구·화면 맞춤 단추는 잠깐 숨음)
+    if (stageEl) stageEl.classList.toggle('has-dsq', !!(q || cell || open));
+    bar.classList.toggle('is-addopen', !q && !cell && open);
     const sizeText = q ? (q.s === 'bar' ? `길이 ${fmt(D().lenOf(q))}` : q.s === 'arc' ? `곡선 ${fmt(D().arcLen(q))}` : `${fmt(q.w)} × ${fmt(q.d)} × ${fmt(q.h)}`) : '';
     if (key !== quickKey) {
       quickKey = key;
@@ -1516,25 +1526,27 @@
           </div>
           ${N ? `<div class="ds-q-row ds-q-count">${N.map(([n, t]) => `<button type="button" class="btn" data-dq="cell-n" data-n="${n}">${t}</button>`).join('')}</div>` : ''}`;
       } else {
+        const plus = tight ? '' : '+'; // 접어 둔 휴대폰 화면: ‘＋ 넣기’로 연 줄이라 이름만 (한 줄에 들어가게)
         bar.innerHTML = `
           ${stray ? `<div class="ds-q-row ds-q-warn"><button type="button" class="btn" data-dq="bring" title="본체에서 멀리 떨어진 부재 때문에 전체 크기가 커져 도면이 작게 보입니다. 누르면 본체 옆으로 가져옵니다 (되돌릴 수 있음)">멀리 떨어진 부재 ${stray.count}개 가져오기</button></div>` : ''}
           <div class="ds-q-row ds-q-main">
-            ${open ? '' : '<button type="button" class="btn ds-q-add" data-dq="add-open" title="판·막대·LED를 바로 넣기">＋ 부재 넣기</button>'}
+            ${open ? '' : `<button type="button" class="btn ds-q-add" data-dq="add-open" title="판·막대·LED를 바로 넣기">${tight ? '＋ 넣기' : '＋ 부재 넣기'}</button>`}
             ${open && blank ? `
             <button type="button" class="btn btn-primary ds-q-add ds-q-box" data-dq="box" title="옆판·천판·지판·뒤판으로 된 빈 통을 크기만 넣어 한 번에 — 그다음 빈 칸을 눌러 선반·서랍·문짝을 넣습니다">＋ 통 만들기</button>
-            <button type="button" class="btn ds-q-add" data-dq="add" data-k="hp" title="눕힌 판 하나">+가로판</button>
-            <button type="button" class="btn ds-q-add" data-dq="add" data-k="vp" title="세운 판 하나">+세로판</button>
-            <button type="button" class="btn ds-q-add" data-dq="add" data-k="bar" title="각재·각파이프">+막대</button>` : open ? `
-            <button type="button" class="btn ds-q-add" data-dq="add" data-k="hp" title="선반·바닥판·상판처럼 눕힌 판 (양옆 판 사이에 맞춰 들어감)">+가로판</button>
-            <button type="button" class="btn ds-q-add" data-dq="add" data-k="vp" title="옆판·칸막이처럼 세운 판 (위아래 판 사이에 맞춰 들어감)">+세로판</button>
-            <button type="button" class="btn ds-q-add" data-dq="add" data-k="fp" title="뒤판·문짝처럼 정면을 보는 판 (뒤쪽에 넣음)">+정면판</button>
-            <button type="button" class="btn ds-q-add" data-dq="add" data-k="bar" title="각재·각파이프 (가로로 넣음, 90°로 세움)">+막대</button>
-            <button type="button" class="btn ds-q-add" data-dq="add" data-k="led" title="LED 라인 (앞면에)">+LED</button>
-            ${el.kind !== 'free' ? '<button type="button" class="btn ds-q-x" data-dq="add-close" aria-label="부재 넣기 접기" title="접기">✕</button>' : ''}` : ''}
+            <button type="button" class="btn ds-q-add" data-dq="add" data-k="hp" title="눕힌 판 하나">${plus}가로판</button>
+            <button type="button" class="btn ds-q-add" data-dq="add" data-k="vp" title="세운 판 하나">${plus}세로판</button>
+            <button type="button" class="btn ds-q-add" data-dq="add" data-k="bar" title="각재·각파이프">${plus}막대</button>` : open ? `
+            <button type="button" class="btn ds-q-add" data-dq="add" data-k="hp" title="선반·바닥판·상판처럼 눕힌 판 (양옆 판 사이에 맞춰 들어감)">${plus}가로판</button>
+            <button type="button" class="btn ds-q-add" data-dq="add" data-k="vp" title="옆판·칸막이처럼 세운 판 (위아래 판 사이에 맞춰 들어감)">${plus}세로판</button>
+            <button type="button" class="btn ds-q-add" data-dq="add" data-k="fp" title="뒤판·문짝처럼 정면을 보는 판 (뒤쪽에 넣음)">${plus}정면판</button>
+            <button type="button" class="btn ds-q-add" data-dq="add" data-k="bar" title="각재·각파이프 (가로로 넣음, 90°로 세움)">${plus}막대</button>
+            <button type="button" class="btn ds-q-add" data-dq="add" data-k="led" title="LED 라인 (앞면에)">${plus}LED</button>
+            ${el.kind !== 'free' || tight ? '<button type="button" class="btn ds-q-x" data-dq="add-close" aria-label="부재 넣기 접기" title="접기">✕</button>' : ''}` : ''}
           </div>`;
       }
       App.icons.apply(bar);
       document.documentElement.style.setProperty('--dsq-h', `${bar.offsetHeight || 54}px`); // 알림이 막대 위에 뜨게
+      if (App.ui.syncRow) App.ui.syncRow();
     } else {
       const sz = bar.querySelector('#dsQSize');
       if (sz && sz.textContent !== sizeText) sz.textContent = sizeText;
@@ -1550,7 +1562,7 @@
         return cellKind;
       }
       case 'cell-n': return fillCell(cellKind, Number(btn.dataset.n) || 1);
-      case 'box': makeBox(); return true;
+      case 'box': if (foldedPhone()) addOpen = null; makeBox(); return true;
       case 'bring': return bringStrays();
       case 'nudge': return nudge([d[0] * step, d[1] * step, 0]);
       case 'depth': return nudge([0, 0, d[0] * step]);
@@ -1569,7 +1581,7 @@
       case 'del': return deletePart();
       case 'edit': return openPartFields();
       case 'explode': return act('ds-explode');
-      case 'add': return addShape(btn.dataset.k);
+      case 'add': { const made = addShape(btn.dataset.k); if (foldedPhone() && addOpen) { addOpen = null; quickKey = ''; renderQuick(); } return made; }
       case 'add-open': addOpen = true; quickKey = ''; renderQuick(); return true;
       case 'add-close': addOpen = false; quickKey = ''; renderQuick(); return true;
       default: return null;
@@ -1726,10 +1738,12 @@
         <h3>1. 그림 고르기</h3>
         <ul><li>위쪽 <b>정면 · 평면 · 측면</b>으로 보는 방향을 바꿉니다. <b>입체</b>는 돌려 보며 고치는 3D 화면, <b>전체</b>는 네 그림 한 장(PDF와 같음).</li>
           <li>휠·두 손가락으로 확대하고 빈 곳을 끌면 화면이 움직입니다. 부재를 고치는 동안 화면은 저절로 움직이지 않습니다 (전체를 보려면 <b>화면 맞춤</b>).</li>
-          ${App.ui.mobile && App.ui.mobile.matches ? '<li><b>휴대폰</b>: 위쪽의 <b>설계물 이름</b> 단추에 설계물 바꾸기·＋ 새 설계·치수/숨은선/미리보기·3D 보기가 있고, 속성·집계는 아래 도구 줄 오른쪽 끝의 <b>속성·집계</b>로 엽니다.</li>' : ''}</ul>
+          ${!(App.ui.mobile && App.ui.mobile.matches) ? '' : foldedPhone()
+    ? '<li><b>휴대폰</b>: 막대를 접어 두었습니다 — 위쪽 단추(<b>정면 ▾</b>)로 보는 그림을 바꾸고, <b>왼쪽 위 ☰</b>를 열면 모드·파일·설정과 <b>설계물 이름</b> 단추(설계물 바꾸기·＋ 새 설계·치수/숨은선/미리보기·3D 보기)가 나옵니다. 아래에는 <b>도구</b>·<b>＋ 넣기</b>·화면 맞춤·<b>속성·집계</b> 단추가 있고, 부재나 빈 칸을 고르면 그 자리가 고른 것의 단추로 바뀝니다.</li>'
+    : '<li><b>휴대폰</b>: 위쪽의 <b>설계물 이름</b> 단추에 설계물 바꾸기·＋ 새 설계·치수/숨은선/미리보기·3D 보기가 있고, 속성·집계는 아래 도구 줄 오른쪽 끝의 <b>속성·집계</b>로 엽니다.</li>'}</ul>
         <h3>2. 부재 넣기</h3>
         <ul><li>빈 자유 설계는 <b>＋ 통 만들기</b>로 시작하면 쉽습니다 — 폭·높이·깊이만 넣으면 옆판·천판·지판·뒤판이 한 번에 생깁니다.</li>
-          <li>아래 <b>+가로판 · +세로판 · +정면판 · +막대 · +LED</b>를 누르면 바로 생깁니다. 가로판은 양옆 판 사이에 맞는 크기로 가장 넓은 칸 가운데에, 세로판은 위아래 판 사이에 맞춰 들어갑니다 (확대해 보고 있으면 보는 칸에).</li>
+          <li>아래 <b>+가로판 · +세로판 · +정면판 · +막대 · +LED</b>(휴대폰은 <b>＋ 넣기</b>를 누르면 펼쳐짐)를 누르면 바로 생깁니다. 가로판은 양옆 판 사이에 맞는 크기로 가장 넓은 칸 가운데에, 세로판은 위아래 판 사이에 맞춰 들어갑니다 (확대해 보고 있으면 보는 칸에).</li>
           <li><b>빈 칸을 누르면</b> 그 칸이 표시되고, 아래의 <b>선반 · 칸막이 · 서랍 · 문짝 · 봉</b>으로 한 번에 채웁니다 (선반 3장을 같은 간격으로, 서랍 3단 …).</li>
           <li>왼쪽(아래) 도구 <b>판 · 막대 · LED</b>로 끌어서 그려도 됩니다.</li></ul>
         <h3>3. 고치기</h3>
@@ -2045,7 +2059,15 @@
     toggle('btnDsDoors', 'designDoors');
     // 보는 그림 (정면·평면·측면·입체·전체)
     const views = document.getElementById('dsViews');
-    if (views) views.addEventListener('click', (e) => { const b = e.target.closest('[data-dview]'); if (b) { closeShow(); setView(b.dataset.dview); } });
+    if (views) views.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-dview]'), B = App.ui.bars;
+      if (!b) return;
+      // 접어 둔 휴대폰 화면: 지금 그림 단추 하나만 보임 — 누르면 다섯 탭이 펼쳐지고, 고르면 다시 접힘
+      if (B && B.folded('top') && !B.top && !B.views) { B.set('views', true); return; }
+      if (B) B.set('views', false);
+      closeShow();
+      setView(b.dataset.dview);
+    });
     // 휴대폰: 치수·숨은선·문짝을 ‘표시’ 메뉴로 접음
     const showBtn = document.getElementById('btnDsShow'), shows = document.getElementById('dsShows');
     if (showBtn && shows) {
@@ -2059,10 +2081,11 @@
         const b = e.target.closest('[data-design], [data-act]');
         if (!b) return;
         setOpen(false);
+        closeTopBar();
         if (b.dataset.design) setCurrent(b.dataset.design); else act(b.dataset.act);
       });
       const big = document.getElementById('btnDsBig3d');
-      if (big) big.addEventListener('click', () => { setOpen(false); open3d(); });
+      if (big) big.addEventListener('click', () => { setOpen(false); closeTopBar(); open3d(); });
     }
     const pbox = document.getElementById('dsPreview');
     if (pbox) {
@@ -2086,7 +2109,11 @@
     }
     App.ui.on('sheet', () => { if (isMode()) syncSheet(); });
     const help = document.getElementById('btnDsHelp');
-    if (help) help.addEventListener('click', () => { closeShow(); helpDialog(); });
+    if (help) help.addEventListener('click', () => { closeShow(); closeTopBar(); helpDialog(); });
+    // 접어 둔 휴대폰 화면: 위 막대를 닫으면 설계물 메뉴도 닫고, 접기 ↔ 늘 보이기가 바뀌면 빠른 막대를 다시 그림
+    App.ui.on('bars', () => { const B = App.ui.bars; if (B && B.folded('top') && !B.top) closeShow(); if (isMode()) renderQuick(); });
+    // 도면을 만지면 펴 둔 ‘넣기’ 줄을 접음 (빈 설계는 그대로 펴 둠)
+    ['plan', 'ds3dView'].forEach((id) => { const c = document.getElementById(id); if (c) c.addEventListener('pointerdown', () => { if (isMode() && foldedPhone() && addOpen) { addOpen = null; quickKey = ''; renderQuick(); } }, true); });
     const empty = document.getElementById('dsEmpty');
     if (empty) empty.addEventListener('click', (e) => { const b = e.target.closest('[data-act]'); if (b) act(b.dataset.act); });
     const quick = document.getElementById('dsQuick');

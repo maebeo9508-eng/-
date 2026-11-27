@@ -1164,6 +1164,7 @@ body:has(> .view3d:not([hidden])) .toast { bottom: auto; top: 36%; }
     scrollbar-width: none;
   }
   .toolbar::-webkit-scrollbar { display: none; }
+  .toolbar { padding-right: calc(max(6px, env(safe-area-inset-right, 0px)) + 72px); } /* 오른쪽 끝에 고정된 ‘속성·집계’ 단추 자리 */
   .tool { width: 58px; height: 54px; }
   .snap-btn { min-height: 44px; padding: 0 11px; }
   /* 휴대폰: 스냅 버튼은 서랍처럼 접어 두고 '스냅'을 누르면 체크 목록으로 */
@@ -1215,7 +1216,7 @@ body:has(> .view3d:not([hidden])) .toast { bottom: auto; top: 36%; }
   .sheet-open .panel { visibility: visible; transition: height 0.22s ease; }
   .sheet-open .panel.is-dragging { transition: none; }
   .tool-sheet {
-    position: sticky; right: 0; z-index: 2; flex: none; margin-left: auto;
+    position: fixed; right: max(6px, env(safe-area-inset-right, 0px)); bottom: calc(env(safe-area-inset-bottom, 0px) + 5px); z-index: 22;
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
     width: 64px; height: 54px; padding: 0; border: 0; border-radius: 8px;
     background: var(--surface); color: var(--fg); cursor: pointer; touch-action: manipulation;
@@ -2030,3 +2031,159 @@ tr.is-warn th, tr.is-warn td { color: #b45309; }
   .ds-quick.is-compact[data-state="add"] .ds-q-row { gap: 3px; flex-wrap: nowrap; }
   .ds-quick.is-compact[data-state="add"] .btn { padding: 0 4px; font-size: 12.5px; }
 }
+
+/* ── 3.9: 휴대폰 — 막대를 접어 두고 필요할 때만 열기 ─────────
+   도면을 손으로 만지며 쓰는 화면이라 도면 말고는 접어 둔다.
+   떠 있는 것: 왼쪽 위 ☰(모드·파일·설정) · 오른쪽 위 되돌리기 · 왼쪽 아래 ‘도구’ · 오른쪽 아래 3D·화면 맞춤·속성·집계.
+   눌러서 열고, 고르면 닫힌다 (바깥을 눌러도 닫힘). html.fold-top / fold-tools 와 top-open / tools-open / pal-open / views-open 은 ui.js(bars)가 붙임.
+   설정 → 화면에서 ‘늘 보이기’로 두면 3.8까지의 배치 그대로 */
+.top-handle, .tool-fab, .pal-chip, .bars-shade, .sheet-close, .tool-pin, .tool-pin-sep, .quick-more, .quick-break { display: none; }
+
+@media (max-width: 768px) {
+  /* 서랍 닫기 단추 (탭 줄 오른쪽 끝) */
+  .sheet-head { position: relative; }
+  .sheet-close { display: flex; align-items: center; justify-content: center; position: absolute; right: 4px; bottom: 0; width: 44px; height: 44px; border: 0; border-radius: 8px; background: none; color: var(--fg-muted); font-size: 16px; cursor: pointer; touch-action: manipulation; }
+  .tabs { padding-right: 50px; }
+
+  /* 도구 줄 맨 앞: 늘 펴 두기(고정) ↔ 접기 */
+  .tool-pin { position: relative; flex: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; width: 50px; height: 54px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--fg-muted); cursor: pointer; touch-action: manipulation; }
+  .tool-pin[aria-pressed="true"] { color: var(--accent); }
+  .tool-pin-sep { display: block; }
+
+  /* 고른 물건 빠른 막대 (인테리어·조감도): 한 줄 — 이름·90°·복제·삭제·더보기. ‘더보기’를 누르면 윗줄에 15° 돌리기·줄 세우기 */
+  #quickBar { flex-wrap: nowrap; justify-content: flex-start; }
+  #quickBar.is-more { flex-wrap: wrap-reverse; }
+  #quickBar .btn { min-width: 44px; padding: 0 8px; }
+  #quickBar .quick-name { order: 0; flex: 0 1 auto; min-width: 0; max-width: 60px; padding: 0 4px; } /* 긴 이름은 줄여 적음 — 단추가 다음 줄로 넘어가지 않게 */
+  #quickBar [data-q="rot90"] { order: 1; }
+  #quickBar [data-q="dup"] { order: 2; }
+  #quickBar [data-q="del"] { order: 3; }
+  #quickBar .quick-more { display: inline-flex; order: 4; font-weight: 700; color: var(--accent); }
+  #quickBar .quick-break { order: 5; flex: 0 0 100%; height: 0; }
+  #quickBar [data-q="rot-"], #quickBar [data-q="rot+"], #quickBar [data-q="array"] { display: none; order: 6; }
+  #quickBar.is-more .quick-break { display: block; }
+  #quickBar.is-more [data-q="rot-"], #quickBar.is-more [data-q="rot+"], #quickBar.is-more [data-q="array"] { display: inline-flex; }
+
+  /* ── 도구 줄 접기 ── */
+  .fold-tools .workspace { grid-template-rows: minmax(0, 1fr); }
+  .fold-tools .toolbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 31; display: none; box-shadow: 0 -8px 24px rgba(15, 23, 31, 0.16); }
+  .fold-tools.tools-open .toolbar { display: flex; }
+  .fold-tools.tools-open .tool-sheet { z-index: 32; }
+  .fold-tools .panel { bottom: 0; padding-bottom: env(safe-area-inset-bottom, 0px); }
+  /* 접어 둔 동안 떠 있는 아래 줄: [도구] ………… [3D][화면 맞춤][속성·집계] */
+  .fold-tools:not(.tools-open) .tool-sheet {
+    right: max(8px, env(safe-area-inset-right, 0px)); bottom: calc(max(var(--sheet-h), env(safe-area-inset-bottom, 0px)) + 8px); z-index: 13;
+    width: 48px; height: 44px; border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow);
+  }
+  .fold-tools:not(.tools-open) .tool-sheet::before, .fold-tools:not(.tools-open) .tool-sheet::after { display: none; }
+  .fold-tools:not(.tools-open) .tool-sheet .tool-label { display: none; }
+  .fold-tools:not(.tools-open) .tool-sheet .tab-badge { top: -6px; right: -6px; }
+  .fold-tools.sheet-open:not(.tools-open) .tool-sheet { display: none; } /* 연 서랍은 탭 줄의 ✕로 닫음 */
+  .fold-tools .fab { bottom: calc(max(var(--sheet-h), env(safe-area-inset-bottom, 0px)) + 8px); z-index: 11; }
+  .fold-tools #btnFit { right: calc(max(8px, env(safe-area-inset-right, 0px)) + 54px); padding: 0; }
+  .fold-tools .fab-3d { right: calc(max(8px, env(safe-area-inset-right, 0px)) + 104px); padding: 0; }
+  .fold-tools.sheet-open #btnFit { right: max(8px, env(safe-area-inset-right, 0px)); }
+  .fold-tools.sheet-open .fab-3d { right: calc(max(8px, env(safe-area-inset-right, 0px)) + 50px); }
+  .fold-tools .tool-fab { display: inline-flex; left: max(8px, env(safe-area-inset-left, 0px)); right: auto; gap: 5px; padding: 0 7px 0 10px; font-size: 13px; font-weight: 700; }
+  .tool-fab .ico-sm { transform: rotate(180deg); opacity: 0.6; } /* 위로 열림 */
+  .tool-fab.is-draw { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); } /* 그리는 도구를 쥐고 있을 때 */
+  /* 고른 것이 있으면 아래 줄은 그 빠른 막대가 차지함 (도구·3D·화면 맞춤은 잠깐 숨음) */
+  .fold-tools .stage.has-quick .fab, .fold-tools .stage.has-dsq .fab { display: none; }
+  .fold-tools:not(.sheet-open) .stage.has-quick #btnFit, .fold-tools:not(.sheet-open) .stage.has-dsq #btnFit { display: inline-flex; right: max(8px, env(safe-area-inset-right, 0px)); min-width: 48px; bottom: calc(env(safe-area-inset-bottom, 0px) + 58px); } /* 화면 맞춤은 속성·집계 단추 바로 위에 */
+  .fold-tools .quick-bar { left: max(8px, env(safe-area-inset-left, 0px)); right: calc(max(8px, env(safe-area-inset-right, 0px)) + 54px); bottom: calc(max(var(--sheet-h), env(safe-area-inset-bottom, 0px)) + 8px); }
+  .fold-tools.sheet-open .quick-bar { right: max(8px, env(safe-area-inset-right, 0px)); }
+  /* 설계: 아무것도 안 골랐을 때는 ‘＋ 넣기’ 단추 하나만 (도구 단추 옆). 누르면 넣을 것들이 아래 줄에 펼쳐짐 */
+  .fold-tools .ds-quick[data-state="add"]:not(.is-addopen) { left: calc(max(8px, env(safe-area-inset-left, 0px)) + var(--tool-fab-w, 84px) + 6px); right: auto; max-width: calc(100% - var(--tool-fab-w, 84px) - 130px); padding: 0; border: 0; background: none; box-shadow: none; }
+  .fold-tools .ds-quick[data-state="add"]:not(.is-addopen) .ds-q-main .btn { min-height: 44px; padding: 0 12px; border-radius: 10px; box-shadow: var(--shadow); }
+  .fold-tools .ds-quick[data-state="add"].is-addopen { right: calc(max(8px, env(safe-area-inset-right, 0px)) + 54px); max-width: none; }
+  .fold-tools .ds-quick[data-state="add"].is-addopen .ds-q-row { flex-wrap: nowrap; justify-content: flex-start; gap: 4px; }
+  .fold-tools .ds-quick.is-compact[data-state="add"].is-addopen .btn { flex: 1 1 auto; min-width: 0; padding: 0 5px; }
+  .fold-tools .ds-quick.is-compact[data-state="add"].is-addopen .ds-q-x { flex: none; width: 36px; }
+  .fold-tools .ds-quick .ds-q-warn .btn { box-shadow: var(--shadow); background: var(--surface); }
+  /* 축척 막대: 확대·축소하는 동안만 잠깐 */
+  .fold-tools .hud { left: max(8px, env(safe-area-inset-left, 0px)); bottom: calc(max(var(--sheet-h), env(safe-area-inset-bottom, 0px)) + 62px); opacity: 0; transition: opacity 0.3s; }
+  .fold-tools .stage.is-zooming .hud { opacity: 1; transition: none; }
+  /* 알림: 아래 줄(빠른 막대가 두 줄이면 그 위)에 */
+  :root.fold-tools .toast, html.fold-tools:not(.sheet-tall) body:has(#dsQuick:not([hidden])) .toast { bottom: calc(max(var(--sheet-h), env(safe-area-inset-bottom, 0px)) + var(--row-h, 44px) + 20px); }
+  :root.fold-tools.sheet-tall .toast { bottom: auto; }
+
+  /* ── 위 막대 접기 ── */
+  .fold-top .app { grid-template-rows: minmax(0, 1fr); }
+  .fold-top .topbar {
+    position: fixed; top: 0; left: 0; right: 0; min-height: 0; gap: 6px;
+    padding: calc(env(safe-area-inset-top, 0px) + 8px) max(8px, env(safe-area-inset-right, 0px)) 0 max(8px, env(safe-area-inset-left, 0px));
+    background: transparent; border-bottom: 0; pointer-events: none;
+  }
+  :root.fold-top:not(.top-open) .topbar { box-shadow: none; }
+  .fold-top:not(.top-open) .topbar > :not(#btnTop):not(#btnUndo):not(#btnRedo):not(.tb-spacer) { display: none; }
+  .fold-top .topbar > #btnTop { display: inline-flex; order: 0; color: var(--accent); }
+  .fold-top .topbar > .tb-spacer { order: 1; }
+  .fold-top .topbar > #btnUndo { order: 2; }
+  .fold-top .topbar > #btnRedo { order: 3; }
+  .fold-top .topbar > #btnTop, .fold-top .topbar > #btnUndo, .fold-top .topbar > #btnRedo { pointer-events: auto; width: 44px; min-width: 44px; height: 44px; padding: 0; }
+  .fold-top:not(.top-open) .topbar > .tb-btn { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); }
+  .fold-top:not(.top-open) .topbar > .tb-btn:disabled { opacity: 1; color: var(--line); box-shadow: none; background: var(--hud-bg); }
+  /* 연 위 막대: 두 줄 — [☰][인테리어·조감도·설계][되돌리기] / [파일][찾기][도면 이름·저장][설정]. 그 아래로 스냅·레이어 줄 */
+  .fold-top.top-open .topbar { pointer-events: auto; flex-wrap: wrap; row-gap: 6px; padding-bottom: 8px; background: var(--surface); border-bottom: 1px solid var(--line); box-shadow: var(--shadow); }
+  .fold-top.top-open .topbar::after { content: ''; order: 4; flex: 0 0 100%; height: 0; }
+  .fold-top.top-open .topbar > #btnTop { background: var(--accent-soft); }
+  .fold-top.top-open .topbar > .mode-switch { order: 1; flex: 1 1 0; min-width: 0; }
+  .fold-top.top-open .mode-tab { flex: 1 1 0; min-width: 0; justify-content: center; padding: 0 4px; font-size: 13px; letter-spacing: 0; }
+  .fold-top.top-open .topbar > .tb-spacer { display: none; }
+  .fold-top.top-open .topbar > .menu-wrap { order: 5; }
+  .fold-top.top-open .topbar > #btnSearch { display: inline-flex; order: 6; }
+  .fold-top.top-open .topbar > #btnProject { display: inline-flex; order: 7; flex: 1 1 0; min-width: 0; max-width: none; justify-content: flex-start; gap: 8px; padding: 0 8px; }
+  .fold-top.top-open #btnProject .prj-name-label { display: inline; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fold-top.top-open #btnProject .save-state { flex: none; font-size: 12px; }
+  .fold-top.top-open #btnProject .save-state::before { margin-right: 4px; }
+  .fold-top.top-open .topbar > #btnSettings { order: 8; }
+  .fold-top.top-open #btnFile .tb-label { display: inline; }
+  .fold-top.top-open #btnFile .ico-sm { display: inline-block; }
+
+  /* 접힌 동안 위쪽 한 줄: ☰와 되돌리기 사이에 지금 필요한 것 하나 — 설계는 보는 그림, 그 밖에는 지금 고른 벽 종류·기호(누르면 목록) */
+  .fold-top .stage-top { left: 8px; }
+  :root.fold-top:not(.top-open) .stage-top {
+    top: calc(env(safe-area-inset-top, 0px) + 8px); left: max(8px, env(safe-area-inset-left, 0px)); right: max(8px, env(safe-area-inset-right, 0px)); width: auto; max-width: none;
+    display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 44px; padding: 0 104px 0 52px;
+  }
+  :root.fold-top:not(.top-open) .stage-row { display: contents; }
+  :root.fold-top:not(.top-open) .snap-wrap, :root.fold-top:not(.top-open) .layer-wrap, :root.fold-top:not(.top-open) #btnNames,
+  :root.fold-top:not(.top-open) .ds-show-wrap, :root.fold-top:not(.top-open) #designBar { display: none !important; }
+  :root.fold-top:not(.top-open) .ds-views { order: 1; }
+  :root.fold-top:not(.top-open):not(.views-open) .ds-view:not([aria-selected="true"]) { display: none; }
+  :root.fold-top:not(.top-open):not(.views-open) .ds-view[aria-selected="true"]::after { content: '▾'; margin-left: 5px; font-size: 11px; opacity: 0.85; }
+  :root.fold-top:not(.top-open) .ds-view { min-height: 38px; padding: 0 10px; }
+  :root.fold-top:not(.top-open):not(.views-open) .ds-views { padding: 0; border-color: transparent; background: transparent; }
+  :root.fold-top:not(.top-open):not(.views-open) .ds-view[aria-selected="true"] { min-height: 44px; padding: 0 12px; border-radius: 10px; }
+  :root.fold-top.views-open:not(.top-open) .stage-top { padding-right: 0; }
+  .fold-top.views-open .topbar > #btnUndo, .fold-top.views-open .topbar > #btnRedo { visibility: hidden; } /* 펼친 탭 자리 */
+  .fold-top:not(.top-open) .pal-chip { display: inline-flex; order: 2; min-width: 0; max-width: 100%; gap: 4px; color: var(--fg); }
+  .pal-chip-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
+  .fold-top.pal-open .pal-chip { color: var(--accent); border-color: var(--accent); }
+  :root.fold-top:not(.top-open) .tool-opt-wrap { order: 3; min-width: 0; max-width: 100%; }
+  :root.fold-top:not(.top-open) .tool-opt { min-height: 44px; gap: 6px; padding: 0 8px 0 10px; }
+  :root.fold-top:not(.top-open) .tool-opt-label { display: none; }
+  :root.fold-top:not(.top-open) .tool-opt-menu { max-width: calc(100vw - 16px); }
+  /* 기호·가구·물건 팔레트: 접어 두고(위 단추에 지금 고른 것) 누르면 화면 폭으로 펼침 — 고르면 다시 접힘 */
+  :root.fold-top:not(.pal-open) #paletteCats, :root.fold-top:not(.pal-open) #palette { display: none !important; }
+  :root.fold-top:not(.top-open) #paletteCats, :root.fold-top:not(.top-open) #palette { order: 10; flex: 0 0 calc(100% + 156px); max-width: none; margin: 0 -104px 0 -52px; }
+  /* 위 막대를 연 동안: 스냅·레이어(설계: 보는 그림·설계물 메뉴) 줄이 그 아래로 */
+  :root.fold-top.top-open .stage-top { top: calc(var(--top-h, 104px) + 8px); left: max(8px, env(safe-area-inset-left, 0px)); }
+  :root.fold-top.top-open #stageTop { z-index: 29; } /* 얇은 막(28) 위에 — 스냅·레이어·설계물 메뉴를 누를 수 있게 (#id: 메뉴가 닫혔을 때 낮추는 규칙보다 앞서게) */
+  :root.fold-top.top-open .pal-chip { display: none; }
+  /* 이어 그리는 동안의 ‘길이 입력·그리기 끝내기’: 위쪽 한 줄 바로 아래 (그동안 도구 안내 글은 비켜 줌) */
+  .fold-top .draw-actions { top: calc(var(--stage-top-h, 44px) + 20px + var(--ruler)); right: max(8px, env(safe-area-inset-right, 0px)); }
+  .fold-top .len-box { top: max(8px, min(calc(var(--stage-top-h, 44px) + 72px + var(--ruler)), calc(100% - var(--sheet-h, 0px) - 160px))); }
+  .fold-top .stage:has(#btnFinish:not([hidden])) .tool-hint { opacity: 0; }
+  .bars-shade { display: block; position: fixed; inset: 0; z-index: 28; background: rgba(15, 23, 31, 0.12); touch-action: none; }
+  /* 눈금자를 켰을 때: 떠 있는 위 줄을 자 안쪽으로 */
+  :root.has-rulers.fold-top:not(.top-open) .topbar { padding-top: calc(env(safe-area-inset-top, 0px) + 26px); padding-left: 26px; }
+  :root.has-rulers.fold-top:not(.top-open) .stage-top { top: calc(env(safe-area-inset-top, 0px) + 26px); padding-left: 70px; }
+}
+
+/* ── 3.9: AI 연결 (선택) ── */
+.ai-notes { margin: 4px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 5px; font-size: 13px; line-height: 1.5; color: var(--fg-muted); word-break: keep-all; }
+.ai-notes b { color: var(--fg); }
+.ai-url { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; color: var(--fg); word-break: break-all; user-select: all; -webkit-user-select: all; }
+.ai-thumb { display: block; width: 100%; max-height: 34vh; object-fit: contain; margin-bottom: 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+.ai-wait { display: flex; align-items: center; gap: 12px; padding: 6px 0 10px; font-weight: 700; }
