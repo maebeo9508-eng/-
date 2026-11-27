@@ -87,7 +87,9 @@ npx cap open ios      # Xcode가 열림
 - **TestFlight**: Xcode → Product → Archive → Distribute App → App Store Connect. 동료는 TestFlight 앱으로 초대 링크를 받아 설치 (90일마다 새 빌드).
 - **앱 스토어** 정식 등록도 같은 길로 합니다 (심사 1~3일).
 
-버전은 Xcode의 **General → Version / Build**에서 올립니다 (지금 3.7.0 / 34, 안드로이드와 맞춤).
+버전은 Xcode의 **General → Version / Build**에서 올립니다 (지금 3.8.0 / 35, 안드로이드와 맞춤).
+
+화면 방향: 아이폰은 **세로만**(도면을 만지다 화면이 저절로 돌아가지 않게, `Info.plist`의 `UISupportedInterfaceOrientations`), 아이패드는 가로·세로 모두입니다.
 
 ### 2-4. 고친 뒤 다시 넣기
 

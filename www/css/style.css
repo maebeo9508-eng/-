@@ -1853,6 +1853,16 @@ tr.is-warn th, tr.is-warn td { color: #b45309; }
 .ds-view[aria-selected="true"] { background: var(--accent); color: var(--accent-fg); }
 .ds-show-btn { display: none; } /* PC: 치수·숨은선·문짝 버튼을 그대로 늘어놓음 */
 .ds-menu-only { display: none !important; } /* 휴대폰 메뉴 안에만 있는 것 (설계물 목록·3D 보기) */
+/* 3.8 칸 채우기: 빈 칸을 고르면 아래 막대가 ‘이 칸에 넣기’로 — 선반·칸막이·서랍·문짝·봉, 누르면 둘째 줄에서 몇 개인지 */
+.ds-quick[data-state="cell"] .ds-q-row { justify-content: center; }
+.ds-quick[data-state="cell"] .btn { min-width: 48px; font-weight: 700; }
+.ds-quick[data-state="cell"] .ds-q-cell .btn[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+.ds-q-count .btn { min-width: 46px; color: var(--accent); border-color: var(--accent); }
+.ds-quick.is-compact .ds-q-count { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); }
+/* 멀리 떨어진 부재가 있을 때만: 부재 넣기 줄 앞(좁은 화면은 위)에 한 줄 */
+.ds-quick.is-compact .ds-q-warn { margin-bottom: 6px; }
+.ds-q-warn .btn { width: 100%; justify-content: center; white-space: nowrap; border-color: #e8590c; color: #c2410c; font-weight: 700; background: rgba(232, 89, 12, 0.08); }
+:root[data-theme="dark"] .ds-q-warn .btn { color: #ffa94d; }
 .ds-dir-toggle { display: none; }           /* 휴대폰: 방향 단추를 접어 두는 단추 */
 .ds-shows { display: flex; gap: 8px; flex-wrap: wrap; }
 .ds-shows .stage-pill[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
@@ -1869,6 +1879,7 @@ tr.is-warn th, tr.is-warn td { color: #b45309; }
 .ds-quick .ds-q-dp { min-width: 44px; padding: 0 7px; }
 .ds-quick .ds-q-step { min-width: 54px; padding: 0 6px; font-weight: 700; color: var(--accent); }
 .ds-quick .ds-q-add { font-weight: 700; color: var(--accent); }
+.ds-quick .ds-q-add.ds-q-box, .ds-quick .ds-q-add.ds-q-box:hover { color: var(--accent-fg); white-space: nowrap; } /* ‘통 만들기’는 채운 단추: 글자는 흰색 */
 .ds-quick .ds-q-x { width: 40px; padding: 0; }
 .ds-quick .ds-q-morebtn { display: none; }
 .ds-q-note { margin: 0; font-size: 12px; color: var(--fg-muted); text-align: center; }
@@ -1986,6 +1997,10 @@ tr.is-warn th, tr.is-warn td { color: #b45309; }
   .ds-quick[data-state="add"] { right: auto; max-width: calc(100% - 74px); }
   .ds-quick[data-state="add"] .ds-q-row { gap: 4px; flex-wrap: wrap; justify-content: center; }
   .ds-quick.is-compact[data-state="add"] .btn { padding: 0 6px; font-size: 13px; }
+  .ds-quick.is-compact[data-state="cell"] .ds-q-row { display: flex; flex-wrap: nowrap; gap: 5px; }
+  .ds-quick.is-compact[data-state="cell"] .btn { flex: 1 1 0; min-width: 0; padding: 0 4px; }
+  .ds-quick.is-compact .ds-q-warn { display: flex; }
+  .ds-quick.is-compact[data-state="add"] .ds-q-box { padding: 0 10px; }
   /* 알림은 빠른 막대 위에 (막대의 버튼을 가리지 않게). --dsq-h: 막대 높이 (design-ui가 넣음) */
   html:not(.sheet-tall) body:has(#dsQuick:not([hidden])) .toast { bottom: calc(var(--toolbar-h) + env(safe-area-inset-bottom, 0px) + var(--sheet-h) + var(--dsq-h, 62px) + 16px); }
   /* 전체 미리보기: 설계물 줄 옆의 작은 타일 (누르면 입체 작업 화면). 줄은 타일 앞에서 끝남 */

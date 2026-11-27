@@ -26,6 +26,8 @@
     ceilingHeight: 2400,  // 새 방 천장 높이
     dimTextSize: 150,     // 치수 글자 크기(mm). 화면에서는 11~22px 안에서
     theme: 'light',       // light | dark | auto(기기 설정 따라)
+    // 화면 돌리기: 휴대폰(짧은 쪽 600 미만)은 세로 고정이 기본 — 도면을 만지다 화면이 저절로 돌아가지 않게. 태블릿·PC는 기기 따라
+    rotate: Math.min((window.screen && window.screen.width) || 9999, (window.screen && window.screen.height) || 9999) < 600 ? 'lock' : 'free',
   };
   App.SETTING_CHOICES = {
     lengthUnit: ['mm', 'cm', 'm', 'ft'],
@@ -33,10 +35,12 @@
     decimals: [0, 1, 2, 3],
     runUnit: ['m', 'unit'],
     theme: ['light', 'dark', 'auto'],
+    rotate: ['lock', 'free'],
   };
   App.settings = App.storage.loadSettings(App.DEFAULT_SETTINGS, App.SETTING_CHOICES);
   App.saveSettings = () => App.storage.saveSettings(App.settings);
   App.settingsUI.applyTheme(); // 캔버스가 색을 읽기 전에
+  App.settingsUI.applyRotation(); // 휴대폰은 세로 고정 (설정 → 화면에서 바꿈)
 
   // 그린 것이 없을 때 '화면 맞춤' 범위(mm): 10m × 8m
   App.DEFAULT_VIEW_RECT = { minX: 0, minY: 0, maxX: 10000, maxY: 8000 };
@@ -93,6 +97,7 @@
     plan.requestRender();
   };
   App.ui.on('settings', applyRulers);
+  App.ui.on('mode', applyRulers); // 설계 모드에서는 눈금자를 그리지 않음 (도면에 치수가 있고, 자리가 아까움)
 
   // 모바일 서랍이 캔버스 아래쪽을 덮는 만큼 화면 맞춤에서 피함
   App.ui.on('sheet', (h) => {

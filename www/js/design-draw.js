@@ -500,8 +500,8 @@
       ctx.fillStyle = plan.colors.fg || INK; ctx.font = `700 16px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText('부재가 없습니다', cx, cy - 34);
       ctx.fillStyle = plan.colors.fgMuted || MUTE; ctx.font = `500 13px ${FONT}`;
-      ctx.fillText('아래 +가로판 · +세로판 · +막대를 눌러 넣으세요', cx, cy - 6);
-      ctx.fillText('(판·막대 도구로 끌어서 그려도 됩니다)', cx, cy + 16);
+      ctx.fillText('아래 ＋ 통 만들기로 크기만 넣어 통을 만들거나', cx, cy - 6);
+      ctx.fillText('+가로판 · +세로판 · +막대를 눌러 하나씩 넣으세요', cx, cy + 16);
       return;
     }
     App.draw.worldTransform(plan);

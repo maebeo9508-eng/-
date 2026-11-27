@@ -47,14 +47,29 @@
     setCurrent(el.id);
     return el;
   }
-  /** 값을 바꿔 도면이 화면 밖으로 나갔거나 너무 작아졌으면 다시 맞춤 */
-  function keepInView() {
+  /** 고른 부재가 지금 그림(정면·평면·측면)에서 차지하는 종이 위 네모 */
+  function selRect() {
+    const el = cur(), v = viewNow(), view = ORTHO.includes(v) ? v : v === 'all' ? 'front' : null;
+    const q = el && sel && view ? D().build(el).parts.find((x) => x.id === sel) : null;
+    if (!q) return null;
+    const L = DD().layout(el), sp = DD().partSpan(q, view), p0 = DD().paperOf(L, view, sp.lo[0], sp.lo[1]), p1 = DD().paperOf(L, view, sp.hi[0], sp.hi[1]);
+    return { minX: Math.min(p0.x, p1.x), maxX: Math.max(p0.x, p1.x), minY: Math.min(p0.y, p1.y), maxY: Math.max(p0.y, p1.y) };
+  }
+  /** 고친 뒤 화면 살피기.
+      direct(부재를 끌거나 눌러서 직접 고침): 화면을 그대로 둠 — 고치는 동안 화면이 저절로 줄거나 움직이면 일을 방해함. 고친 부재가 화면 밖에 있을 때만 맞춤.
+      그 밖(속성의 값을 바꿈): 도면이 화면 밖으로 나갔거나 너무 작아졌으면 다시 맞춤 */
+  function keepInView(direct = false) {
     if (!isMode() || !cur() || !App.plan) return;
     if (App.design3d && App.design3d.active()) return; // 3D 작업 화면은 따로 맞춤
     const P = App.plan, i = P.insets || {}, b = DD().bounds();
     if (!b) return;
     // 보이는 칸 (위쪽 버튼 줄·서랍을 뺀 곳)
     const a = P.view.toWorld(i.left || 0, i.top || 0), z = P.view.toWorld(P.width - (i.right || 0), P.height - (i.bottom || 0));
+    if (direct) {
+      const r = selRect() || DD().viewRect(cur());
+      if (r) { const cx = (r.minX + r.maxX) / 2, cy = (r.minY + r.maxY) / 2; if (cx < a.x || cx > z.x || cy < a.y || cy > z.y) fit(); }
+      return;
+    }
     if (autoFitted()) { // 맞춘 그대로: 도면이 커져 넘치거나 훨씬 작아졌으면 다시 맞춤
       const eps = 3 / P.view.scale;
       const out = b.minX < a.x - eps || b.maxX > z.x + eps || b.minY < a.y - eps || b.maxY > z.y + eps;
@@ -67,8 +82,36 @@
     if (r && (r.maxX < a.x || r.minX > z.x || r.maxY < a.y || r.minY > z.y)) fit();
   }
   let viewTimer = 0;
-  const keepSoon = () => { clearTimeout(viewTimer); viewTimer = setTimeout(keepInView, 0); };
-  const patch = (el, label, p) => { App.doc.transact(label, () => App.doc.update(el.id, p)); keepSoon(); };
+  const keepSoon = (direct = false) => { clearTimeout(viewTimer); viewTimer = setTimeout(() => keepInView(direct), 0); };
+  /** 고치는 앞뒤로 같은 설계 좌표가 화면의 같은 자리에 있게 화면을 따라 옮김.
+      (부재가 전체 범위 밖으로 나가면 그림의 기준점이 바뀌어 다른 부재들이 한꺼번에 밀려 보임 — 그 밀림을 없앰) */
+  let anchor = null; // { id, view, x, y }: 지금 그림에서 설계 좌표 (0, 0)이 놓인 종이 자리
+  function anchorNow() {
+    const el = isMode() ? cur() : null, v = viewNow(), view = ORTHO.includes(v) ? v : v === 'all' ? 'front' : null;
+    if (!el || !view || el.kind === 'model' || (App.design3d && App.design3d.active())) return null;
+    const p = DD().toPaper(el, view, 0, 0);
+    return { id: el.id, view, x: p.x, y: p.y };
+  }
+  /** 설계물이 바뀐 뒤(고치기·되돌리기·다시 하기): 그림의 기준점이 밀렸으면 화면을 그만큼 따라 옮겨, 화면에서는 아무것도 튀지 않게 */
+  function holdAnchor() {
+    const now = anchorNow(), P = App.plan;
+    if (anchor && now && P && anchor.id === now.id && anchor.view === now.view) {
+      const dx = (anchor.x - now.x) * P.view.scale, dy = (anchor.y - now.y) * P.view.scale;
+      if (Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01) { const auto = autoFitted(); P.view.panBy(dx, dy); if (auto) fitSig = viewSig(); P.requestRender(); }
+    }
+    anchor = now;
+  }
+  function steady(fn) {
+    const out = fn();
+    holdAnchor();
+    return out;
+  }
+  /** 설계물을 고침. direct: 부재를 직접 고친 것(옮기기·늘이기·넣기·지우기) — 화면을 그대로 둠 */
+  const patch = (el, label, p, direct = false) => {
+    const run = () => App.doc.transact(label, () => App.doc.update(el.id, p));
+    if (direct) steady(run); else run();
+    keepSoon(direct);
+  };
   function setParam(el, k, v) {
     patch(el, '설계 값 바꾸기', { p: { ...el.p, [k]: v } });
   }
@@ -109,22 +152,22 @@
   }
   const userParts = (el) => (Array.isArray(el.parts) ? el.parts : []);
   function setPart(el, id, p, label = '부재 고치기') {
-    patch(el, label, { parts: userParts(el).map((q) => (q.id === id ? { ...q, ...p } : q)) });
+    patch(el, label, { parts: userParts(el).map((q) => (q.id === id ? { ...q, ...p } : q)) }, true);
   }
   function deletePart() {
     const el = cur();
     if (!el || !sel) return false;
     const q = userParts(el).find((x) => x.id === sel);
     if (!q) { App.ui.toast('값으로 만든 부재는 지울 수 없습니다. 위 값(선반·문짝 수 등)을 바꾸거나 ‘부재로 풀기’ 한 뒤 지우세요.'); return false; }
-    patch(el, '부재 지우기', { parts: userParts(el).filter((x) => x.id !== sel) });
+    patch(el, '부재 지우기', { parts: userParts(el).filter((x) => x.id !== sel) }, true);
     sel = null; formKey = '';
     refreshPanes();
     return true;
   }
   function addPart(el, part, label = '부재 넣기') {
     const p = { id: uid(), ...part };
-    patch(el, label, { parts: [...userParts(el), p] });
-    sel = p.id; formKey = '';
+    sel = p.id; formKey = ''; // 넣은 부재가 화면 밖이면 그때만 맞추도록 먼저 고른 것으로 해 둠
+    patch(el, label, { parts: [...userParts(el), p] }, true);
     refreshPanes();
     return p;
   }
@@ -776,7 +819,12 @@
       if (this.label) { this.pan = { x: ev.x, y: ev.y }; return; }
       // 3) 부재 고르기 → 직접 그린 부재는 끌어 옮김 (값으로 만든 부재는 끌면 화면 이동).
       //    이미 고른 부재가 이 자리 아래(다른 부재 뒤)에 있으면 그대로 두고, 손을 떼면 그 뒤 부재로 넘어감
-      this.stack = null;
+      this.stack = null; this.cellTap = null;
+      // 빈 칸의 안쪽(뒤판 위)을 누름: 뒤판보다 그 칸을 먼저 고름 (선반·서랍·문짝을 넣을 자리) — 같은 칸을 다시 누르면 뒤판이 골라짐. 끌면 화면 이동
+      if (h && h.part && h.view === 'front' && h.at && h.part.id !== sel) {
+        const c = cellAt(el, h.at[0], h.at[1]);
+        if (c && behindCell(h.part, c) && !sameCell(c, cell)) { this.cellTap = c; this.pan = { x: ev.x, y: ev.y }; return; }
+      }
       if (h && h.part) {
         const stack = DD().hitAll(el, w, v, nearPx() / s), under = sel ? stack.find((x) => x.id === sel) : null;
         const part = under || h.part;
@@ -850,8 +898,8 @@
     up(ev) {
       const g = this.drag, press = this.press, lab = this.label;
       this.pan = null; this.drag = null; this.press = null; this.label = null;
-      if (g && g.started) { DD().freeze(null); App.doc.commit(); if (g.kind === 'size') formKey = ''; refreshPanes(); keepSoon(); render(); return; }
-      if (!press || dragged(ev, press)) return;
+      if (g && g.started) { steady(() => { DD().freeze(null); App.doc.commit(); }); if (g.kind === 'size') formKey = ''; refreshPanes(); keepSoon(true); render(); return; }
+      if (!press || dragged(ev, press)) { this.cellTap = null; return; }
       if (lab) { editDim(lab); return; }
       if (g && g.kind !== 'move') return; // 손잡이를 눌렀다 뗌: 그대로
       const el = cur(), stack = this.stack;
@@ -863,12 +911,18 @@
         if (!cycleTip) { cycleTip = true; App.ui.toast('같은 자리를 다시 누르면 뒤에 있는 부재가 골라집니다.'); }
         return;
       }
+      if (this.cellTap) { const c = this.cellTap; this.cellTap = null; setCell(c); return; }
       const h = el ? DD().hit(el, ev.world, 0, viewNow(), nearPx() / App.plan.view.scale) : null;
-      if ((!h || !h.part) && sel) { sel = null; formKey = ''; refreshPanes(); render(); }
+      if (!h || !h.part) {
+        if (sel) { sel = null; formKey = ''; refreshPanes(); }
+        // 부재가 없는 곳: 판으로 둘러싸인 칸 안이면 그 칸을 고르고, 아니면 고른 칸을 품
+        setCell(h && h.view === 'front' && h.at ? cellAt(el, h.at[0], h.at[1]) : null);
+        renderQuick(); render();
+      }
     }
     cancel() {
       if (this.drag && this.drag.started) { DD().freeze(null); App.doc.rollback(); }
-      this.pan = null; this.drag = null; this.press = null; this.label = null; this.stack = null;
+      this.pan = null; this.drag = null; this.press = null; this.label = null; this.stack = null; this.cellTap = null;
       render();
     }
     escape() { if (sel) { sel = null; formKey = ''; refreshPanes(); render(); return true; } return false; }
@@ -877,6 +931,17 @@
       if (!el || !isMode()) return;
       const ctx = plan.ctx, px = 1 / plan.view.scale, touch = !!App.pointerTouch;
       App.draw.worldTransform(plan);
+      if (cell && cell.id === el.id && !sel && ['front', 'all'].includes(viewNow())) { // 고른 빈 칸: 옅은 청록 바탕 + 점선 테두리 + 크기
+        const L = DD().layout(el), a = DD().paperOf(L, 'front', cell.x[0], cell.z[1]), z = DD().paperOf(L, 'front', cell.x[1], cell.z[0]);
+        const col = plan.colors.accent || '#0b7285', w = z.x - a.x, h = z.y - a.y;
+        ctx.save();
+        ctx.globalAlpha = 0.14; ctx.fillStyle = col; ctx.fillRect(a.x, a.y, w, h);
+        ctx.globalAlpha = 1; ctx.strokeStyle = col; ctx.lineWidth = 1.8 * px; ctx.setLineDash([7 * px, 5 * px]); ctx.strokeRect(a.x, a.y, w, h);
+        const t = `${fmt(cell.x[1] - cell.x[0])} × ${fmt(cell.z[1] - cell.z[0])}`;
+        ctx.setLineDash([]); ctx.font = `700 ${12.5 * px}px system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif`;
+        if (ctx.measureText(t).width < w - 8 * px && h > 26 * px) { ctx.fillStyle = col; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(t, a.x + w / 2, a.y + h / 2); }
+        ctx.restore();
+      }
       const hs = sel ? handlesOf(el) : sizeHandles(el);
       hs.forEach((k) => {
         ctx.save();
@@ -1102,34 +1167,22 @@
     delete base.id;
     const made = [];
     for (let i = 1; i <= n; i++) made.push({ id: uid(), ...base, ...moved(base, unit.map((u) => u * pitch * i)) });
-    patch(el, '여러 개 늘어놓기', { parts: [...userParts(el), ...made] });
+    patch(el, '여러 개 늘어놓기', { parts: [...userParts(el), ...made] }, true);
     sel = made[made.length - 1].id; formKey = '';
     refreshPanes();
     return made.length;
   }
   /** 부재 넣기: 'hp' 가로판(선반·바닥) · 'vp' 세로판(옆판·칸막이) · 'fp' 정면판(뒤판·문짝, 뒤쪽에) · 'bar' 막대 · 'led' LED.
       지금 설계의 크기에 맞추고, 남는 한 축은 화면 가운데에 보이는 자리로 */
-  function addShape(kind) {
-    const el = cur();
-    if (!el) { App.ui.toast('먼저 ‘＋ 새 설계’로 설계물을 만드세요.'); return null; }
-    if (el.kind === 'model') { App.ui.toast('내려받은 모델에는 부재를 넣을 수 없습니다. ‘＋ 새 설계 → 자유 설계’에서 만드세요.'); return null; }
-    const B = D().build(el), has = B.parts.some((q) => !q.halo);
-    // 지금 설계의 크기에 맞춤 (판 하나뿐이라 너무 좁은 쪽은 기본 크기 600 × 400 × 720으로)
+  /** 설계물 안의 빈 자리를 따지는 도구 (사이에 맞춰 넣기·칸 채우기가 같이 씀).
+      min·size: 지금 설계의 범위 (판 하나뿐이라 너무 좁은 쪽은 기본 크기 600 × 400 × 720으로), boxes: 부재마다 [[x0,x1],[y0,y1],[z0,z1]],
+      span(ax, seed, band): 씨앗 점에서 양쪽으로 가장 가까운 부재 면까지 (다른 두 축에서 band와 겹치는 부재만 막음, 씨앗을 품는 뒤판 따위는 지나침),
+      gapsOf(ax, band): 축 ax를 따라 비어 있는 칸들 [[lo, hi]] */
+  function spaceOf(el) {
+    const B = D().build(el), ps = B.parts.filter((q) => !q.halo && q.role !== 'lite'), has = B.parts.some((q) => !q.halo);
     const min = has ? B.min.slice() : [0, 0, 0], DEF = [600, 400, 720], size = has ? [B.size.w, B.size.d, B.size.h].map((v, i) => (v >= (i === 1 ? 100 : 200) ? v : DEF[i])) : DEF.slice();
     const mid = (k) => snapTo(min[k] + size[k] / 2, 10);
-    // 화면 가운데가 그림 안이면 그 자리를 씀 (보고 있는 곳에 생기게)
-    const v = viewNow(), P = App.plan, at = (() => {
-      if (!has || !ORTHO.includes(v)) return null;
-      const c = P.view.toWorld(P.width / 2, (P.height - ((P.insets && P.insets.bottom) || 0)) / 2), h = DD().hit(el, c, 0, v);
-      if (!h || !h.at) return null;
-      const { ha, va } = axesOf(v), o = {};
-      o[ha] = snapTo(h.at[0], 10); o[va] = snapTo(h.at[1], 10);
-      return o;
-    })();
-    const pick = (k) => (at && at[k] != null ? Math.max(min[k], Math.min(min[k] + size[k], at[k])) : mid(k));
-    const S = D().sheet(App.current.dsSheet || 'ply18'), t = S.t;
-    // 사이에 맞춰 넣기: 씨앗 점에서 양쪽으로 가장 가까운 부재 면까지 (다른 두 축에서 band와 겹치는 부재만 막음, 씨앗을 품는 뒤판 따위는 지나침)
-    const boxes = B.parts.filter((q) => !q.halo && q.role !== 'lite').map((q) => { const c = D().corners(q); return [0, 1, 2].map((k) => [Math.min(...c.map((p) => p[k])), Math.max(...c.map((p) => p[k]))]); });
+    const boxes = ps.map((q) => { const c = D().corners(q); return [0, 1, 2].map((k) => [Math.min(...c.map((p) => p[k])), Math.max(...c.map((p) => p[k]))]); });
     const span = (ax, seed, band) => {
       let lo = min[ax], hi = min[ax] + size[ax];
       boxes.forEach((bx) => {
@@ -1141,8 +1194,6 @@
       });
       return hi - lo >= 50 ? [lo, hi] : [min[ax], min[ax] + size[ax]];
     };
-    const sy = mid(1), thin = (v) => [v - 1, v + 1];
-    /** 축 ax를 따라 비어 있는 칸들 [[lo, hi]] (다른 두 축에서 band와 겹치는 부재가 막음) */
     const gapsOf = (ax, band) => {
       const blocks = [];
       boxes.forEach((bx) => { for (let k = 0; k < 3; k++) if (k !== ax && (bx[k][1] <= band[k][0] + 1 || bx[k][0] >= band[k][1] - 1)) return; blocks.push(bx[ax]); });
@@ -1153,6 +1204,206 @@
       if (end > p + 0.5) out.push([p, end]);
       return out;
     };
+    return { B, parts: ps, has, min, size, mid, boxes, span, gapsOf, sy: mid(1), thin: (v) => [v - 1, v + 1] };
+  }
+  /* ── 칸 채우기: 정면도에서 판으로 둘러싸인 빈 칸을 누르면 그 칸이 골라지고, 아래 막대에서 선반·칸막이·서랍·문짝·봉을 한 번에 넣음 ── */
+  let cell = null;      // { id(설계물), x: [x0, x1], y: [앞, 뒤], z: [z0, z1], bound: { l, r, b, t } (그쪽이 판으로 막혀 있는지), front(몸통 앞면 y) }
+  let cellKind = '';    // 막대에서 고른 것 ('shelf' | 'div' | 'drawer' | 'door'): 둘째 줄에 몇 개 넣을지
+  const moving = (q) => !!(q.door || q.front || q.an || q.mv); // 문짝·서랍 앞판처럼 움직이는 것 (몸통 앞면을 따질 때 뺌)
+  /** 정면도의 (x, z)를 품는 빈 칸. 판으로 세 쪽 이상 막힌 칸만 (탁 트인 바깥은 칸이 아님) */
+  function cellAt(el, x, z) {
+    if (!el || el.kind === 'model') return null;
+    const S = spaceOf(el), { min, size, sy, thin, gapsOf, span } = S;
+    if (!S.has || x <= min[0] || x >= min[0] + size[0] || z <= min[2] || z >= min[2] + size[2]) return null;
+    const inGap = (gs, v) => gs.find(([lo, hi]) => v > lo && v < hi) || null;
+    const Z0 = inGap(gapsOf(2, [thin(x), thin(sy), null]), z);
+    if (!Z0) return null;
+    const X = inGap(gapsOf(0, [null, thin(sy), [Z0[0] + 1, Z0[1] - 1]]), x);
+    if (!X) return null;
+    const Z = inGap(gapsOf(2, [[X[0] + 1, X[1] - 1], thin(sy), null]), z) || Z0; // 칸 폭 전체에서 위아래로 가장 가까운 판까지
+    if (X[1] - X[0] < 80 || Z[1] - Z[0] < 80) return null; // 걸레받이 자리처럼 낮은 틈은 칸으로 치지 않음
+    const e = 0.6, bound = { l: X[0] > min[0] + e, r: X[1] < min[0] + size[0] - e, b: Z[0] > min[2] + e, t: Z[1] < min[2] + size[2] - e };
+    if ([bound.l, bound.r, bound.b, bound.t].filter(Boolean).length < 3) return null;
+    // 몸통 앞면: 이 칸을 둘러싼 판들의 앞 끝 (문짝·서랍 앞판은 빼고) — 문짝은 그 앞에 덧대고, 선반은 거기서 시작
+    let front = Infinity;
+    S.boxes.forEach((bx, i) => {
+      if (moving(S.parts[i])) return;
+      const touchX = bx[0][1] >= X[0] - 2 && bx[0][0] <= X[1] + 2, touchZ = bx[2][1] >= Z[0] - 2 && bx[2][0] <= Z[1] + 2;
+      if (touchX && touchZ && bx[1][0] < sy) front = Math.min(front, bx[1][0]);
+    });
+    if (!Number.isFinite(front)) front = min[1];
+    const Y = span(1, sy, [[X[0] + 1, X[1] - 1], null, [Z[0] + 1, Z[1] - 1]]);
+    return { id: el.id, x: X, y: [Math.max(Y[0], front), Y[1]], z: Z, bound, front };
+  }
+  const sameCell = (p, q) => !!p && !!q && p.id === q.id && [0, 1].every((k) => Math.abs(p.x[k] - q.x[k]) < 0.5 && Math.abs(p.z[k] - q.z[k]) < 0.5);
+  let cellTip = false;
+  function setCell(c) {
+    if (!c && !cell) return;
+    cell = c && !sameCell(c, cell) ? { ...c, B: D().build(cur()) } : null; // 같은 칸을 다시 누르면 풀림
+    cellKind = '';
+    if (cell && sel) { sel = null; formKey = ''; refreshPanes(); }
+    quickKey = ''; renderQuick(); render();
+    if (cell && !cellTip) { cellTip = true; App.ui.toast('빈 칸을 골랐습니다 — 아래에서 선반·칸막이·서랍·문짝·봉을 눌러 넣으세요.'); }
+  }
+  /** 눌린 부재가 그 칸의 뒤를 이루는 판(뒤판)인지 — 칸 안쪽을 누르면 뒤판보다 칸을 먼저 고름 */
+  const behindCell = (q, c) => { const k = D().corners(q); return Math.min(...k.map((p) => p[1])) >= c.y[1] - 1; };
+  /** 고른 칸에 넣기. kind: 'shelf'(선반 n장, 같은 간격) | 'div'(세로 칸막이 n개) | 'drawer'(서랍 n단: 앞판 + 통) | 'door'(문짝 n짝) | 'rod'(옷걸이 봉). 넣은 개수를 돌려줌 */
+  function fillCell(kind, n = 1) {
+    const el = cur(), c = cell && el && cell.id === el.id ? cell : null;
+    if (!c) return 0;
+    const S = D().sheet(App.current.dsSheet || 'ply18'), t = S.t, r = (v) => r1(v);
+    const [x0, x1] = c.x, [y0, y1] = c.y, [z0, z1] = c.z, W = x1 - x0, H = z1 - z0, Dp = y1 - y0, made = [];
+    const P = (name, m, x, y, z, w, d, h, o = {}) => made.push({ s: 'box', n: name, m, x: r(x), y: r(y), z: r(z), w: r(w), d: r(d), h: r(h), ...o });
+    n = Math.max(1, Math.min(8, Math.round(n) || 1));
+    // 문짝·서랍 앞판이 덮는 네모: 판으로 막힌 쪽은 그 판 두께의 반쯤(틈 3)을 덮음 — 옆 칸의 문짝과 부딪히지 않게
+    const ov = (on) => (on ? Math.max(0, t / 2 - 1.5) : 0), G = 3;
+    const fx0 = x0 - ov(c.bound.l), fx1 = x1 + ov(c.bound.r), fz0 = z0 - ov(c.bound.b), fz1 = z1 + ov(c.bound.t), fy = c.front - t;
+    let label = '', note = '';
+    if (kind === 'shelf') {
+      const gap = (H - n * t) / (n + 1);
+      if (gap < 40) { App.ui.toast(`칸 높이 ${fmt(H)}에는 선반 ${n}장이 들어가지 않습니다.`); return 0; }
+      for (let i = 0; i < n; i++) P('선반', S.id, x0, y0, z0 + gap * (i + 1) + t * i, W, Dp, t);
+      label = `선반 ${n}장 넣기`; note = `선반 ${n}장 (${fmt(W)} × ${fmt(Dp)}) — 칸 사이 ${fmt(r(gap))}`;
+    } else if (kind === 'div') {
+      const gap = (W - n * t) / (n + 1);
+      if (gap < 60) { App.ui.toast(`칸 폭 ${fmt(W)}에는 칸막이 ${n}개가 들어가지 않습니다.`); return 0; }
+      for (let i = 0; i < n; i++) P('칸막이', S.id, x0 + gap * (i + 1) + t * i, y0, z0, t, Dp, H);
+      label = `칸막이 ${n}개 넣기`; note = `칸막이 ${n}개 (${fmt(Dp)} × ${fmt(H)}) — 칸 폭 ${fmt(r(gap))}`;
+    } else if (kind === 'rod') {
+      if (W < 100 || H < 120) { App.ui.toast('봉을 걸기에는 칸이 너무 작습니다.'); return 0; }
+      P('옷걸이 봉', 'rod25', x0, y0 + Dp / 2 - 12.5, z1 - Math.min(80, H * 0.25) - 25, W, 25, 25);
+      label = '옷걸이 봉 넣기'; note = `옷걸이 봉 ${fmt(W)}`;
+    } else if (kind === 'door') {
+      n = Math.min(2, n);
+      const dw = (fx1 - fx0 - G * (n - 1)) / n, dh = fz1 - fz0;
+      if (dw < 80 || dh < 80) { App.ui.toast('문짝을 달기에는 칸이 너무 작습니다.'); return 0; }
+      for (let i = 0; i < n; i++) P('문짝', S.id, fx0 + (dw + G) * i, fy, fz0, dw, t, dh, { mv: n === 1 || i === 0 ? 'dl' : 'dr' });
+      label = `문짝 ${n}짝 달기`; note = `문짝 ${n}짝 (${fmt(r(dw))} × ${fmt(r(dh))}) — 3D 보기에서 열어 볼 수 있습니다`;
+    } else if (kind === 'drawer') {
+      const fh = (fz1 - fz0 - G * (n - 1)) / n;
+      if (fh < 70 || W < 160) { App.ui.toast(`이 칸에는 서랍 ${n}단이 들어가지 않습니다.`); return 0; }
+      const T = D().sheet('ply15'), B5 = D().sheet('ply5'), tb = T.t, len = D().slideFor(Dp), box = Dp >= len + 4;
+      for (let i = 0; i < n; i++) {
+        const fz = fz0 + (fh + G) * i;
+        P('서랍 앞판', S.id, fx0, fy, fz, fx1 - fx0, t, fh, { mv: 'df' });
+        if (!box) continue; // 칸이 얕으면 앞판만
+        const bw = W - 26, bh = Math.max(60, Math.min(fh - 56, 250)), bx = x0 + 13, by = c.front + 2, bz = Math.max(fz, z0) + 26;
+        P('서랍 옆판', T.id, bx, by, bz, tb, len, bh, { mv: 'dw' }); P('서랍 옆판', T.id, bx + bw - tb, by, bz, tb, len, bh, { mv: 'dw' });
+        P('서랍 앞뒤판', T.id, bx + tb, by, bz, bw - 2 * tb, tb, bh, { mv: 'dw' }); P('서랍 앞뒤판', T.id, bx + tb, by + len - tb, bz, bw - 2 * tb, tb, bh, { mv: 'dw' });
+        P('서랍 밑판', B5.id, bx, by, bz - B5.t, bw, len, B5.t, { mv: 'dw' });
+      }
+      label = `서랍 ${n}단 넣기`; note = `서랍 ${n}단 (앞판 ${fmt(r(fx1 - fx0))} × ${fmt(r(fh))}${box ? ` · 통 깊이 ${fmt(len)}` : ' · 칸이 얕아 앞판만'})`;
+    } else return 0;
+    cell = null; cellKind = ''; sel = null; formKey = '';
+    patch(el, label, { parts: [...userParts(el), ...made.map((q) => ({ id: uid(), ...q }))] }, true);
+    quickKey = ''; refreshPanes(); renderQuick(); syncBar(); render();
+    App.ui.toast(`${note} — 잘못 넣었으면 ↶ 되돌리기`);
+    return made.length;
+  }
+
+  /* ── 통 만들기: 빈 자유 설계에서 크기만 넣어 옆판·천판·지판·뒤판(·걸레받이)을 한 번에 — 그다음 빈 칸을 눌러 채움 ── */
+  let boxLast = { W: 800, H: 1200, D: 400, P: 60, back: true };
+  function boxParts(o) {
+    const S = D().sheet(App.current.dsSheet || 'ply18'), t = S.t, { W, H, P } = o, Dp = o.D, bk = o.back ? t : 0, out = [];
+    const B = (n, x, y, z, w, d, h) => out.push({ id: uid(), s: 'box', n, m: S.id, x: r1(x), y: r1(y), z: r1(z), w: r1(w), d: r1(d), h: r1(h) });
+    B('옆판', 0, 0, 0, t, Dp, H); B('옆판', W - t, 0, 0, t, Dp, H);
+    B('지판', t, 0, P, W - 2 * t, Dp - bk, t); B('천판', t, 0, H - t, W - 2 * t, Dp - bk, t);
+    if (o.back) B('뒤판', t, Dp - t, P, W - 2 * t, t, H - P);
+    if (P >= 40) B('걸레받이', t, Math.min(30, Dp / 4), 0, W - 2 * t, t, P);
+    return out;
+  }
+  async function makeBox() {
+    const el = cur();
+    if (!el || el.kind === 'model') return null;
+    const L = boxLast, S = D().sheet(App.current.dsSheet || 'ply18');
+    const f = (id, label, v) => `<div class="field"><label class="field-label" for="${id}">${label}</label><div class="field-box"><input id="${id}" type="text" inputmode="decimal" enterkeyhint="done" autocomplete="off" value="${v}"><span class="field-unit">mm</span></div></div>`;
+    const pr = App.ui.dialog({
+      title: '통 만들기',
+      html: `<div class="ds-props"><div class="field-grid">${f('dsBoxW', '폭', L.W)}${f('dsBoxH', '높이', L.H)}${f('dsBoxD', '깊이', L.D)}${f('dsBoxP', '걸레받이 높이', L.P)}</div>
+        <label class="check-row" for="dsBoxB"><input type="checkbox" id="dsBoxB" ${L.back ? 'checked' : ''}><span><b>뒤판 넣기</b></span></label>
+        <p class="props-meta">옆판 2 · 천판 · 지판 · 뒤판을 ${esc(S.name)}로 만듭니다 (걸레받이 높이가 0이면 바닥에 붙음). 만든 뒤 <b>빈 칸을 눌러</b> 선반·칸막이·서랍·문짝을 넣으세요.</p></div>`,
+      actions: [{ id: 'cancel', label: '취소' }, { id: 'ok', label: '만들기', primary: true }],
+    });
+    const first = document.querySelector('#dialogBody #dsBoxW');
+    if (first) { first.focus(); first.select(); }
+    const r = await pr;
+    if (r.id !== 'ok' || !cur() || cur().id !== el.id) return null;
+    const num = (id, lo, hi) => { const v = calc(r.body.querySelector(id).value); return Number.isFinite(v) ? Math.max(lo, Math.min(hi, Math.round(v))) : NaN; };
+    const o = { W: num('#dsBoxW', 150, 6000), H: num('#dsBoxH', 150, 3000), D: num('#dsBoxD', 100, 1500), P: num('#dsBoxP', 0, 300), back: r.body.querySelector('#dsBoxB').checked };
+    if (![o.W, o.H, o.D, o.P].every(Number.isFinite)) { App.ui.toast('숫자를 넣어 주세요.'); return null; }
+    if (o.P > o.H - 100) o.P = 0;
+    boxLast = o;
+    const made = boxParts(o);
+    sel = null; formKey = ''; quickKey = '';
+    patch(cur(), '통 만들기', { parts: [...userParts(cur()), ...made] });
+    refreshPanes(); renderQuick(); syncBar(); render();
+    setTimeout(() => { if (isMode()) fit(); }, 0);
+    App.ui.toast(`통을 만들었습니다 (${fmt(o.W)} × ${fmt(o.D)} × ${fmt(o.H)}) — 빈 칸을 눌러 선반·서랍·문짝을 넣으세요.`);
+    return made;
+  }
+
+  /* ── 멀리 떨어진 부재: 실수로 멀리 옮겨진 부재 하나 때문에 전체 크기가 커져 도면이 깨알만 해지는 것을 한 번에 바로잡음 ── */
+  let strayMemo = { B: null, S: null };
+  /** 서로 닿거나 가까운(틈 150 이하) 부재끼리 묶어 가장 큰 묶음을 본체로 보고, 본체에서 far(본체 긴 쪽의 60%, 적어도 1,500) 넘게 떨어진 묶음들.
+      직접 넣은 부재만 (값으로 만든 것은 떨어질 수 없음). 없으면 null */
+  function strays(el = cur()) {
+    if (!el || el.kind === 'model') return null;
+    const B = D().build(el);
+    if (strayMemo.B === B) return strayMemo.S;
+    const ps = B.parts.filter((q) => !q.halo), find = (par, i) => { while (par[i] !== i) { par[i] = par[par[i]]; i = par[i]; } return i; };
+    let out = null;
+    if (ps.length >= 2 && ps.length <= 600 && ps.some((q) => q.user)) {
+      const bx = ps.map((q) => { const c = D().corners(q); return [0, 1, 2].map((k) => [Math.min(...c.map((p) => p[k])), Math.max(...c.map((p) => p[k]))]); });
+      const par = ps.map((_, i) => i), near = (A, C) => [0, 1, 2].every((k) => A[k][0] <= C[k][1] + 150 && C[k][0] <= A[k][1] + 150);
+      for (let i = 0; i < ps.length; i++) for (let j = i + 1; j < ps.length; j++) if (find(par, i) !== find(par, j) && near(bx[i], bx[j])) par[find(par, i)] = find(par, j);
+      const groups = new Map();
+      ps.forEach((_, i) => { const g = find(par, i); if (!groups.has(g)) groups.set(g, []); groups.get(g).push(i); });
+      if (groups.size > 1) {
+        const boxOf = (idx) => [0, 1, 2].map((k) => [Math.min(...idx.map((i) => bx[i][k][0])), Math.max(...idx.map((i) => bx[i][k][1]))]);
+        const vol = (idx) => idx.reduce((sum, i) => sum + [0, 1, 2].reduce((m, k) => m * Math.max(1, bx[i][k][1] - bx[i][k][0]), 1), 0);
+        const list = [...groups.values()].sort((p, q) => vol(q) - vol(p)), mb = boxOf(list[0]);
+        const far = Math.max(1500, Math.max(...mb.map((v) => v[1] - v[0])) * 0.6), found = [];
+        list.slice(1).forEach((idx) => {
+          const b = boxOf(idx), gap = Math.max(...[0, 1, 2].map((k) => Math.max(mb[k][0] - b[k][1], b[k][0] - mb[k][1], 0)));
+          if (gap > far && idx.every((i) => ps[i].user)) found.push({ ids: idx.map((i) => ps[i].id), names: idx.map((i) => ps[i].n || '부재'), box: b, gap: Math.round(gap) });
+        });
+        if (found.length) out = { main: mb, list: found, count: found.reduce((m, g) => m + g.ids.length, 0) };
+      }
+    }
+    strayMemo = { B, S: out };
+    return out;
+  }
+  /** 멀리 떨어진 부재들을 본체 오른쪽 옆(100 띄움)·본체 바닥 높이로 가져옴 (한 번에 되돌릴 수 있음). 가져온 개수 */
+  function bringStrays() {
+    const el = cur(), S = strays(el);
+    if (!S) return 0;
+    const sh = new Map();
+    let x = S.main[0][1] + 100;
+    S.list.forEach((g) => { const d = [x - g.box[0][0], S.main[1][0] - g.box[1][0], S.main[2][0] - g.box[2][0]]; g.ids.forEach((id) => sh.set(id, d)); x += g.box[0][1] - g.box[0][0] + 100; });
+    patch(el, '멀리 떨어진 부재 가져오기', { parts: userParts(el).map((q) => (sh.has(q.id) ? { ...q, ...moved(q, sh.get(q.id)) } : q)) });
+    sel = null; formKey = ''; quickKey = '';
+    refreshPanes(); renderQuick(); render();
+    setTimeout(() => { if (isMode()) fit(); }, 0);
+    App.ui.toast(`멀리 떨어져 있던 부재 ${S.count}개를 본체 오른쪽 옆으로 가져왔습니다.`);
+    return S.count;
+  }
+
+  function addShape(kind) {
+    const el = cur();
+    if (!el) { App.ui.toast('먼저 ‘＋ 새 설계’로 설계물을 만드세요.'); return null; }
+    if (el.kind === 'model') { App.ui.toast('내려받은 모델에는 부재를 넣을 수 없습니다. ‘＋ 새 설계 → 자유 설계’에서 만드세요.'); return null; }
+    const { has, min, size, mid, sy, thin, span, gapsOf } = spaceOf(el);
+    // 화면 가운데가 그림 안이면 그 자리를 씀 (보고 있는 곳에 생기게)
+    const v = viewNow(), P = App.plan, at = (() => {
+      if (!has || !ORTHO.includes(v)) return null;
+      const c = P.view.toWorld(P.width / 2, (P.height - ((P.insets && P.insets.bottom) || 0)) / 2), h = DD().hit(el, c, 0, v);
+      if (!h || !h.at) return null;
+      const { ha, va } = axesOf(v), o = {};
+      o[ha] = snapTo(h.at[0], 10); o[va] = snapTo(h.at[1], 10);
+      return o;
+    })();
+    const pick = (k) => (at && at[k] != null ? Math.max(min[k], Math.min(min[k] + size[k], at[k])) : mid(k));
+    const S = D().sheet(App.current.dsSheet || 'ply18'), t = S.t;
     /** 새 부재(두께 th)가 들어갈 칸의 가운데: 화면을 확대해 보고 있으면 보는 자리(seed)의 칸, 전체를 보고 있으면 가장 넓은 칸 */
     const looking = !!at && !autoFitted();
     const center = (ax, seed, band, th) => {
@@ -1209,11 +1460,17 @@
     if (!show) return;
     const v = viewNow(), q = sel ? D().build(el).parts.find((x) => x.id === sel && !x.halo) : null, user = q && q.user;
     const open = addOpen == null ? el.kind === 'free' : addOpen, compact = compactBar(), top3d = !!axesOf(v).top; // 3D에서 내려다볼 때: 앞·뒤 단추가 위·아래
-    const key = q ? `${el.id}|${q.id}|${user ? 'u' : 'g'}|${v}|${step}|${q.s}|${q.n}|${compact}|${barOpen}|${top3d}` : `${el.id}|none|${open}|${el.kind === 'free'}|${compact}`;
+    // 고른 칸: 부재를 고르거나 설계물·그림이 바뀌면 풀고, 부재가 바뀌었으면(되돌리기 따위) 같은 칸이 아직 있는지 다시 봄
+    if (cell && (q || cell.id !== el.id || !(v === 'front' || v === 'all'))) { cell = null; cellKind = ''; }
+    if (cell && cell.B !== D().build(el)) { const c2 = cellAt(el, (cell.x[0] + cell.x[1]) / 2, (cell.z[0] + cell.z[1]) / 2); cell = sameCell(c2, cell) ? { ...c2, B: D().build(el) } : null; if (!cell) cellKind = ''; }
+    const stray = !q && !cell ? strays(el) : null;
+    const blank = !q && !cell && el.kind === 'free' && !D().build(el).parts.some((x) => !x.halo); // 아직 아무것도 없는 자유 설계: 통부터 만들 수 있게
+    const key = q ? `${el.id}|${q.id}|${user ? 'u' : 'g'}|${v}|${step}|${q.s}|${q.n}|${compact}|${barOpen}|${top3d}`
+      : cell ? `${el.id}|cell|${cell.x.join()}|${cell.z.join()}|${cellKind}|${compact}` : `${el.id}|none|${open}|${el.kind === 'free'}|${compact}|${stray ? stray.count : 0}|${blank}`;
     const sizeText = q ? (q.s === 'bar' ? `길이 ${fmt(D().lenOf(q))}` : q.s === 'arc' ? `곡선 ${fmt(D().arcLen(q))}` : `${fmt(q.w)} × ${fmt(q.d)} × ${fmt(q.h)}`) : '';
     if (key !== quickKey) {
       quickKey = key;
-      bar.dataset.state = q ? (user ? 'part' : 'gen') : 'add';
+      bar.dataset.state = q ? (user ? 'part' : 'gen') : cell ? 'cell' : 'add';
       bar.classList.toggle('is-3d', v === 'iso');
       bar.classList.toggle('is-compact', compact);
       bar.classList.toggle('is-open', !!(q && user && barOpen));
@@ -1249,11 +1506,25 @@
             ${el.kind !== 'free' ? '<button type="button" class="btn btn-primary" data-dq="explode" title="값으로 만든 부재를 하나씩 옮기고 고칠 수 있게 풀기">부재로 풀어 고치기</button>' : ''}
           </div>
           <p class="ds-q-note">값으로 만든 부재 — 크기는 속성의 값으로 바꾸거나, 풀어서 직접 고칩니다.</p>`;
+      } else if (cell) { // 빈 칸을 골랐을 때: 그 칸에 넣을 것. 종류를 누르면 둘째 줄에서 몇 개인지 고름 (봉은 바로)
+        const W = cell.x[1] - cell.x[0], H = cell.z[1] - cell.z[0];
+        const K = [['shelf', '선반', '이 칸에 선반을 같은 간격으로'], ['div', '칸막이', '이 칸을 세로 칸막이로 나눔'], ['drawer', '서랍', '이 칸에 서랍 (앞판 + 통)'], ['door', '문짝', '이 칸 앞에 문짝 (3D에서 열림)'], ['rod', '봉', '옷걸이 봉']];
+        const N = { shelf: [[1, '1장'], [2, '2장'], [3, '3장'], [4, '4장'], [5, '5장']], div: [[1, '1개'], [2, '2개'], [3, '3개']], drawer: [[1, '1단'], [2, '2단'], [3, '3단'], [4, '4단']], door: [[1, '1짝'], [2, '2짝']] }[cellKind];
+        bar.innerHTML = `
+          <div class="ds-q-row ds-q-main ds-q-cell" role="group" aria-label="고른 칸 ${esc(fmt(W))} × ${esc(fmt(H))}에 넣기">
+            ${K.map(([k, t, tip]) => `<button type="button" class="btn" data-dq="cell" data-k="${k}" aria-pressed="${cellKind === k}" title="${tip}">${t}</button>`).join('')}
+          </div>
+          ${N ? `<div class="ds-q-row ds-q-count">${N.map(([n, t]) => `<button type="button" class="btn" data-dq="cell-n" data-n="${n}">${t}</button>`).join('')}</div>` : ''}`;
       } else {
         bar.innerHTML = `
+          ${stray ? `<div class="ds-q-row ds-q-warn"><button type="button" class="btn" data-dq="bring" title="본체에서 멀리 떨어진 부재 때문에 전체 크기가 커져 도면이 작게 보입니다. 누르면 본체 옆으로 가져옵니다 (되돌릴 수 있음)">멀리 떨어진 부재 ${stray.count}개 가져오기</button></div>` : ''}
           <div class="ds-q-row ds-q-main">
             ${open ? '' : '<button type="button" class="btn ds-q-add" data-dq="add-open" title="판·막대·LED를 바로 넣기">＋ 부재 넣기</button>'}
-            ${open ? `
+            ${open && blank ? `
+            <button type="button" class="btn btn-primary ds-q-add ds-q-box" data-dq="box" title="옆판·천판·지판·뒤판으로 된 빈 통을 크기만 넣어 한 번에 — 그다음 빈 칸을 눌러 선반·서랍·문짝을 넣습니다">＋ 통 만들기</button>
+            <button type="button" class="btn ds-q-add" data-dq="add" data-k="hp" title="눕힌 판 하나">+가로판</button>
+            <button type="button" class="btn ds-q-add" data-dq="add" data-k="vp" title="세운 판 하나">+세로판</button>
+            <button type="button" class="btn ds-q-add" data-dq="add" data-k="bar" title="각재·각파이프">+막대</button>` : open ? `
             <button type="button" class="btn ds-q-add" data-dq="add" data-k="hp" title="선반·바닥판·상판처럼 눕힌 판 (양옆 판 사이에 맞춰 들어감)">+가로판</button>
             <button type="button" class="btn ds-q-add" data-dq="add" data-k="vp" title="옆판·칸막이처럼 세운 판 (위아래 판 사이에 맞춰 들어감)">+세로판</button>
             <button type="button" class="btn ds-q-add" data-dq="add" data-k="fp" title="뒤판·문짝처럼 정면을 보는 판 (뒤쪽에 넣음)">+정면판</button>
@@ -1272,6 +1543,15 @@
   function quickAct(name, btn) {
     const d = btn && btn.dataset.d ? btn.dataset.d.split(',').map(Number) : null;
     switch (name) {
+      case 'cell': { // 칸에 넣을 것: 봉은 바로, 나머지는 몇 개인지 둘째 줄에서
+        const k = btn.dataset.k;
+        if (k === 'rod') return fillCell('rod');
+        cellKind = cellKind === k ? '' : k; quickKey = ''; renderQuick();
+        return cellKind;
+      }
+      case 'cell-n': return fillCell(cellKind, Number(btn.dataset.n) || 1);
+      case 'box': makeBox(); return true;
+      case 'bring': return bringStrays();
       case 'nudge': return nudge([d[0] * step, d[1] * step, 0]);
       case 'depth': return nudge([0, 0, d[0] * step]);
       case 'step': step = STEPS[(STEPS.indexOf(step) + 1) % STEPS.length]; quickKey = ''; renderQuick(); return step;
@@ -1312,7 +1592,7 @@
     made.forEach((p) => { if (p.s !== 'rnd') { delete p.ax; delete p.r; delete p.full; } else if (!p.full) delete p.full; });
     const list = [];
     userParts(el).forEach((x) => { if (x.id === q.id) list.push(...made); else list.push(x); });
-    patch(el, label, { parts: list });
+    patch(el, label, { parts: list }, true);
     sel = made[0].id; formKey = '';
     refreshPanes();
     return made;
@@ -1445,10 +1725,12 @@
       html: `<div class="ds-help">
         <h3>1. 그림 고르기</h3>
         <ul><li>위쪽 <b>정면 · 평면 · 측면</b>으로 보는 방향을 바꿉니다. <b>입체</b>는 돌려 보며 고치는 3D 화면, <b>전체</b>는 네 그림 한 장(PDF와 같음).</li>
-          <li>휠·두 손가락으로 확대하고 빈 곳을 끌면 화면이 움직입니다. 확대해서 고치는 동안 화면은 그대로 있습니다.</li>
+          <li>휠·두 손가락으로 확대하고 빈 곳을 끌면 화면이 움직입니다. 부재를 고치는 동안 화면은 저절로 움직이지 않습니다 (전체를 보려면 <b>화면 맞춤</b>).</li>
           ${App.ui.mobile && App.ui.mobile.matches ? '<li><b>휴대폰</b>: 위쪽의 <b>설계물 이름</b> 단추에 설계물 바꾸기·＋ 새 설계·치수/숨은선/미리보기·3D 보기가 있고, 속성·집계는 아래 도구 줄 오른쪽 끝의 <b>속성·집계</b>로 엽니다.</li>' : ''}</ul>
         <h3>2. 부재 넣기</h3>
-        <ul><li>아래 <b>+가로판 · +세로판 · +정면판 · +막대 · +LED</b>를 누르면 바로 생깁니다. 가로판은 양옆 판 사이에 맞는 크기로 가장 넓은 칸 가운데에, 세로판은 위아래 판 사이에 맞춰 들어갑니다 (확대해 보고 있으면 보는 칸에).</li>
+        <ul><li>빈 자유 설계는 <b>＋ 통 만들기</b>로 시작하면 쉽습니다 — 폭·높이·깊이만 넣으면 옆판·천판·지판·뒤판이 한 번에 생깁니다.</li>
+          <li>아래 <b>+가로판 · +세로판 · +정면판 · +막대 · +LED</b>를 누르면 바로 생깁니다. 가로판은 양옆 판 사이에 맞는 크기로 가장 넓은 칸 가운데에, 세로판은 위아래 판 사이에 맞춰 들어갑니다 (확대해 보고 있으면 보는 칸에).</li>
+          <li><b>빈 칸을 누르면</b> 그 칸이 표시되고, 아래의 <b>선반 · 칸막이 · 서랍 · 문짝 · 봉</b>으로 한 번에 채웁니다 (선반 3장을 같은 간격으로, 서랍 3단 …).</li>
           <li>왼쪽(아래) 도구 <b>판 · 막대 · LED</b>로 끌어서 그려도 됩니다.</li></ul>
         <h3>3. 고치기</h3>
         <ul><li>부재를 눌러 고르고 <b>끌면 옮겨집니다</b> (다른 판의 면에 붙으면 분홍 선이 보임).</li>
@@ -1799,7 +2081,7 @@
     // 맞춤이 어디서 불리든(화면 맞춤 단추·값 바꾸기) 맞춘 화면 값을 기억
     if (App.plan && !App.plan._dsFitHook) {
       const orig = App.plan.fitToContent.bind(App.plan);
-      App.plan.fitToContent = (...a) => { const r = orig(...a); if (isMode()) fitSig = viewSig(); return r; };
+      App.plan.fitToContent = (...a) => { const r = orig(...a); if (isMode()) { fitSig = viewSig(); anchor = anchorNow(); } return r; };
       App.plan._dsFitHook = true;
     }
     App.ui.on('sheet', () => { if (isMode()) syncSheet(); });
@@ -1842,6 +2124,7 @@
       // 실행 취소로 설계물이 사라졌으면 고른 것을 비움
       const el = cur();
       if (sel && el && !D().build(el).parts.some((q) => q.id === sel)) { sel = null; formKey = ''; }
+      holdAnchor(); // 되돌리기·다시 하기로 그림의 기준점이 밀려도 화면에서는 제자리에
       syncBar();
       renderQuick();
       previewKick();
@@ -1860,6 +2143,11 @@
   App.designUI = {
     init, renderProps, renderSummary, newDialog, openModel, open3d, toObject, toEstimate, add, remove, duplicate, explode, setCurrent, deletePart, addPart, setParam, act,
     selected: () => sel,
+    // 칸 채우기 · 멀리 떨어진 부재
+    cell: () => (cell ? { x: cell.x.slice(), y: cell.y.slice(), z: cell.z.slice(), bound: { ...cell.bound }, front: cell.front } : null),
+    cellAt: (x, z) => { const c = cellAt(cur(), x, z); return c ? { x: c.x, y: c.y, z: c.z, bound: c.bound, front: c.front } : null; },
+    pickCell: (x, z) => { setCell(x == null ? null : cellAt(cur(), x, z)); return !!cell; },
+    makeBox, boxParts, fillCell, strays: () => { const S = strays(); return S ? { count: S.count, list: S.list.map((g) => ({ names: g.names, gap: g.gap })) } : null; }, bringStrays,
     cutPart, bendPart, roundPart, helpDialog, setView, previewToggle,
     /** 고른 부재(직접 넣은 것)의 값을 바꿈 — 3D 작업 화면에서 숫자로 고칠 때 */
     setPart(id, p, label) { const el = cur(); if (!el || !userParts(el).some((q) => q.id === id)) return false; setPart(el, id, p, label); refreshPanes(); return true; },

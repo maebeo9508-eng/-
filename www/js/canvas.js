@@ -199,9 +199,9 @@
       for (const fn of this._renderHooks) fn(this);
     }
 
-    /** 눈금자 두께(px). 설정에서 끄면 0 */
+    /** 눈금자 두께(px). 설정에서 끄면 0. 설계 모드에서는 늘 0 (종이 좌표라 뜻이 없고 도면 자리만 차지함) */
     get rulerSize() {
-      return App.settings.showRulers ? RULER_PX : 0;
+      return App.settings.showRulers && !(App.modes && App.modes.is('design')) ? RULER_PX : 0;
     }
 
     /** 위·왼쪽 눈금자: 설정 길이 단위로 큰 눈금마다 숫자. 확대·축소에 따라 1·2·5 간격으로 바뀜.

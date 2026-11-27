@@ -317,7 +317,7 @@
     const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif';
     if (st.empty || st.failed) {
       ctx.fillStyle = (App.plan && App.plan.colors && App.plan.colors.fgMuted) || '#495057'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = `600 14px ${FONT}`;
-      const lines = st.failed ? ['이 기기에서는 3D 작업 화면을 쓸 수 없습니다', '정면·평면·측면에서 고치세요'] : ['부재가 없습니다', '아래 +가로판 · +세로판 · +막대를 눌러 넣으세요'];
+      const lines = st.failed ? ['이 기기에서는 3D 작업 화면을 쓸 수 없습니다', '정면·평면·측면에서 고치세요'] : ['부재가 없습니다', '아래 ＋ 통 만들기 · +가로판 · +세로판 · +막대를 눌러 넣으세요'];
       lines.forEach((t, k) => ctx.fillText(t, c.clientWidth / 2, c.clientHeight / 2 - 12 + k * 24));
       return;
     }

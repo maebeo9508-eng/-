@@ -6,7 +6,7 @@
   const $ = (sel) => document.querySelector(sel);
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-  const APP_VERSION = '3.7.0'; // sw.js의 VERSION과 같이 올림
+  const APP_VERSION = '3.8.0'; // sw.js의 VERSION과 같이 올림
   const LENGTHS = {
     gridSize: { label: '격자 간격', min: 1, max: 10000 },
     dimTextSize: { label: '치수 글자 크기', min: 10, max: 5000 },
@@ -24,6 +24,27 @@
     document.documentElement.dataset.theme = isDark ? 'dark' : 'light';
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.setAttribute('content', isDark ? '#15191d' : '#ffffff');
+  }
+
+  /* ── 화면 돌리기 ──
+     도면을 손으로 만지며 쓰다 보면 휴대폰이 눕거나 기울어 화면이 저절로 가로로 돌아가 일을 방해한다.
+     휴대폰은 세로 고정이 기본. 안드로이드 앱은 Screen 플러그인으로 바로, 브라우저(설치한 웹앱)는 되는 곳에서만 */
+  const nativeScreen = () => { const C = window.Capacitor; return C && C.isNativePlatform && C.isNativePlatform() && C.Plugins && C.Plugins.Screen ? C.Plugins.Screen : null; };
+  function rotationCapable() {
+    if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) return !!nativeScreen(); // 아이폰 앱은 세로만 (Info.plist)
+    const so = window.screen && window.screen.orientation;
+    return !!(so && so.lock) && !!window.matchMedia && window.matchMedia('(hover: none), (pointer: coarse)').matches;
+  }
+  function applyRotation() {
+    const lock = App.settings.rotate !== 'free';
+    try {
+      const P = nativeScreen();
+      if (P) { const r = P.rotation({ lock }); if (r && r.catch) r.catch(() => {}); return; }
+      const so = window.screen && window.screen.orientation;
+      if (!so || !so.lock) return;
+      if (lock) { const r = so.lock('portrait'); if (r && r.catch) r.catch(() => {}); } // 브라우저 탭에서는 거절됨 (설치한 웹앱·전체 화면에서만)
+      else if (so.unlock) so.unlock();
+    } catch (_) { /* 지원하지 않는 곳에서는 그대로 */ }
   }
 
   /* ── 칸 만들기 ── */
@@ -92,8 +113,9 @@
       <section class="set-sec">
         <h3 class="set-title">화면</h3>
         ${choice('theme', '색', [['light', '밝게'], ['dark', '어둡게'], ['auto', '기기 설정 따라']], '현장에서 밝은 햇빛 아래는 ‘밝게’, 실내·밤에는 ‘어둡게’가 눈이 덜 부십니다.')}
+        ${rotationCapable() ? choice('rotate', '화면 돌리기', [['lock', '세로 고정'], ['free', '기기 따라 돌리기']], '도면을 만지다 휴대폰이 기울어도 화면이 저절로 돌아가지 않게 세로로 고정합니다. 가로로 넓게 쓰려면 ‘기기 따라 돌리기’.') : ''}
         ${toggle('showGrid', '격자 보이기')}
-        ${toggle('showRulers', '눈금자 보이기', '도면 위쪽과 왼쪽에 자 눈금을 표시합니다 (설정한 길이 단위)')}
+        ${toggle('showRulers', '눈금자 보이기', '도면 위쪽과 왼쪽에 자 눈금을 표시합니다 (설정한 길이 단위). 설계 모드에서는 보이지 않습니다.')}
         ${toggle('showDistances', '벽까지 거리 보이기', '기호·가구·기둥을 고르거나 옮기거나 놓을 때 위·아래·왼쪽·오른쪽 벽까지 거리를 점선으로 보여 줍니다')}
         ${toggle('showWallLengths', '벽 길이 글자 보이기', '벽마다 중심선 길이를 적습니다. 바깥 치수를 넣었다면 끄면 깔끔합니다 (그림·PDF에도 같이 적용)')}
         ${toggle('planPictures', '가구·물건을 색 그림으로 보이기', '평면에서 가구와 조감도 물건(텐트·무대 등)을 위에서 본 색 그림으로 그립니다. 끄면 선으로 된 기호로 보입니다 (느린 기기에서는 끄면 가벼워집니다)')}
@@ -138,6 +160,7 @@
   function changed() {
     App.saveSettings();
     applyTheme();
+    applyRotation();
     App.plan.readTheme();
     $('#unitLabel').textContent = `${App.settings.lengthUnit} · ${App.settings.areaUnit}`;
     App.ui.emit('settings');
@@ -264,5 +287,5 @@
     });
   }
 
-  App.settingsUI = { init, open, close, applyTheme, APP_VERSION };
+  App.settingsUI = { init, open, close, applyTheme, applyRotation, rotationCapable, APP_VERSION };
 })();
